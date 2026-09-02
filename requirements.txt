@@ -1,0 +1,20 @@
+# Núcleo del servidor local
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# Base de datos local (SQLite)
+SQLAlchemy==2.0.36
+
+# Configuración y validación
+pydantic==2.10.4
+pydantic-settings==2.7.0
+
+# Tareas programadas (vigilancia de canales, publicación automática)
+APScheduler==3.11.0
+
+# HTTP (APIs de YouTube y TikTok)
+httpx==0.28.1
+
+# Descarga de vídeos y directos de YouTube
+yt-dlp>=2024.12.13

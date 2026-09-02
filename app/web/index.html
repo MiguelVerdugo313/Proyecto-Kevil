@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kevil Studio</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">K</div>
+        <div class="brand-text">
+          <strong>Kevil Studio</strong>
+          <span>YouTube → TikTok</span>
+        </div>
+      </div>
+
+      <nav class="nav" id="nav">
+        <a class="nav-item" href="#panel"     data-view="panel"><span class="i">◈</span>Panel</a>
+        <a class="nav-item" href="#cuentas"   data-view="cuentas"><span class="i">◍</span>Cuentas</a>
+        <a class="nav-item" href="#videos"    data-view="videos"><span class="i">▶</span>Vídeos</a>
+        <a class="nav-item" href="#clips"     data-view="clips"><span class="i">✂</span>Clips<em class="badge" id="badge-clips" hidden>0</em></a>
+        <a class="nav-item" href="#flujos"    data-view="flujos"><span class="i">⚙</span>Flujos</a>
+        <a class="nav-item" href="#agenda"    data-view="agenda"><span class="i">▦</span>Agenda</a>
+        <a class="nav-item" href="#analitica" data-view="analitica"><span class="i">◔</span>Analítica</a>
+        <a class="nav-item" href="#ajustes"   data-view="ajustes"><span class="i">☰</span>Ajustes</a>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="worker-box" id="worker-box">
+          <div class="worker-title">Motor</div>
+          <div class="worker-body" id="worker-body">
+            <div class="muted small">Sin tareas activas</div>
+          </div>
+        </div>
+        <div class="status-line" id="status-line"></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">Panel</h1>
+          <p class="muted small" id="page-subtitle">Resumen de tu operación</p>
+        </div>
+        <div class="topbar-actions" id="page-actions"></div>
+      </header>
+      <section class="content" id="view"></section>
+    </main>
+  </div>
+
+  <div class="toasts" id="toasts"></div>
+  <div class="modal-root" id="modal-root" hidden></div>
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
