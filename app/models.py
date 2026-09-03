@@ -165,7 +165,7 @@ class Source(Base):
 
 
 class Video(Base):
-    """Vídeo original de YouTube (subida normal o directo ya emitido)."""
+    """Vídeo original: de YouTube (subida o directo) o subido desde tu disco."""
 
     __tablename__ = "videos"
     __table_args__ = (UniqueConstraint("external_id", name="uq_video_external_id"),)
@@ -175,6 +175,7 @@ class Video(Base):
         ForeignKey("sources.id", ondelete="SET NULL"), nullable=True
     )
     external_id: Mapped[str] = mapped_column(String(64), index=True)
+    origin: Mapped[str] = mapped_column(String(20), default="youtube")  # youtube|local
     title: Mapped[str] = mapped_column(String(400), default="")
     description: Mapped[str] = mapped_column(Text, default="")
     url: Mapped[str] = mapped_column(String(500), default="")
@@ -186,6 +187,13 @@ class Video(Base):
     local_path: Mapped[str] = mapped_column(String(700), default="")
     transcript: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     probe: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    # Rendimiento del vídeo en YouTube (lo devuelve yt-dlp al sincronizar)
+    views: Mapped[int] = mapped_column(Integer, default=0)
+    likes: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Kit de publicación generado: títulos, descripción, etiquetas, miniaturas…
+    kit: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
     status: Mapped[str] = mapped_column(String(20), default=VideoStatus.discovered.value)
     error: Mapped[str] = mapped_column(Text, default="")
@@ -340,6 +348,46 @@ class MetricSample(Base):
     shares: Mapped[int] = mapped_column(Integer, default=0)
     followers: Mapped[int] = mapped_column(Integer, default=0)
     extra: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class Notification(Base):
+    """Avisos del asistente: cadencia, ideas, cosas que requieren tu atención."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    kind: Mapped[str] = mapped_column(String(40), default="general", index=True)
+    level: Mapped[str] = mapped_column(String(10), default="info")  # info|warn|success|error
+    title: Mapped[str] = mapped_column(String(200), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    action_label: Mapped[str] = mapped_column(String(80), default="")
+    action_url: Mapped[str] = mapped_column(String(200), default="")
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class Idea(Base):
+    """Propuesta de contenido: qué juego o tema grabar y por qué."""
+
+    __tablename__ = "ideas"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    topic: Mapped[str] = mapped_column(String(200), default="")      # el juego o tema
+    title: Mapped[str] = mapped_column(String(300), default="")      # título propuesto
+    hook: Mapped[str] = mapped_column(Text, default="")
+    angle: Mapped[str] = mapped_column(Text, default="")             # el enfoque
+    reason: Mapped[str] = mapped_column(Text, default="")            # por qué encaja
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    score: Mapped[float] = mapped_column(Float, default=0.0)         # oportunidad 0..1
+    demand: Mapped[float] = mapped_column(Float, default=0.0)        # interés medido
+    competition: Mapped[float] = mapped_column(Float, default=0.0)   # saturación
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    source: Mapped[str] = mapped_column(String(20), default="ia")    # ia|canal
+    status: Mapped[str] = mapped_column(String(20), default="nueva")  # nueva|guardada|descartada
 
 
 class EventLog(Base):

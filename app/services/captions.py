@@ -37,6 +37,20 @@ def hex_to_ass(color: str, alpha: int = 0) -> str:
     return f"&H{alpha:02X}{blue}{green}{red}".upper()
 
 
+def override_color(color: str) -> str:
+    """Color para usarlo dentro de una etiqueta: {\\1c&HBBGGRR&}.
+
+    Ojo: en las etiquetas de anulación el color va SIN el byte de alfa y con
+    la almohadilla de cierre; el alfa se pone aparte con \\1a.
+    """
+    return "&H" + hex_to_ass(color)[4:] + "&"
+
+
+def override_alpha(alpha: int) -> str:
+    """Alfa para una etiqueta: 00 = opaco, FF = transparente."""
+    return f"&H{max(0, min(255, int(alpha))):02X}&"
+
+
 def ass_time(seconds: float) -> str:
     seconds = max(0.0, seconds)
     hours = int(seconds // 3600)

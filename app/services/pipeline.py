@@ -120,6 +120,8 @@ def job_sync_source(session: Session, ctx: JobContext) -> None:
             duration_s=item.get("duration_s") or 0,
             published_at=item.get("published_at"),
             was_live=bool(item.get("was_live")),
+            views=int(item.get("views") or 0),
+            likes=int(item.get("likes") or 0),
             status=VideoStatus.discovered.value,
         )
         session.add(video)

@@ -32,6 +32,42 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    _add_missing_columns()
+
+
+def _add_missing_columns() -> None:
+    """Migración sencilla: añade las columnas nuevas a una base ya existente.
+
+    SQLite admite ALTER TABLE ADD COLUMN, así que actualizar la aplicación no
+    obliga a nadie a empezar de cero ni a instalar herramientas de migración.
+    """
+    from sqlalchemy import text
+
+    with engine.begin() as connection:
+        for table in Base.metadata.sorted_tables:
+            rows = connection.execute(text(f"PRAGMA table_info('{table.name}')")).fetchall()
+            if not rows:
+                continue
+            existing = {row[1] for row in rows}
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                kind = column.type.compile(engine.dialect)
+                default = "'{}'" if kind.upper() == "JSON" else "NULL"
+                if column.default is not None and getattr(column.default, "arg", None) is not None:
+                    arg = column.default.arg
+                    if isinstance(arg, (int, float)) and not isinstance(arg, bool):
+                        default = str(arg)
+                    elif isinstance(arg, str):
+                        default = f"'{arg}'"
+                    elif isinstance(arg, bool):
+                        default = "1" if arg else "0"
+                connection.execute(
+                    text(
+                        f"ALTER TABLE {table.name} "
+                        f"ADD COLUMN {column.name} {kind} DEFAULT {default}"
+                    )
+                )
 
 
 @contextmanager

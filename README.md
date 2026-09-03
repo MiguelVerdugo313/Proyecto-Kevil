@@ -1,25 +1,42 @@
 # Kevil Studio
 
-**De tus vídeos y directos de YouTube a TikTok, en automático y en tu propio ordenador.**
+**Tu estudio de YouTube y TikTok, funcionando en tu propio ordenador.**
 
 Kevil Studio se descarga, se ejecuta en local y abre una interfaz en el navegador.
-Vigila tus canales de YouTube, corta los vídeos largos y los directos en trozos con
-gancho, los convierte a vertical (9:16) con rótulos, y los reparte en tu cuenta de
-TikTok a las horas que mejor funcionan para esa cuenta. Todos los pasos son editables.
+Hace tres cosas:
 
-No hay servidor en la nube, ni suscripción, ni tus vídeos salen de tu equipo:
-la única conexión a internet es con YouTube (para descargar) y con TikTok (para publicar).
+1. **Reaprovecha tu contenido**: vigila tus canales de YouTube, corta los vídeos largos
+   y los directos en trozos con gancho, los pasa a vertical (9:16) con rótulos y los
+   publica en TikTok a las horas que mejor funcionan para esa cuenta.
+2. **Prepara tus subidas a YouTube**: subes el vídeo y te devuelve títulos, descripción
+   con capítulos, etiquetas, hashtags y varias miniaturas, siguiendo las buenas prácticas
+   de la plataforma. Con IA si le das una clave; si no, generado en local.
+3. **Te hace de asistente**: te dice cada cuánto publicar para que el algoritmo no te
+   olvide, te avisa cuando te retrasas y te propone sobre qué grabar el próximo vídeo,
+   comprobando en YouTube si el tema tiene público de verdad.
+
+No hay servidor en la nube ni suscripción, y tus vídeos no salen de tu equipo: las únicas
+conexiones son con YouTube (descargar y consultar), TikTok (publicar) y, si la activas,
+tu proveedor de IA.
 
 ---
 
 ## Qué hace, paso a paso
 
 ```
+                          ┌──────────── Coach del canal ────────────┐
+                          │  cadencia · avisos · ideas validadas    │
+                          └────────────────────────────────────────┘
+                                          ▲
 Canal de YouTube ──► Descarga ──► Transcripción ──► Selección de momentos
-                                                            │
-                                                            ▼
-   Publicación en TikTok ◄── Programación ◄── Vertical + rótulos + gancho
+        │                                                   │
+        │                                                   ▼
+        │                        Publicación en TikTok ◄── Vertical + rótulos
+        ▼
+Vídeo que subes tú ──► Kit de publicación: títulos · descripción · etiquetas · miniaturas
 ```
+
+### Camino 1 — de YouTube a TikTok
 
 1. **Vigila** tus canales: subidas normales y directos ya emitidos. Los vídeos nuevos
    entran solos en el proceso.
@@ -34,6 +51,18 @@ Canal de YouTube ──► Descarga ──► Transcripción ──► Selecció
 6. **Escribe** título, descripción y hashtags con tus plantillas.
 7. **Programa** cada clip en la mejor franja de esa cuenta (ver más abajo).
 8. **Publica** solo, lo deja en tus borradores de TikTok, o espera tu visto bueno.
+
+### Camino 2 — preparar una subida a YouTube
+
+En **Estudio** arrastras el vídeo y obtienes, en un par de minutos:
+
+* **5 títulos** de 45-60 caracteres, con el número de caracteres a la vista.
+* **Descripción** con el gancho en las dos primeras líneas (lo único que se ve antes
+  del «...más»), el cuerpo y los **capítulos** listos para pegar.
+* **12 etiquetas** y como mucho **3 hashtags** (más de tres y YouTube los ignora).
+* **Tres miniaturas 1280×720** en estilos distintos, con el texto en grande.
+* Una **revisión** que te dice qué falla antes de publicar: título largo, pocas
+  etiquetas, capítulos que YouTube no va a activar…
 
 ---
 
@@ -104,6 +133,18 @@ y márcala como predeterminada.
 Los clips terminados aparecen en **Clips**. Ahí los ves, ajustas el corte,
 el encuadre y el texto, y los apruebas. En **Agenda** ves cuándo sale cada uno.
 
+### 4. (Opcional) Activa la IA y cuéntale de qué va tu canal
+
+En **Ajustes → Inteligencia artificial** eliges proveedor y pegas tu clave; el botón
+«Probar la conexión» te confirma que funciona. Justo debajo, en **Tu canal**, escribe de
+qué va tu canal y cuántos vídeos por semana quieres publicar: con eso el asistente afina
+las ideas y sabe cuándo avisarte.
+
+### 5. Sube un vídeo y publica mejor
+
+En **Estudio** arrastras el vídeo y sales con el título, la descripción y las miniaturas.
+En **Coach** ves si vas al día, cuál es tu mejor franja y qué grabar después.
+
 ---
 
 ## Los flujos: todo es editable
@@ -154,6 +195,74 @@ se ha elegido ese hueco.
 
 ---
 
+## Las miniaturas: cómo se hacen
+
+Sin IA, y aun así decentes:
+
+1. Se analizan ~30 fotogramas repartidos por todo el vídeo y se puntúa cada uno por
+   **contraste**, **nitidez** y **colorido**, descartando los oscuros o planos.
+2. Se eligen los mejores, separados en el tiempo para que no se parezcan.
+3. Sobre cada uno se compone el texto (2-4 palabras, mayúsculas, muy legible) en tres
+   diseños: degradado inferior, bloque lateral y banda superior.
+
+Si configuras un modelo de imagen, se añade además una cuarta variante con el fondo
+generado por IA a partir del contenido del vídeo. El texto de la miniatura también lo
+propone la IA (tres opciones), porque acertar con esas 3 palabras es la mitad del trabajo.
+
+---
+
+## La IA es opcional (y de quien tú elijas)
+
+| | Con clave de IA | Sin clave |
+|---|---|---|
+| Títulos | 5 propuestas redactadas | a partir del título y la transcripción |
+| Descripción | gancho + cuerpo + CTA | plantilla con las palabras clave |
+| Capítulos | por temas reales del vídeo | por bloques de tiempo |
+| Etiquetas | 12, de concreto a general | las palabras más frecuentes |
+| Miniaturas | textos propuestos + fondo generado | tus mejores fotogramas |
+| Ideas | temas concretos según tu canal | variantes de lo que ya te funciona |
+
+Proveedores admitidos, los dos con API compatible con OpenAI:
+
+* **OpenRouter** ([openrouter.ai/keys](https://openrouter.ai/keys)) — una clave, cientos
+  de modelos, incluidos los de imagen. Hay modelos gratuitos.
+* **NVIDIA NIM** ([build.nvidia.com](https://build.nvidia.com)) — créditos gratuitos,
+  texto e imagen.
+
+Se configura en **Ajustes → Inteligencia artificial**, con un botón para probar la
+conexión antes de guardar. La clave se queda en tu disco y nunca se muestra de vuelta.
+
+---
+
+## El coach: cada cuánto publicar
+
+Todo sale de **tus** vídeos, no de reglas genéricas:
+
+* **Tu ritmo real**: la mediana de días entre subidas.
+* **Tu regularidad**: cuánto varían esos huecos. Publicar cada 7 días exactos rinde más
+  que dos vídeos una semana y ninguno las tres siguientes; el coach te lo dice cuando
+  tu constancia baja.
+* **Tus mejores franjas**: el día y la hora que mejor te han funcionado, ponderando por
+  visitas y descartando los vídeos de menos de una semana (todavía están subiendo).
+  Hasta tener 6 vídeos con datos, se usan franjas de referencia.
+* **Avisos**: cuando te pasas de tu objetivo aparece un aviso en la campana y, si lo
+  dejas activado, una notificación del escritorio (macOS, Windows y Linux, sin instalar nada).
+
+### Ideas de contenido
+
+La IA propone temas concretos («minecraft granja automática», no «vídeos de gaming»)
+partiendo de tus títulos recientes y de los que mejor te han ido. Después **cada idea se
+busca en YouTube** y se mide:
+
+* **Demanda** — las visitas típicas de lo que ya existe sobre ese tema.
+* **Competencia** — cuántos canales grandes lo están cubriendo.
+* **Encaje** — cuánto se parece a lo que tú ya haces.
+
+La nota final combina las tres, y puedes ver los vídeos concretos en los que se basa.
+Las ideas se guardan o se descartan, así no te repite siempre lo mismo.
+
+---
+
 ## Dónde queda todo
 
 ```
@@ -184,6 +293,10 @@ Copia `.env.example` a `.env` para fijar valores por defecto:
 | `KEVIL_WATCH_INTERVAL_MINUTES` | cada cuánto se revisan los canales (15) |
 | `KEVIL_TIKTOK_CLIENT_KEY` / `..._SECRET` | credenciales de tu app de TikTok |
 | `KEVIL_DRY_RUN` | `true` para no publicar de verdad |
+| `KEVIL_AI_PROVIDER` / `KEVIL_AI_API_KEY` | proveedor de IA (`openrouter` o `nvidia`) y su clave |
+| `KEVIL_AI_TEXT_MODEL` / `KEVIL_AI_IMAGE_MODEL` | modelos a usar |
+| `KEVIL_CHANNEL_TOPIC` | de qué va tu canal (contexto para la IA) |
+| `KEVIL_TARGET_UPLOADS_PER_WEEK` | tu objetivo de vídeos por semana |
 | `KEVIL_FFMPEG_PATH` / `KEVIL_FFPROBE_PATH` | rutas si ffmpeg no está en el PATH |
 
 Casi todo esto también se cambia desde **Ajustes**, sin tocar archivos.
@@ -220,6 +333,17 @@ Sube `Tareas en paralelo` en Ajustes si tu equipo lo aguanta.
 
 **¿Necesito la API de YouTube?** No. Se usa `yt-dlp`, que sólo necesita la URL del canal.
 
+**¿Tengo que pagar por la IA?** No es obligatoria: sin clave todo se genera en local.
+Si la quieres, tanto OpenRouter como NVIDIA tienen opciones gratuitas para empezar.
+
+**¿Sube el vídeo a YouTube por mí?** No. Kevil te prepara todo (título, descripción,
+etiquetas y miniatura) para que lo pegues al subirlo. Publicar en YouTube requiere su
+API oficial con verificación; en TikTok sí publica directamente.
+
+**¿De dónde saca las mejores horas de YouTube?** De tus propios vídeos: cruza la hora de
+publicación con las visitas que consiguieron. Hasta tener seis vídeos con datos usa unas
+franjas de referencia y te lo indica.
+
 ---
 
 ## Desarrollo
@@ -244,11 +368,18 @@ app/
 │   ├── segmenter.py   elección de los mejores momentos
 │   ├── captions.py    generación del ASS (rótulos, gancho, barra)
 │   ├── renderer.py    grafo de filtros de ffmpeg
-│   ├── timing.py      motor de horarios
+│   ├── timing.py      motor de horarios de TikTok
+│   ├── ai.py          conector de IA (OpenRouter y NVIDIA)
+│   ├── seo.py         kit de publicación de YouTube
+│   ├── thumbnails.py  análisis de fotogramas y montaje de miniaturas
+│   ├── coach.py       cadencia y mejores franjas del canal
+│   ├── ideas.py       propuestas de contenido validadas con datos
+│   ├── notifications.py  avisos en la app y en el escritorio
 │   ├── tiktok.py      API de publicación
 │   ├── pipeline.py    orquestación de todo el proceso
 │   ├── queue.py       cola de trabajos en segundo plano
-│   └── scheduler.py   vigilancia y publicación a su hora
+│   ├── scheduler.py   vigilancia, publicación a su hora y repaso del canal
+│   └── studio.py      trabajos del estudio (kit, miniaturas, ideas)
 └── web/               interfaz (HTML, CSS y JavaScript sin compilar)
 ```
 

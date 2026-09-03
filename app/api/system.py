@@ -48,6 +48,15 @@ class SettingsIn(BaseModel):
     watch_interval_minutes: int | None = None
     ffmpeg_path: str | None = None
     ffprobe_path: str | None = None
+    ai_provider: str | None = None
+    ai_api_key: str | None = None
+    ai_text_model: str | None = None
+    ai_image_model: str | None = None
+    ai_base_url: str | None = None
+    channel_topic: str | None = None
+    channel_language: str | None = None
+    target_uploads_per_week: float | None = None
+    notifications_desktop: bool | None = None
 
 
 def _count(db: Session, model, *conditions) -> int:

@@ -53,6 +53,21 @@ class Settings(BaseSettings):
     tiktok_client_key: str = ""
     tiktok_client_secret: str = ""
 
+    # --- Inteligencia artificial (opcional) ------------------------------
+    # Proveedor: "openrouter" o "nvidia". Sin clave, todo funciona igual pero
+    # con generación local en vez de IA.
+    ai_provider: str = ""
+    ai_api_key: str = ""
+    ai_text_model: str = ""
+    ai_image_model: str = ""
+    ai_base_url: str = ""
+
+    # --- Datos del canal (contexto para el asistente) --------------------
+    channel_topic: str = ""          # de qué va tu canal
+    channel_language: str = "es"
+    target_uploads_per_week: float = 2.0
+    notifications_desktop: bool = True
+
     # Modo simulación: procesa y programa todo pero no publica de verdad.
     dry_run: bool = False
 

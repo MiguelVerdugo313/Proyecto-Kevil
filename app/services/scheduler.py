@@ -59,6 +59,12 @@ def refresh_metrics() -> None:
         enqueue(session, "refresh_metrics", {}, priority=200, message="Actualizar métricas")
 
 
+def coach_check() -> None:
+    """Repaso diario del canal: avisa si te retrasas con las subidas."""
+    with session_scope() as session:
+        enqueue(session, "coach_check", {}, priority=180, message="Revisar el canal")
+
+
 def start() -> None:
     if scheduler.running:  # pragma: no cover
         return
@@ -81,6 +87,13 @@ def start() -> None:
         "interval",
         hours=6,
         id="refresh_metrics",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        coach_check,
+        "interval",
+        hours=12,
+        id="coach_check",
         replace_existing=True,
     )
     scheduler.start()

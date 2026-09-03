@@ -17,7 +17,7 @@ from app import bootstrap
 from app.api import ROUTERS
 from app.config import settings
 from app.db import init_db, session_scope
-from app.services import events, pipeline, scheduler  # noqa: F401  (registra los trabajos)
+from app.services import events, pipeline, scheduler, studio  # noqa: F401  (registran trabajos)
 from app.services.queue import runner
 
 WEB_DIR = Path(__file__).resolve().parent / "web"

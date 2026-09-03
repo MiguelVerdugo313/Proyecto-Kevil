@@ -129,6 +129,8 @@ def _entry_to_video(entry: dict[str, Any], was_live: bool = False) -> dict[str, 
         or f"https://i.ytimg.com/vi/{entry['id']}/hqdefault.jpg",
         "published_at": published_at,
         "was_live": was_live or bool(entry.get("was_live")) or live_status == "was_live",
+        "views": int(entry.get("view_count") or 0),
+        "likes": int(entry.get("like_count") or 0),
     }
 
 
@@ -179,6 +181,37 @@ def list_channel_videos(
     videos = list(results.values())
     videos.sort(key=lambda v: v["published_at"] or datetime.min, reverse=True)
     return videos[: limit * 2]
+
+
+def search_videos(query: str, *, limit: int = 15) -> list[dict[str, Any]]:
+    """Busca en YouTube y devuelve los resultados con sus visitas.
+
+    Se usa para medir si un tema tiene demanda real antes de recomendarlo.
+    """
+    ydl = _require_ytdlp()
+    opts = _base_opts() | {
+        "extract_flat": True,
+        "skip_download": True,
+        "playlistend": max(1, limit),
+    }
+    with ydl.YoutubeDL(opts) as dl:
+        info = dl.extract_info(f"ytsearch{max(1, limit)}:{query}", download=False)
+
+    resultados: list[dict[str, Any]] = []
+    for entry in (info or {}).get("entries") or []:
+        if not entry:
+            continue
+        resultados.append(
+            {
+                "id": entry.get("id", ""),
+                "title": entry.get("title") or "",
+                "channel": entry.get("channel") or entry.get("uploader") or "",
+                "views": int(entry.get("view_count") or 0),
+                "duration_s": float(entry.get("duration") or 0),
+                "url": entry.get("url") or "",
+            }
+        )
+    return resultados
 
 
 def fetch_video_info(url: str, cookies_from_browser: str = "") -> dict[str, Any]:

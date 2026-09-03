@@ -22,9 +22,20 @@ EDITABLE_SETTINGS = {
     "watch_interval_minutes": int,
     "ffmpeg_path": str,
     "ffprobe_path": str,
+    # Inteligencia artificial
+    "ai_provider": str,
+    "ai_api_key": str,
+    "ai_text_model": str,
+    "ai_image_model": str,
+    "ai_base_url": str,
+    # Canal
+    "channel_topic": str,
+    "channel_language": str,
+    "target_uploads_per_week": float,
+    "notifications_desktop": bool,
 }
 
-SECRET_SETTINGS = {"tiktok_client_secret", "youtube_api_key"}
+SECRET_SETTINGS = {"tiktok_client_secret", "youtube_api_key", "ai_api_key"}
 
 
 def seed_flows(session: Session) -> None:

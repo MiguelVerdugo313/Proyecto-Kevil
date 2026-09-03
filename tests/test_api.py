@@ -120,3 +120,99 @@ def test_errores_bien_formados(client):
     assert client.get("/api/clips/999999").status_code == 404
     assert client.get("/api/accounts/999999").status_code == 404
     assert client.post("/api/videos/import", json={"url": "no-es-una-url"}).status_code == 400
+
+
+# --------------------------------------------------------------------------
+# Estudio y coach
+# --------------------------------------------------------------------------
+def test_subir_video_y_generar_kit(client, tmp_path):
+    import pytest
+
+    from app.services import media as media_service
+
+    if not media_service.ffmpeg_ready():
+        pytest.skip("ffmpeg no está instalado")
+
+    origen = tmp_path / "corto.mp4"
+    media_service.make_test_video(origen, seconds=6)
+
+    with origen.open("rb") as archivo:
+        respuesta = client.post(
+            "/api/videos/upload",
+            files={"file": ("mi vídeo.mp4", archivo, "video/mp4")},
+            data={"title": "Mi vídeo de prueba", "use_ai": "false"},
+        )
+    assert respuesta.status_code == 200
+    video = respuesta.json()
+    assert video["title"] == "Mi vídeo de prueba"
+    assert video["downloaded"] is True
+
+    # formato no admitido
+    malo = client.post(
+        "/api/videos/upload",
+        files={"file": ("documento.txt", b"hola", "text/plain")},
+    )
+    assert malo.status_code == 400
+
+    # el kit todavía no existe, pero el endpoint responde
+    kit = client.get(f"/api/videos/{video['id']}/kit").json()
+    assert kit["kit"] == {}
+    assert "ai" in kit
+
+    # se puede editar a mano
+    guardado = client.patch(
+        f"/api/videos/{video['id']}/kit",
+        json={"description": "Una descripción escrita a mano", "tags": ["uno", "dos"]},
+    ).json()
+    assert guardado["kit"]["description"].startswith("Una descripción")
+    assert guardado["kit"]["review"]
+
+
+def test_endpoints_del_coach(client):
+    coach = client.get("/api/coach").json()
+    assert "state" in coach and "stats" in coach and len(coach["days"]) == 7
+
+    avisos = client.get("/api/notifications").json()
+    assert "unread" in avisos and "items" in avisos
+
+    assert client.get("/api/ideas").json() == []
+    assert client.get("/api/ai/status").json()["enabled"] is False
+    # sin clave configurada, probar la conexión debe fallar con un mensaje claro
+    assert client.post("/api/ai/test").status_code == 400
+
+
+def test_ajustes_de_ia_y_canal(client):
+    client.put(
+        "/api/settings",
+        json={
+            "ai_provider": "nvidia",
+            "ai_api_key": "clave-secreta",
+            "channel_topic": "Minecraft",
+            "target_uploads_per_week": 3,
+        },
+    )
+    actual = client.get("/api/settings").json()["settings"]
+    assert actual["ai_provider"] == "nvidia"
+    assert actual["ai_api_key"] == "••••••••"        # la clave nunca se devuelve
+    assert actual["channel_topic"] == "Minecraft"
+    assert actual["target_uploads_per_week"] == 3
+    client.put("/api/settings", json={"ai_provider": "", "ai_api_key": ""})
+
+
+def test_migracion_anade_columnas_que_faltan(client):
+    """Una base de datos de una versión anterior debe seguir funcionando."""
+    from sqlalchemy import text
+
+    from app.db import _add_missing_columns, engine
+
+    with engine.begin() as conexion:
+        conexion.execute(text("ALTER TABLE videos DROP COLUMN kit"))
+        columnas = {r[1] for r in conexion.execute(text("PRAGMA table_info('videos')"))}
+        assert "kit" not in columnas
+
+    _add_missing_columns()
+
+    with engine.begin() as conexion:
+        columnas = {r[1] for r in conexion.execute(text("PRAGMA table_info('videos')"))}
+    assert {"kit", "origin", "views", "likes"} <= columnas
+    assert client.get("/api/status").status_code == 200

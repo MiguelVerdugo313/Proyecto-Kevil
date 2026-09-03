@@ -21,6 +21,8 @@
       <nav class="nav" id="nav">
         <a class="nav-item" href="#panel"     data-view="panel"><span class="i">◈</span>Panel</a>
         <a class="nav-item" href="#cuentas"   data-view="cuentas"><span class="i">◍</span>Cuentas</a>
+        <a class="nav-item" href="#estudio"   data-view="estudio"><span class="i">✦</span>Estudio</a>
+        <a class="nav-item" href="#coach"     data-view="coach"><span class="i">◎</span>Coach<em class="badge" id="badge-coach" hidden>0</em></a>
         <a class="nav-item" href="#videos"    data-view="videos"><span class="i">▶</span>Vídeos</a>
         <a class="nav-item" href="#clips"     data-view="clips"><span class="i">✂</span>Clips<em class="badge" id="badge-clips" hidden>0</em></a>
         <a class="nav-item" href="#flujos"    data-view="flujos"><span class="i">⚙</span>Flujos</a>
@@ -46,7 +48,13 @@
           <h1 id="page-title">Panel</h1>
           <p class="muted small" id="page-subtitle">Resumen de tu operación</p>
         </div>
-        <div class="topbar-actions" id="page-actions"></div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="position:relative">
+            <button class="bell" id="bell" title="Avisos">🔔<span class="count" id="bell-count" hidden>0</span></button>
+            <div class="avisos" id="avisos" hidden></div>
+          </div>
+          <div class="topbar-actions" id="page-actions"></div>
+        </div>
       </header>
       <section class="content" id="view"></section>
     </main>

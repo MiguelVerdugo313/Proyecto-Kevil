@@ -4,6 +4,8 @@ import { api } from './lib/api.js';
 import { escapeHtml, fmt, toastError } from './lib/ui.js';
 
 import panel from './views/panel.js';
+import estudio from './views/estudio.js';
+import coach from './views/coach.js';
 import cuentas from './views/cuentas.js';
 import videos from './views/videos.js';
 import clips from './views/clips.js';
@@ -12,7 +14,7 @@ import agenda from './views/agenda.js';
 import analitica from './views/analitica.js';
 import ajustes from './views/ajustes.js';
 
-const VIEWS = { panel, cuentas, videos, clips, flujos, agenda, analitica, ajustes };
+const VIEWS = { panel, estudio, coach, cuentas, videos, clips, flujos, agenda, analitica, ajustes };
 
 const viewRoot = document.getElementById('view');
 const titleNode = document.getElementById('page-title');
@@ -83,6 +85,14 @@ async function heartbeat() {
     badge.hidden = !status.clips_ready;
     badge.textContent = status.clips_ready;
 
+    const avisos = await api.get('/api/notifications?limit=1&only_unread=true');
+    const campana = document.getElementById('bell-count');
+    campana.hidden = !avisos.unread;
+    campana.textContent = avisos.unread > 9 ? '9+' : avisos.unread;
+    const badgeCoach = document.getElementById('badge-coach');
+    badgeCoach.hidden = !avisos.unread;
+    badgeCoach.textContent = avisos.unread;
+
     const active = jobs.filter((job) => job.status === 'running' || job.status === 'pending');
     const body = document.getElementById('worker-body');
     if (!active.length) {
@@ -107,6 +117,53 @@ async function heartbeat() {
       '<span class="dot bad"></span> sin conexión con el servidor';
   }
 }
+
+/* ------------------------------------------------------- campana de avisos */
+let avisosAbiertos = false;
+
+async function pintarAvisos() {
+  const caja = document.getElementById('avisos');
+  const datos = await api.get('/api/notifications?limit=20');
+  caja.innerHTML = `
+    <header>
+      <strong style="font-size:13px">Avisos</strong>
+      ${datos.unread ? '<button class="btn sm ghost" id="leer-todo">Marcar leídos</button>' : ''}
+    </header>
+    ${datos.items.length ? datos.items.map((item) => `
+      <div class="aviso ${escapeHtml(item.level)} ${item.read ? '' : 'no-leido'}">
+        <span class="mark"></span>
+        <div class="grow">
+          <strong>${escapeHtml(item.title)}</strong>
+          ${item.body ? `<p>${escapeHtml(item.body)}</p>` : ''}
+          <div class="muted tiny" style="margin-top:5px">${fmt.relative(item.created_at)}</div>
+          ${item.action_url ? `<a href="${escapeHtml(item.action_url)}">${escapeHtml(item.action_label || 'Ver')} →</a>` : ''}
+        </div>
+      </div>`).join('')
+      : '<div class="aviso"><div class="muted small">Nada por ahora. Aquí te avisaré de tu ritmo de publicación y de las ideas nuevas.</div></div>'}`;
+
+  const leerTodo = caja.querySelector('#leer-todo');
+  if (leerTodo) {
+    leerTodo.onclick = async () => {
+      await api.post('/api/notifications/read');
+      await pintarAvisos();
+      heartbeat();
+    };
+  }
+}
+
+document.getElementById('bell').onclick = async () => {
+  const caja = document.getElementById('avisos');
+  avisosAbiertos = !avisosAbiertos;
+  caja.hidden = !avisosAbiertos;
+  if (avisosAbiertos) await pintarAvisos().catch(() => {});
+};
+
+document.addEventListener('click', (event) => {
+  if (!avisosAbiertos) return;
+  if (event.target.closest('#avisos') || event.target.closest('#bell')) return;
+  avisosAbiertos = false;
+  document.getElementById('avisos').hidden = true;
+});
 
 /* ------------------------------------------------------------------ inicio */
 window.addEventListener('hashchange', navigate);
