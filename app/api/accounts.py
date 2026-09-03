@@ -88,7 +88,10 @@ def list_accounts(platform: str | None = None, db: Session = Depends(get_db)):
     result = []
     for account in db.scalars(query).all():
         extra: dict[str, Any] = {}
-        if account.platform == Platform.tiktok.value:
+        publica = account.platform == Platform.tiktok.value or (
+            account.credentials or {}
+        ).get("access_token")
+        if publica:
             state = timing.account_state(db, account)
             extra = {"state": state, "health": timing.health_score(state)}
         result.append(account_to_dict(account, extra))

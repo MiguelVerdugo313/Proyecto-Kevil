@@ -13,6 +13,15 @@ let openStep = null;
 let dirty = false;
 let reloadView = () => location.reload();
 
+// «Todas las opciones»: se recuerda para no tener que activarlo cada vez
+let todasLasOpciones = (() => {
+  try { return localStorage.getItem('kevil-flujo-experto') === '1'; } catch { return false; }
+})();
+
+function camposVisibles(definicion) {
+  return definicion.fields.filter((campo) => todasLasOpciones || !campo.advanced);
+}
+
 function stepDefinition(type) {
   return schema.steps.find((step) => step.type === type) || { label: type, fields: [], icon: '•' };
 }
@@ -21,7 +30,7 @@ function summarize(step) {
   const definition = stepDefinition(step.type);
   const config = step.config || {};
   const pieces = [];
-  for (const field of definition.fields.slice(0, 3)) {
+  for (const field of camposVisibles(definition).slice(0, 3)) {
     let value = config[field.key];
     if (Array.isArray(value)) value = value.slice(0, 2).join(', ') + (value.length > 2 ? '…' : '');
     if (typeof value === 'boolean') value = value ? 'sí' : 'no';
@@ -58,12 +67,17 @@ function stepHtml(step, index) {
     ${isOpen ? `<div class="step-body">
       <p class="muted small" style="margin:12px 0 16px;line-height:1.6">${escapeHtml(definition.description || '')}</p>
       <div class="form-grid" data-config="${step.type}">
-        ${definition.fields.map((field) => {
+        ${camposVisibles(definition).map((field) => {
           const html = fieldHtml(field, (step.config || {})[field.key], `${step.type}-`);
           const full = ['textarea', 'tags'].includes(field.type);
           return full ? html.replace('class="field"', 'class="field full"') : html;
         }).join('')}
       </div>
+      ${!todasLasOpciones && definition.fields.some((f) => f.advanced) ? `
+        <p class="muted tiny" style="margin-top:14px">
+          Hay ${definition.fields.filter((f) => f.advanced).length} opciones más en
+          «todas las opciones», arriba a la derecha.
+        </p>` : ''}
     </div>` : ''}
   </div>`;
 }
@@ -155,7 +169,12 @@ export default {
                   style="border:0;background:none;font-size:12px;color:var(--muted);padding:2px 0 0;width:100%">
               </div>
             </div>
-            <div style="display:flex;gap:7px;flex-wrap:wrap;flex:0 0 auto">
+            <div style="display:flex;gap:7px;flex-wrap:wrap;flex:0 0 auto;align-items:center">
+              <label class="switch" title="Enseñar todos los ajustes de cada paso">
+                <input type="checkbox" id="experto" ${todasLasOpciones ? 'checked' : ''}>
+                <span class="track"></span>
+                <span class="switch-label">Todas las opciones</span>
+              </label>
               ${flow.is_default ? '<span class="pill ok">por defecto</span>'
                 : '<button class="btn sm ghost" data-default>Marcar por defecto</button>'}
               <button class="btn sm ghost" data-duplicate>Duplicar</button>
@@ -164,9 +183,10 @@ export default {
             </div>
           </div>
 
-          <p class="muted small" style="margin-bottom:16px;line-height:1.6">
-            Los pasos se ejecutan en orden. Pulsa en cualquiera para desplegar sus opciones;
-            los que llevan interruptor se pueden desactivar.
+          <p class="muted small" style="margin-bottom:18px;line-height:1.6">
+            Los pasos se ejecutan en orden. Pulsa en cualquiera para desplegarlo; los que
+            llevan interruptor se pueden desactivar. Se muestra lo esencial de cada uno:
+            activa <b>«todas las opciones»</b> si quieres afinarlo al detalle.
           </p>
 
           <div id="steps">${(flow.steps || []).map(stepHtml).join('')}</div>
@@ -244,6 +264,18 @@ export default {
       selectedId = null;
       toast('Flujo borrado');
       ctx.reload();
+    };
+
+    root.querySelector('#experto').onchange = (evento) => {
+      collectOpenStep(root, flow);
+      todasLasOpciones = evento.target.checked;
+      try {
+        localStorage.setItem('kevil-flujo-experto', todasLasOpciones ? '1' : '0');
+      } catch { /* modo privado */ }
+      const contenedor = root.querySelector('#steps');
+      contenedor.innerHTML = (flow.steps || []).map(stepHtml).join('');
+      bindTagInputs(contenedor);
+      rebind(root, flow, ctx);
     };
 
     root.querySelector('#flow-name').oninput = () => { dirty = true; };

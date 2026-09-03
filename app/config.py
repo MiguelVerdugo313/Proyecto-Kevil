@@ -54,17 +54,27 @@ class Settings(BaseSettings):
     tiktok_client_secret: str = ""
 
     # --- Inteligencia artificial (opcional) ------------------------------
-    # Proveedor: "openrouter" o "nvidia". Sin clave, todo funciona igual pero
-    # con generación local en vez de IA.
-    ai_provider: str = ""
-    ai_api_key: str = ""
-    ai_text_model: str = ""
-    ai_image_model: str = ""
-    ai_base_url: str = ""
+    # Se pueden configurar los dos proveedores: si uno falla, se usa el otro.
+    ai_primary: str = "openrouter"          # cuál se intenta primero
+
+    openrouter_api_key: str = ""
+    openrouter_text_model: str = ""
+    openrouter_image_model: str = ""
+    openrouter_base_url: str = ""           # sólo para pruebas o pasarelas
+
+    nvidia_api_key: str = ""
+    nvidia_text_model: str = ""
+    nvidia_image_model: str = ""
+    nvidia_base_url: str = ""
+    nvidia_image_base_url: str = ""
 
     # --- Datos del canal (contexto para el asistente) --------------------
     channel_topic: str = ""          # de qué va tu canal
     channel_language: str = "es"
+    # Colores de tu marca (se pueden sacar del avatar de tu canal)
+    brand_accent: str = ""
+    brand_accent_2: str = ""
+    brand_source: str = ""
     target_uploads_per_week: float = 2.0
     notifications_desktop: bool = True
 

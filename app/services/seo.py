@@ -297,7 +297,7 @@ def build_ai_kit(
         ][:3],
         "thumbnail_prompt": str(data.get("thumbnail_prompt") or "").strip()[:600],
         "notes": str(data.get("notes") or "").strip()[:400],
-        "generated_by": f"ia:{ai.current_config().text_model}",
+        "generated_by": f"ia:{ai.last_used()}",
     }
 
 

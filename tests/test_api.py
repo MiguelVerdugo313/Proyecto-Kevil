@@ -182,21 +182,87 @@ def test_endpoints_del_coach(client):
 
 
 def test_ajustes_de_ia_y_canal(client):
-    client.put(
-        "/api/settings",
-        json={
-            "ai_provider": "nvidia",
-            "ai_api_key": "clave-secreta",
-            "channel_topic": "Minecraft",
-            "target_uploads_per_week": 3,
-        },
-    )
-    actual = client.get("/api/settings").json()["settings"]
-    assert actual["ai_provider"] == "nvidia"
-    assert actual["ai_api_key"] == "••••••••"        # la clave nunca se devuelve
-    assert actual["channel_topic"] == "Minecraft"
-    assert actual["target_uploads_per_week"] == 3
-    client.put("/api/settings", json={"ai_provider": "", "ai_api_key": ""})
+    try:
+        client.put(
+            "/api/settings",
+            json={
+                "openrouter_api_key": "clave-openrouter",
+                "nvidia_api_key": "clave-nvidia",
+                "ai_primary": "nvidia",
+                "channel_topic": "Minecraft",
+                "target_uploads_per_week": 3,
+            },
+        )
+        actual = client.get("/api/settings").json()["settings"]
+        assert actual["ai_primary"] == "nvidia"
+        # las claves nunca se devuelven, ni la principal ni la de respaldo
+        assert actual["openrouter_api_key"] == "••••••••"
+        assert actual["nvidia_api_key"] == "••••••••"
+        assert actual["channel_topic"] == "Minecraft"
+        assert actual["target_uploads_per_week"] == 3
+
+        # con las dos claves puestas, la IA está activa y tiene respaldo
+        estado = client.get("/api/ai/status").json()
+        assert estado["enabled"] is True
+        assert estado["has_backup"] is True
+        # el principal va primero, el otro queda de reserva
+        assert [p["key"] for p in estado["active"]] == ["nvidia", "openrouter"]
+        assert estado["providers"]["nvidia"]["configured"] is True
+        assert estado["providers"]["openrouter"]["configured"] is True
+    finally:
+        client.put(
+            "/api/settings",
+            json={
+                "openrouter_api_key": "",
+                "nvidia_api_key": "",
+                "ai_primary": "openrouter",
+            },
+        )
+    assert client.get("/api/ai/status").json()["enabled"] is False
+
+
+def test_migracion_de_la_ia_antigua(client):
+    """Una instalación vieja (un solo proveedor) pasa sola al formato nuevo."""
+    from app.bootstrap import migrate_ai_settings
+    from app.db import session_scope
+    from app.models import Setting
+
+    with session_scope() as sesion:
+        for clave in ("openrouter_api_key", "nvidia_api_key", "ai_primary"):
+            fila = sesion.get(Setting, clave)
+            if fila is not None:
+                sesion.delete(fila)
+        sesion.add(Setting(key="ai_provider", value="nvidia"))
+        sesion.add(Setting(key="ai_api_key", value="clave-vieja"))
+        sesion.add(Setting(key="ai_text_model", value="modelo/viejo"))
+
+    with session_scope() as sesion:
+        migrate_ai_settings(sesion)
+
+    with session_scope() as sesion:
+        assert sesion.get(Setting, "nvidia_api_key").value == "clave-vieja"
+        assert sesion.get(Setting, "ai_primary").value == "nvidia"
+        assert sesion.get(Setting, "nvidia_text_model").value == "modelo/viejo"
+        # y no se vuelve a migrar por encima de lo que el usuario cambie después
+        sesion.get(Setting, "nvidia_api_key").value = "clave-nueva"
+
+    with session_scope() as sesion:
+        migrate_ai_settings(sesion)
+    with session_scope() as sesion:
+        assert sesion.get(Setting, "nvidia_api_key").value == "clave-nueva"
+
+    # dejar los ajustes como estaban para el resto de pruebas
+    from app.config import settings
+
+    with session_scope() as sesion:
+        for clave in ("ai_provider", "ai_api_key", "ai_text_model",
+                      "nvidia_api_key", "nvidia_text_model", "ai_primary"):
+            fila = sesion.get(Setting, clave)
+            if fila is not None:
+                sesion.delete(fila)
+    settings.nvidia_api_key = ""
+    settings.nvidia_text_model = ""
+    settings.ai_primary = "openrouter"
 
 
 def test_migracion_anade_columnas_que_faltan(client):

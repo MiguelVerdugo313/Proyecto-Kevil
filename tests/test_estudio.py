@@ -35,9 +35,23 @@ RESPUESTA_KIT = {
 
 
 class _Handler(BaseHTTPRequestHandler):
+    fallar_con: int = 0          # si es != 0, responde con ese código
+    llamadas: int = 0
+
     def do_POST(self):  # noqa: N802
         largo = int(self.headers.get("Content-Length", 0))
         cuerpo = json.loads(self.rfile.read(largo) or "{}")
+        type(self).llamadas += 1
+
+        if type(self).fallar_con:
+            datos = json.dumps({"error": {"message": "no hay créditos"}}).encode()
+            self.send_response(type(self).fallar_con)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(datos)))
+            self.end_headers()
+            self.wfile.write(datos)
+            return
+
         prompt = cuerpo["messages"][-1]["content"]
 
         if "LISTO" in prompt:
@@ -69,18 +83,22 @@ def fake_ai():
     puerto = servidor.server_address[1]
 
     anterior = (
-        settings.ai_provider, settings.ai_api_key,
-        settings.ai_text_model, settings.ai_base_url,
+        settings.openrouter_api_key, settings.openrouter_text_model,
+        settings.openrouter_base_url, settings.nvidia_api_key, settings.ai_primary,
     )
-    settings.ai_provider = "openrouter"
-    settings.ai_api_key = "clave-de-prueba"
-    settings.ai_text_model = "modelo-falso"
-    settings.ai_base_url = f"http://127.0.0.1:{puerto}/v1"
+    settings.openrouter_api_key = "clave-de-prueba"
+    settings.openrouter_text_model = "modelo-falso"
+    settings.openrouter_base_url = f"http://127.0.0.1:{puerto}/v1"
+    settings.nvidia_api_key = ""
+    settings.ai_primary = "openrouter"
+    _Handler.fallar_con = 0
+    _Handler.llamadas = 0
     try:
         yield
     finally:
-        (settings.ai_provider, settings.ai_api_key,
-         settings.ai_text_model, settings.ai_base_url) = anterior
+        (settings.openrouter_api_key, settings.openrouter_text_model,
+         settings.openrouter_base_url, settings.nvidia_api_key,
+         settings.ai_primary) = anterior
         servidor.shutdown()
 
 
@@ -106,10 +124,12 @@ def test_sin_configurar_no_esta_activa():
 def test_conexion_y_estado(fake_ai):
     assert ai.is_enabled() is True
     resultado = ai.test_connection()
-    assert resultado["ok"] and resultado["answer"] == "LISTO"
+    assert resultado["ok"]
+    assert resultado["results"][0]["provider"] == "openrouter"
     estado = ai.status()
-    assert estado["enabled"] and estado["provider"] == "openrouter"
-    assert "openrouter" in estado["providers"] and "nvidia" in estado["providers"]
+    assert estado["enabled"] and estado["has_backup"] is False
+    assert estado["providers"]["openrouter"]["configured"] is True
+    assert estado["providers"]["nvidia"]["configured"] is False
 
 
 def test_extraer_json_entre_texto():
@@ -217,3 +237,105 @@ def test_colores_y_alfa_de_las_bandas():
     assert captions.override_alpha(0) == "&H00&"
     assert captions.override_alpha(255) == "&HFF&"
     assert captions.override_alpha(999) == "&HFF&"
+
+
+# --------------------------------------------------------------------------
+# Respaldo entre proveedores
+# --------------------------------------------------------------------------
+class _Segundo(BaseHTTPRequestHandler):
+    """Otro servidor, el que hace de reserva."""
+
+    llamadas: int = 0
+
+    def do_POST(self):  # noqa: N802
+        largo = int(self.headers.get("Content-Length", 0))
+        self.rfile.read(largo)
+        type(self).llamadas += 1
+        datos = json.dumps(
+            {"choices": [{"message": {"content": "respuesta del segundo"}}]}
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(datos)))
+        self.end_headers()
+        self.wfile.write(datos)
+
+    def log_message(self, *_args):
+        pass
+
+
+@pytest.fixture
+def dos_proveedores(fake_ai):
+    """OpenRouter (el primero) y NVIDIA (la reserva), los dos en local."""
+    servidor = HTTPServer(("127.0.0.1", 0), _Segundo)
+    threading.Thread(target=servidor.serve_forever, daemon=True).start()
+
+    anterior = (settings.nvidia_api_key, settings.nvidia_base_url)
+    settings.nvidia_api_key = "clave-reserva"
+    settings.nvidia_base_url = f"http://127.0.0.1:{servidor.server_address[1]}/v1"
+    _Segundo.llamadas = 0
+    try:
+        yield
+    finally:
+        (settings.nvidia_api_key, settings.nvidia_base_url) = anterior
+        servidor.shutdown()
+
+
+def test_los_dos_proveedores_a_la_vez(dos_proveedores):
+    estado = ai.status()
+    assert estado["enabled"] and estado["has_backup"] is True
+    assert [p["key"] for p in estado["active"]] == ["openrouter", "nvidia"]
+
+
+def test_usa_el_principal_si_funciona(dos_proveedores):
+    respuesta = ai.chat("hola")
+    assert "LISTO" not in respuesta or True
+    assert _Handler.llamadas == 1
+    assert _Segundo.llamadas == 0          # no se ha tocado la reserva
+    assert ai.status()["last_used"] == "openrouter"
+
+
+def test_cambia_al_segundo_si_se_acaban_los_creditos(dos_proveedores):
+    _Handler.fallar_con = 402              # «payment required»
+    cambios_antes = ai.status()["failovers"]
+
+    respuesta = ai.chat("hola")
+
+    assert respuesta == "respuesta del segundo"
+    assert _Segundo.llamadas == 1
+    estado = ai.status()
+    assert estado["last_used"] == "nvidia"
+    assert estado["failovers"] == cambios_antes + 1
+    assert "créditos" in estado["failures"]["openrouter"]
+
+
+def test_cambia_tambien_si_te_limitan(dos_proveedores):
+    _Handler.fallar_con = 429
+    assert ai.chat("hola") == "respuesta del segundo"
+    assert "peticiones" in ai.status()["failures"]["openrouter"]
+
+
+def test_se_puede_invertir_el_orden(dos_proveedores):
+    settings.ai_primary = "nvidia"
+    try:
+        assert ai.chat("hola") == "respuesta del segundo"
+        assert _Handler.llamadas == 0      # el otro ni se intenta
+    finally:
+        settings.ai_primary = "openrouter"
+
+
+def test_si_fallan_los_dos_se_avisa_de_ambos(dos_proveedores, monkeypatch):
+    _Handler.fallar_con = 500
+    monkeypatch.setattr(settings, "nvidia_base_url", "http://127.0.0.1:1/v1")
+    with pytest.raises(ai.AIError) as error:
+        ai.chat("hola")
+    assert "OpenRouter" in str(error.value) and "NVIDIA" in str(error.value)
+
+
+def test_el_kit_sigue_saliendo_aunque_fallen_los_dos(dos_proveedores, monkeypatch):
+    _Handler.fallar_con = 500
+    monkeypatch.setattr(settings, "nvidia_base_url", "http://127.0.0.1:1/v1")
+    kit = seo.build_kit(title="Un vídeo", transcript=TRANSCRIPCION, duration=600, use_ai=True)
+    assert kit["generated_by"] == "local"
+    assert kit["warning"] and "local" in kit["warning"]
+    assert kit["titles"] and kit["tags"]

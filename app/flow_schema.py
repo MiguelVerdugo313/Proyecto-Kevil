@@ -692,6 +692,30 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
     },
 ]
 
+# --------------------------------------------------------------------------
+# Qué se ve de entrada y qué queda para quien quiera afinar
+#
+# La interfaz muestra sólo estos campos; el resto aparece al activar «todas las
+# opciones». Así el flujo se entiende de un vistazo sin perder nada.
+# --------------------------------------------------------------------------
+ESSENTIAL_FIELDS: dict[str, set[str]] = {
+    "ingest": {"quality"},
+    "transcribe": {"engine"},
+    "segment": {"strategy", "min_duration", "max_duration", "max_clips"},
+    "reframe": {"mode"},
+    "subtitles": {"style", "font_size", "highlight_color"},
+    "overlays": {"hook_enabled", "watermark"},
+    "audio": {"normalize"},
+    "metadata": {"hashtags"},
+    "schedule": {"max_per_day", "spread_days"},
+    "publish": {"publish_tiktok", "publish_youtube_shorts", "mode"},
+}
+
+for _step in STEP_DEFINITIONS:
+    _esenciales = ESSENTIAL_FIELDS.get(_step["type"], set())
+    for _field in _step["fields"]:
+        _field["advanced"] = _field["key"] not in _esenciales
+
 STEP_INDEX = {step["type"]: step for step in STEP_DEFINITIONS}
 STEP_ORDER = [step["type"] for step in STEP_DEFINITIONS]
 

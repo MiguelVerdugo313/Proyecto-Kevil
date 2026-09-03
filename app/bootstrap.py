@@ -24,21 +24,28 @@ EDITABLE_SETTINGS = {
     "watch_interval_minutes": int,
     "ffmpeg_path": str,
     "ffprobe_path": str,
-    # Inteligencia artificial
-    "ai_provider": str,
-    "ai_api_key": str,
-    "ai_text_model": str,
-    "ai_image_model": str,
-    "ai_base_url": str,
+    # Inteligencia artificial (los dos proveedores a la vez)
+    "ai_primary": str,
+    "openrouter_api_key": str,
+    "openrouter_text_model": str,
+    "openrouter_image_model": str,
+    "nvidia_api_key": str,
+    "nvidia_text_model": str,
+    "nvidia_image_model": str,
     # Canal
     "channel_topic": str,
     "channel_language": str,
     "target_uploads_per_week": float,
     "notifications_desktop": bool,
+    # Colores
+    "brand_accent": str,
+    "brand_accent_2": str,
+    "brand_source": str,
 }
 
 SECRET_SETTINGS = {
-    "tiktok_client_secret", "youtube_api_key", "youtube_client_secret", "ai_api_key",
+    "tiktok_client_secret", "youtube_api_key", "youtube_client_secret",
+    "openrouter_api_key", "nvidia_api_key",
 }
 
 
@@ -130,7 +137,35 @@ def current_settings(session: Session) -> dict[str, Any]:
     return result
 
 
+def migrate_ai_settings(session: Session) -> None:
+    """De la configuración antigua (un proveedor) a la nueva (los dos)."""
+    antiguo_proveedor = session.get(Setting, "ai_provider")
+    antigua_clave = session.get(Setting, "ai_api_key")
+    if not antiguo_proveedor or not antigua_clave or not antigua_clave.value:
+        return
+
+    proveedor = str(antiguo_proveedor.value or "").strip().lower()
+    if proveedor not in {"openrouter", "nvidia"}:
+        return
+    if session.get(Setting, f"{proveedor}_api_key"):
+        return                                    # ya migrado
+
+    save_settings(
+        session,
+        {
+            f"{proveedor}_api_key": antigua_clave.value,
+            "ai_primary": proveedor,
+            **{
+                f"{proveedor}_{campo}": (session.get(Setting, f"ai_{campo}").value or "")
+                for campo in ("text_model", "image_model")
+                if session.get(Setting, f"ai_{campo}")
+            },
+        },
+    )
+
+
 def run() -> None:
     with session_scope() as session:
         load_setting_overrides(session)
+        migrate_ai_settings(session)
         seed_flows(session)

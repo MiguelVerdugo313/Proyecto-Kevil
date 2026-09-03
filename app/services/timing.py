@@ -154,7 +154,8 @@ def account_state(session: Session, account: Account) -> dict[str, Any]:
     strategy = ensure_strategy(account.strategy)
     zone = get_zone(strategy["timezone"])
     stats = account.stats or {}
-    followers = int(stats.get("followers") or 0)
+    # TikTok los llama seguidores; YouTube, suscriptores
+    followers = int(stats.get("followers") or stats.get("subscribers") or 0)
 
     since = utcnow() - timedelta(days=7)
     published_7d = len(

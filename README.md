@@ -157,10 +157,14 @@ el encuadre y el texto, y los apruebas. En **Agenda** ves cuándo sale cada uno.
 
 ### 4. (Opcional) Activa la IA y cuéntale de qué va tu canal
 
-En **Ajustes → Inteligencia artificial** eliges proveedor y pegas tu clave; el botón
-«Probar la conexión» te confirma que funciona. Justo debajo, en **Tu canal**, escribe de
-qué va tu canal y cuántos vídeos por semana quieres publicar: con eso el asistente afina
-las ideas y sabe cuándo avisarte.
+En **Ajustes → Inteligencia artificial → Editar** pegas tu clave de OpenRouter, la de
+NVIDIA o **las dos** (si a una se le acaban los créditos, Kevil sigue con la otra sin
+avisarte de nada raro); el botón «Probar las claves» te dice cuál responde. Arriba, en
+**Tu canal**, escribe de qué va tu canal y cuántos vídeos por semana quieres publicar:
+con eso el asistente afina las ideas y sabe cuándo avisarte.
+
+Y en **Ajustes → Colores** puedes ponerle a la aplicación los colores de tu canal de
+YouTube, sacados de su propio avatar.
 
 ### 5. Sube un vídeo y publica mejor
 
@@ -173,6 +177,11 @@ En **Coach** ves si vas al día, cuál es tu mejor franja y qué grabar después
 
 Un flujo son **10 pasos en orden**. Cada uno se despliega y tiene sus opciones;
 los que no son imprescindibles se pueden desactivar con su interruptor.
+
+De cada paso se enseña **sólo lo esencial**: 19 campos en total en lugar de 71. Con eso
+funciona. Si algo no te gusta, el interruptor **«Todas las opciones»**, arriba a la
+derecha del flujo, saca el resto —los 71— y cada paso te dice cuántos extras esconde.
+Tu elección se recuerda, así que si eres de tocarlo todo lo tienes siempre abierto.
 
 | # | Paso | Qué controlas |
 |---|---|---|
@@ -251,8 +260,16 @@ Proveedores admitidos, los dos con API compatible con OpenAI:
 * **NVIDIA NIM** ([build.nvidia.com](https://build.nvidia.com)) — créditos gratuitos,
   texto e imagen.
 
-Se configura en **Ajustes → Inteligencia artificial**, con un botón para probar la
-conexión antes de guardar. La clave se queda en tu disco y nunca se muestra de vuelta.
+**Puedes poner las dos claves a la vez.** Kevil intenta primero la que marques como
+principal y, si esa falla —se acabaron los créditos, te limita por peticiones, la clave
+ha caducado o el servicio no responde—, repite la misma petición con la otra sin que
+tengas que hacer nada. Si fallan las dos, se genera todo en local y el aviso te dice qué
+ha pasado con cada una. En **Ajustes → Estado** ves cuál se está usando y cuántas veces
+ha habido que cambiar.
+
+Se configura en **Ajustes → Inteligencia artificial → Editar**, con un botón para probar
+las dos claves antes de guardar. Las claves se quedan en tu disco y nunca se muestran de
+vuelta.
 
 ---
 
@@ -289,9 +306,29 @@ Las ideas se guardan o se descartan, así no te repite siempre lo mismo.
 
 Interfaz en **modo oscuro** (negro puro con capas de cristal esmerilado y una textura
 de grano finísima) o **claro** (grises suaves), con el botón ◐ de la barra superior para
-cambiar; tu elección se recuerda. Tipografía Inter, acento esmeralda, esquinas muy
-redondeadas y animaciones de entrada suaves. Si te quedas sin conexión, Inter cae en la
-tipografía del sistema y todo sigue viéndose bien.
+cambiar; tu elección se recuerda. Tipografía Inter, esquinas muy redondeadas y
+animaciones de entrada suaves. Si te quedas sin conexión, Inter cae en la tipografía del
+sistema y todo sigue viéndose bien.
+
+### Con los colores de tu canal
+
+En **Ajustes → Colores → Cambiar** puedes pulsar el nombre de tu canal y Kevil se viste
+con **sus** colores: descarga el avatar, saca la paleta y se queda con el color más
+característico (descartando grises y fondos). Si prefieres elegirlo tú, hay un selector
+manual con vista previa en directo.
+
+El color no se aplica tal cual: se ajusta para cada modo hasta que **contrasta al menos
+4.5:1** con el fondo (la referencia de la WCAG para texto legible), así que un rojo casi
+negro se aclara en oscuro y se oscurece en claro, y el texto que va encima del acento se
+elige blanco o negro según contraste mejor. Un logo feo nunca deja la aplicación
+ilegible. «Color por defecto» vuelve al esmeralda de casa.
+
+### Ajustes: lo esencial a la vista
+
+La pantalla de Ajustes son **dos tarjetas**: *Tu canal* (tres campos) y *Conexiones*,
+con una línea por cada cosa —IA, YouTube, TikTok, colores y motor— que te dice en qué
+estado está en una frase. Todo lo demás vive detrás del botón **Editar** de cada línea,
+en una ventana que sólo abres si quieres cambiar algo.
 
 ---
 
@@ -325,11 +362,19 @@ Copia `.env.example` a `.env` para fijar valores por defecto:
 | `KEVIL_WATCH_INTERVAL_MINUTES` | cada cuánto se revisan los canales (15) |
 | `KEVIL_TIKTOK_CLIENT_KEY` / `..._SECRET` | credenciales de tu app de TikTok |
 | `KEVIL_DRY_RUN` | `true` para no publicar de verdad |
-| `KEVIL_AI_PROVIDER` / `KEVIL_AI_API_KEY` | proveedor de IA (`openrouter` o `nvidia`) y su clave |
-| `KEVIL_AI_TEXT_MODEL` / `KEVIL_AI_IMAGE_MODEL` | modelos a usar |
+| `KEVIL_OPENROUTER_API_KEY` / `KEVIL_NVIDIA_API_KEY` | claves de IA; puedes poner las dos |
+| `KEVIL_AI_PRIMARY` | cuál se intenta primero (`openrouter` o `nvidia`); la otra queda de reserva |
+| `KEVIL_OPENROUTER_TEXT_MODEL` / `..._IMAGE_MODEL` | modelos de OpenRouter |
+| `KEVIL_NVIDIA_TEXT_MODEL` / `..._IMAGE_MODEL` | modelos de NVIDIA |
+| `KEVIL_YOUTUBE_CLIENT_ID` / `..._SECRET` | sólo para publicar Shorts desde Kevil |
+| `KEVIL_BRAND_ACCENT` / `KEVIL_BRAND_ACCENT_2` | colores de tu marca para la interfaz |
 | `KEVIL_CHANNEL_TOPIC` | de qué va tu canal (contexto para la IA) |
 | `KEVIL_TARGET_UPLOADS_PER_WEEK` | tu objetivo de vídeos por semana |
 | `KEVIL_FFMPEG_PATH` / `KEVIL_FFPROBE_PATH` | rutas si ffmpeg no está en el PATH |
+
+> Si vienes de una versión anterior con `KEVIL_AI_PROVIDER` / `KEVIL_AI_API_KEY`
+> guardados desde Ajustes, Kevil los pasa solo al formato nuevo la primera vez que
+> arranca; no tienes que volver a escribir nada.
 
 Casi todo esto también se cambia desde **Ajustes**, sin tocar archivos.
 
@@ -368,6 +413,14 @@ Sube `Tareas en paralelo` en Ajustes si tu equipo lo aguanta.
 **¿Tengo que pagar por la IA?** No es obligatoria: sin clave todo se genera en local.
 Si la quieres, tanto OpenRouter como NVIDIA tienen opciones gratuitas para empezar.
 
+**¿Y si se me acaban los créditos a mitad?** Pon las dos claves. Kevil detecta que una
+se ha quedado sin créditos (o que te está limitando por peticiones) y repite la misma
+petición con la otra. Si las dos fallan, no se para nada: se genera en local y el aviso
+te dice qué pasó con cada una.
+
+**¿Puedo simplificar la pantalla de flujos?** Ya viene simplificada: se enseñan sólo los
+19 campos que de verdad usas y el resto está detrás de «Todas las opciones».
+
 **¿Sube el vídeo a YouTube por mí?** Los **Shorts sí**, si conectas tu canal
 (ver arriba); recuerda el límite de ~6 subidas al día que impone Google. Los **vídeos
 largos no**: para esos Kevil te prepara el kit (título, descripción, etiquetas y
@@ -403,7 +456,8 @@ app/
 │   ├── renderer.py    grafo de filtros de ffmpeg
 │   ├── timing.py      motor de horarios (por cuenta y plataforma)
 │   ├── youtube_api.py publicación de Shorts (API oficial, subida reanudable)
-│   ├── ai.py          conector de IA (OpenRouter y NVIDIA)
+│   ├── ai.py          conector de IA (OpenRouter y NVIDIA, con relevo automático)
+│   ├── branding.py    colores del canal y ajuste de contraste
 │   ├── seo.py         kit de publicación de YouTube
 │   ├── thumbnails.py  análisis de fotogramas y montaje de miniaturas
 │   ├── coach.py       cadencia y mejores franjas del canal

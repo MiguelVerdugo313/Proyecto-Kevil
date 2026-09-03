@@ -118,6 +118,34 @@ async function heartbeat() {
   }
 }
 
+/* ------------------------------------------------- los colores de tu marca */
+export function aplicarColores(tema) {
+  const raiz = document.documentElement;
+  if (!tema || !tema.custom) {
+    ['--accent', '--accent-ink', '--accent-soft', '--accent-2'].forEach((v) => raiz.style.removeProperty(v));
+    return;
+  }
+  const claro = raiz.dataset.theme === 'light';
+  const acento = claro ? tema.accent_light : tema.accent_dark;
+  const acento2 = claro ? tema.accent2_light : tema.accent2_dark;
+  raiz.style.setProperty('--accent', acento);
+  raiz.style.setProperty('--accent-2', acento2 || acento);
+  raiz.style.setProperty('--accent-ink', claro ? tema.ink_light : tema.ink_dark);
+  // versión translúcida del acento para los fondos suaves
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(acento.slice(i, i + 2), 16));
+  raiz.style.setProperty('--accent-soft', `rgba(${r}, ${g}, ${b}, .13)`);
+}
+
+let temaMarca = null;
+
+export async function cargarColores() {
+  try {
+    const datos = await api.get('/api/branding');
+    temaMarca = datos.theme;
+  } catch { temaMarca = null; }
+  aplicarColores(temaMarca);
+}
+
 /* --------------------------------------------------------------- el tema */
 const botonTema = document.getElementById('theme');
 
@@ -126,6 +154,7 @@ function aplicarTema(tema) {
   else delete document.documentElement.dataset.theme;
   botonTema.textContent = tema === 'light' ? '◑' : '◐';
   botonTema.title = tema === 'light' ? 'Cambiar a modo oscuro' : 'Cambiar a modo claro';
+  aplicarColores(temaMarca);
   try { localStorage.setItem('kevil-tema', tema); } catch { /* modo privado */ }
 }
 
@@ -185,6 +214,7 @@ document.addEventListener('click', (event) => {
 /* ------------------------------------------------------------------ inicio */
 window.addEventListener('hashchange', navigate);
 window.kevilFmt = fmt;   // cómodo para depurar desde la consola
+cargarColores();
 navigate();
 heartbeat();
 setInterval(heartbeat, 4000);

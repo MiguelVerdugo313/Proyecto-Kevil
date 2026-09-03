@@ -264,3 +264,175 @@ def test_el_video_entero_como_un_solo_clip():
     assert segmenter.find_segments(
         media_path="x.mp4", duration=0, transcript={}, config=config
     ) == []
+
+
+# --------------------------------------------------------------------------
+# Cuota diaria y fallos parciales
+# --------------------------------------------------------------------------
+def _clip_listo(session, tmp_path, flow_steps):
+    """Un clip renderizado de verdad (un archivo pequeño basta) y su flujo."""
+    from app.models import Clip, ClipStatus, Flow, Video
+
+    archivo = tmp_path / "clip.mp4"
+    archivo.write_bytes(b"no es un mp4 de verdad, pero existe")
+
+    flujo = Flow(name="De prueba", steps=flow_steps)
+    session.add(flujo)
+    video = Video(external_id="v-cuota", title="Vídeo", url="x")
+    session.add(video)
+    session.flush()
+    clip = Clip(
+        video_id=video.id, flow_id=flujo.id, index=1, title="Un clip",
+        caption="Un clip", start_s=0, end_s=20,
+        render_path=str(archivo), status=ClipStatus.rendered.value,
+        render_config={"output": {"width": 1080, "height": 1920, "duration": 20}},
+    )
+    session.add(clip)
+    session.commit()
+    return clip
+
+
+def _post(session, clip, cuenta, estado="scheduled"):
+    from app.models import Post, utcnow
+
+    post = Post(clip_id=clip.id, account_id=cuenta.id, caption="Un clip",
+                scheduled_at=utcnow(), status=estado)
+    session.add(post)
+    session.commit()
+    return post
+
+
+def _contexto(session, post):
+    from app.models import Job
+
+    job = Job(kind="publish", payload={"post_id": post.id}, status="running")
+    session.add(job)
+    session.commit()
+    return pipeline.JobContext(session, job)
+
+
+def _pasos_publicando_en(tiktok: bool, youtube: bool):
+    from app.flow_schema import normalize_steps
+
+    pasos = normalize_steps([])
+    for paso in pasos:
+        if paso["type"] == "publish":
+            paso["config"]["publish_tiktok"] = tiktok
+            paso["config"]["publish_youtube_shorts"] = youtube
+            paso["config"]["mode"] = "auto"
+    return pasos
+
+
+def test_la_cuota_diaria_de_youtube_se_cuenta_por_24_horas(session, tmp_path):
+    from datetime import timedelta
+
+    from app.models import PostStatus, utcnow
+
+    cuenta = _cuenta(session, Platform.youtube.value)
+    clip = _clip_listo(session, tmp_path, _pasos_publicando_en(False, True))
+    assert pipeline.youtube_uploads_today(session) == 0
+
+    reciente = _post(session, clip, cuenta, PostStatus.published.value)
+    reciente.published_at = utcnow() - timedelta(hours=3)
+    antiguo = _post(session, clip, cuenta, PostStatus.published.value)
+    antiguo.published_at = utcnow() - timedelta(hours=30)
+    session.commit()
+
+    assert pipeline.youtube_uploads_today(session) == 1     # el de ayer ya no cuenta
+
+
+def test_sin_cuota_el_short_se_aplaza_en_vez_de_fallar(session, tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    from app.models import ClipStatus, Notification, PostStatus, utcnow
+
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(youtube_api, "is_configured", lambda: True)
+
+    cuenta = _cuenta(session, Platform.youtube.value)
+    clip = _clip_listo(session, tmp_path, _pasos_publicando_en(False, True))
+    maximo = youtube_api.DAILY_QUOTA // youtube_api.COST_UPLOAD
+    for _ in range(maximo):
+        gastado = _post(session, clip, cuenta, PostStatus.published.value)
+        gastado.published_at = utcnow()
+    session.commit()
+
+    post = _post(session, clip, cuenta)
+    pipeline.job_publish(session, _contexto(session, post))
+
+    assert post.status == PostStatus.scheduled.value          # no ha fallado
+    assert not post.error
+    assert post.scheduled_at > utcnow() + timedelta(hours=23)
+    assert "cuota" in post.slot_reason.lower()
+    assert clip.status == ClipStatus.scheduled.value
+    avisos = session.query(Notification).all()
+    assert any("cuota" in (a.title or "").lower() for a in avisos)
+
+
+def test_si_falla_un_destino_el_otro_sigue_en_pie(session, tmp_path, monkeypatch):
+    """Con dos destinos, que TikTok falle no debe cancelar el Short."""
+    from app.models import ClipStatus, PostStatus
+
+    monkeypatch.setattr(settings, "dry_run", False)
+
+    tiktok = _cuenta(session, Platform.tiktok.value)
+    youtube = _cuenta(session, Platform.youtube.value)
+    clip = _clip_listo(session, tmp_path, _pasos_publicando_en(True, True))
+    post_tiktok = _post(session, clip, tiktok)
+    post_youtube = _post(session, clip, youtube)
+
+    def revienta(*_args, **_kwargs):
+        raise RuntimeError("TikTok ha dicho que no")
+
+    monkeypatch.setattr(pipeline, "_publish_to_tiktok", revienta)
+
+    with pytest.raises(RuntimeError):
+        pipeline.job_publish(session, _contexto(session, post_tiktok))
+
+    assert post_tiktok.status == PostStatus.failed.value
+    assert post_youtube.status == PostStatus.scheduled.value   # intacto
+    # el clip sigue programado porque le queda una publicación viva
+    assert clip.status == ClipStatus.scheduled.value
+
+
+def test_si_falla_el_unico_destino_el_clip_si_se_da_por_fallido(session, tmp_path, monkeypatch):
+    from app.models import ClipStatus, PostStatus
+
+    monkeypatch.setattr(settings, "dry_run", False)
+    tiktok = _cuenta(session, Platform.tiktok.value)
+    clip = _clip_listo(session, tmp_path, _pasos_publicando_en(True, False))
+    post = _post(session, clip, tiktok)
+
+    def revienta(*_args, **_kwargs):
+        raise RuntimeError("TikTok ha dicho que no")
+
+    monkeypatch.setattr(pipeline, "_publish_to_tiktok", revienta)
+    with pytest.raises(RuntimeError):
+        pipeline.job_publish(session, _contexto(session, post))
+
+    assert post.status == PostStatus.failed.value
+    assert clip.status == ClipStatus.failed.value
+
+
+def test_el_flujo_del_canal_manda_aunque_no_se_pida(session):
+    """Si el canal tiene su propio flujo, procesar el vídeo debe usar ese."""
+    from app.models import Flow, Source, Video
+
+    por_defecto = Flow(name="El de siempre", is_default=True, steps=[])
+    del_canal = Flow(name="El del canal", steps=[])
+    session.add_all([por_defecto, del_canal])
+    session.flush()
+
+    canal = Source(name="Mi canal", url="https://example.invalid/c", flow_id=del_canal.id)
+    session.add(canal)
+    session.flush()
+    video = Video(source_id=canal.id, external_id="v9", title="Vídeo", url="x")
+    suelto = Video(external_id="v10", title="Sin canal", url="x")
+    session.add_all([video, suelto])
+    session.commit()
+
+    assert pipeline.resolve_flow(session, None, video).id == del_canal.id
+    # una orden explícita sigue mandando por encima del canal
+    assert pipeline.resolve_flow(session, por_defecto.id, video).id == por_defecto.id
+    # y un vídeo sin canal se queda con el predeterminado
+    assert pipeline.resolve_flow(session, None, suelto).id == por_defecto.id

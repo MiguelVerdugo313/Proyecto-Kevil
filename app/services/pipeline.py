@@ -27,7 +27,8 @@ from app.models import (
     utcnow,
 )
 from app.services import (
-    events, metadata, renderer, segmenter, timing, tiktok, transcript, youtube_api,
+    events, metadata, notifications, renderer, segmenter, timing, tiktok,
+    transcript, youtube_api,
 )
 from app.services import media as media_service
 from app.services import youtube as youtube_service
@@ -37,10 +38,16 @@ from app.services.queue import JobContext, enqueue, register
 # --------------------------------------------------------------------------
 # Utilidades
 # --------------------------------------------------------------------------
-def resolve_flow(session: Session, flow_id: int | None) -> Flow:
+def resolve_flow(
+    session: Session, flow_id: int | None, video: Video | None = None
+) -> Flow:
+    """El flujo que toca: el pedido, el del canal del vídeo o el predeterminado."""
     flow: Flow | None = None
     if flow_id:
         flow = session.get(Flow, flow_id)
+    if flow is None and video is not None and video.source and video.source.flow_id:
+        # Si el canal tiene su propio flujo, manda ese aunque no venga en la orden.
+        flow = session.get(Flow, video.source.flow_id)
     if flow is None:
         flow = session.scalars(
             select(Flow).where(Flow.is_default.is_(True)).limit(1)
@@ -191,7 +198,7 @@ def job_ingest(session: Session, ctx: JobContext) -> None:
     video = session.get(Video, int(ctx.payload["video_id"]))
     if not video:
         raise RuntimeError("El vídeo ya no existe.")
-    flow = resolve_flow(session, ctx.payload.get("flow_id"))
+    flow = resolve_flow(session, ctx.payload.get("flow_id"), video)
     ingest_config = step_config(flow.steps, "ingest")
 
     video.status = VideoStatus.downloading.value
@@ -275,7 +282,7 @@ def job_process(session: Session, ctx: JobContext) -> None:
     if not video.local_path or not Path(video.local_path).exists():
         raise RuntimeError("El vídeo original no está descargado.")
 
-    flow = resolve_flow(session, ctx.payload.get("flow_id"))
+    flow = resolve_flow(session, ctx.payload.get("flow_id"), video)
     video.status = VideoStatus.processing.value
     session.commit()
 
@@ -551,11 +558,44 @@ def job_publish(session: Session, ctx: JobContext) -> None:
             result = _publish_to_youtube(session, ctx, post, clip, account, publish_config)
         else:
             result = _publish_to_tiktok(session, ctx, post, clip, account, publish_config)
+    except QuotaAgotada as exc:
+        # No es un error: simplemente hoy ya no toca. Se mueve a mañana.
+        post.status = PostStatus.scheduled.value
+        post.scheduled_at = utcnow() + timedelta(hours=24, minutes=5)
+        post.slot_reason = "Aplazado: cuota diaria de YouTube agotada"
+        clip.status = ClipStatus.scheduled.value
+        notifications.notify(
+            session,
+            "Cuota de YouTube agotada por hoy",
+            f"«{clip.title[:60]}» se publicará mañana. {exc}",
+            kind="cuota",
+            level="warn",
+            action_label="Ver la agenda",
+            action_url="#agenda",
+            dedupe_hours=12,
+        )
+        events.log(session, str(exc), level="warn", scope="youtube")
+        ctx.progress(1.0, "Aplazado a mañana")
+        return
     except Exception as exc:
         post.status = PostStatus.failed.value
         post.error = str(exc)[:1000]
-        clip.status = ClipStatus.failed.value
         clip.error = str(exc)[:1000]
+        # El clip sólo se da por fallido si no le queda ninguna publicación viva:
+        # con dos destinos, que falle TikTok no invalida el Short de YouTube.
+        vivas = [
+            otra for otra in clip.posts
+            if otra.id != post.id
+            and otra.status in {PostStatus.scheduled.value, PostStatus.published.value,
+                                PostStatus.publishing.value}
+        ]
+        clip.status = (
+            ClipStatus.published.value if any(
+                o.status == PostStatus.published.value for o in vivas
+            )
+            else ClipStatus.scheduled.value if vivas
+            else ClipStatus.failed.value
+        )
         events.log(
             session,
             f"Fallo al publicar «{clip.title[:50]}» en {destino}: {exc}",
@@ -618,11 +658,40 @@ def _publish_to_tiktok(session, ctx, post, clip, account, publish_config) -> dic
     }
 
 
+def youtube_uploads_today(session: Session) -> int:
+    """Shorts subidos en las últimas 24 h (la cuota de Google es diaria)."""
+    desde = utcnow() - timedelta(hours=24)
+    return len(
+        session.execute(
+            select(Post.id)
+            .join(Account, Post.account_id == Account.id)
+            .where(
+                Account.platform == Platform.youtube.value,
+                Post.status == PostStatus.published.value,
+                Post.published_at >= desde,
+            )
+        ).all()
+    )
+
+
+class QuotaAgotada(RuntimeError):
+    """La cuota diaria de YouTube no da para más subidas hoy."""
+
+
 def _publish_to_youtube(session, ctx, post, clip, account, publish_config) -> dict[str, Any]:
     """Sube el clip vertical como Short al canal conectado."""
     simulate = settings.dry_run or not youtube_api.is_configured() or not (
         account.credentials or {}
     ).get("access_token")
+
+    # Google sólo da para unas 6 subidas al día: si no queda cuota, se aplaza
+    if not simulate:
+        maximo = youtube_api.DAILY_QUOTA // youtube_api.COST_UPLOAD
+        if youtube_uploads_today(session) >= maximo:
+            raise QuotaAgotada(
+                f"Hoy ya se han subido {maximo} Shorts, que es lo que da la cuota diaria "
+                f"de la API de YouTube. Se reintentará mañana."
+            )
 
     salida = (clip.render_config or {}).get("output") or {}
     avisos = youtube_api.validate_short(

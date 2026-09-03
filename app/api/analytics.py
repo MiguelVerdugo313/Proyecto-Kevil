@@ -45,13 +45,16 @@ def overview(days: int = 30, account_id: int | None = None, db: Session = Depend
     )[:10]
 
     accounts = []
-    for account in db.scalars(
-        select(Account).where(Account.platform == Platform.tiktok.value)
-    ).all():
+    for account in db.scalars(select(Account)).all():
+        if account.platform != Platform.tiktok.value and not (
+            account.credentials or {}
+        ).get("access_token"):
+            continue
         state = timing.account_state(db, account)
         accounts.append(
             {
                 "id": account.id,
+                "platform": account.platform,
                 "name": account.display_name,
                 "handle": account.handle,
                 "state": state,

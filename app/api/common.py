@@ -79,6 +79,8 @@ def video_to_dict(video: Video, *, with_transcript: bool = False) -> dict[str, A
         "source_id": video.source_id,
         "source_name": video.source.name if video.source else "",
         "external_id": video.external_id,
+        "origin": video.origin,
+        "views": video.views,
         "title": video.title,
         "url": video.url,
         "thumbnail_url": video.thumbnail_url,

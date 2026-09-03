@@ -6,7 +6,7 @@ import shutil
 from datetime import timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -30,6 +30,7 @@ from app.models import (
     Video,
     utcnow,
 )
+from app.services import branding
 from app.services import media as media_service
 from app.services import tiktok, timing
 from app.services.queue import enqueue
@@ -50,11 +51,16 @@ class SettingsIn(BaseModel):
     watch_interval_minutes: int | None = None
     ffmpeg_path: str | None = None
     ffprobe_path: str | None = None
-    ai_provider: str | None = None
-    ai_api_key: str | None = None
-    ai_text_model: str | None = None
-    ai_image_model: str | None = None
-    ai_base_url: str | None = None
+    ai_primary: str | None = None
+    openrouter_api_key: str | None = None
+    openrouter_text_model: str | None = None
+    openrouter_image_model: str | None = None
+    nvidia_api_key: str | None = None
+    nvidia_text_model: str | None = None
+    nvidia_image_model: str | None = None
+    brand_accent: str | None = None
+    brand_accent_2: str | None = None
+    brand_source: str | None = None
     channel_topic: str | None = None
     channel_language: str | None = None
     target_uploads_per_week: float | None = None
@@ -128,17 +134,22 @@ def dashboard(db: Session = Depends(get_db)):
         or 0
     )
 
-    accounts = db.scalars(
-        select(Account).where(
-            Account.platform == Platform.tiktok.value, Account.enabled.is_(True)
-        )
-    ).all()
+    # Se muestran las cuentas a las que se publica: TikTok y los canales de
+    # YouTube que tengan permiso de subida.
+    accounts = [
+        cuenta for cuenta in db.scalars(
+            select(Account).where(Account.enabled.is_(True))
+        ).all()
+        if cuenta.platform == Platform.tiktok.value
+        or (cuenta.credentials or {}).get("access_token")
+    ]
     account_cards = []
     for account in accounts:
         state = timing.account_state(db, account)
         account_cards.append(
             {
                 "id": account.id,
+                "platform": account.platform,
                 "name": account.display_name,
                 "handle": account.handle,
                 "avatar_url": account.avatar_url,
@@ -267,6 +278,78 @@ def put_settings(body: SettingsIn, db: Session = Depends(get_db)):
     applied = save_settings(db, values)
     db.commit()
     return {"applied": list(applied), "settings": current_settings(db)}
+
+
+# --------------------------------------------------------------------------
+# Colores de tu marca
+# --------------------------------------------------------------------------
+class BrandIn(BaseModel):
+    accent: str | None = None
+    accent_2: str | None = None
+    account_id: int | None = None
+
+
+@router.get("/branding")
+def get_branding(db: Session = Depends(get_db)):
+    """Tema actual y de qué canales se pueden sacar los colores."""
+    canales = [
+        {
+            "id": account.id,
+            "name": account.display_name,
+            "avatar_url": account.avatar_url,
+            "platform": account.platform,
+        }
+        for account in db.scalars(
+            select(Account).where(Account.avatar_url != "").order_by(Account.id)
+        ).all()
+    ]
+    return {
+        "theme": branding.current_theme(),
+        "accent": settings.brand_accent,
+        "accent_2": settings.brand_accent_2,
+        "source": settings.brand_source,
+        "channels": canales,
+        "default_accent": "#34D399",
+    }
+
+
+@router.post("/branding")
+def set_branding(body: BrandIn, db: Session = Depends(get_db)):
+    """Aplica un color a mano o lo saca del avatar de un canal."""
+    if body.account_id:
+        account = db.get(Account, body.account_id)
+        if not account or not account.avatar_url:
+            raise HTTPException(404, "Ese canal no tiene imagen de la que sacar colores.")
+        try:
+            tema = branding.extract_from_url(account.avatar_url)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        origen = f"canal:{account.display_name}"
+        principal = tema["source_accent"]
+        secundario = (tema.get("palette") or [{}, {}])[1].get("hex", "") if tema.get("palette") else ""
+    elif body.accent:
+        principal = body.accent.strip()
+        secundario = (body.accent_2 or "").strip()
+        tema = branding.build_theme(principal, secundario)
+        origen = "manual"
+    else:
+        raise HTTPException(400, "Indica un color o el canal del que sacarlo.")
+
+    save_settings(
+        db,
+        {"brand_accent": principal, "brand_accent_2": secundario, "brand_source": origen},
+    )
+    db.commit()
+    tema["custom"] = True
+    tema["source"] = origen
+    return {"theme": tema, "accent": principal, "accent_2": secundario, "source": origen}
+
+
+@router.delete("/branding")
+def reset_branding(db: Session = Depends(get_db)):
+    save_settings(db, {"brand_accent": "", "brand_accent_2": "", "brand_source": ""})
+    db.commit()
+    return {"theme": {"custom": False}}
 
 
 @router.post("/maintenance/refresh-metrics")
