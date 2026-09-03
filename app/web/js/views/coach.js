@@ -17,7 +17,7 @@ function barraRegularidad(valor) {
     return '<span class="muted small">aún no hay suficientes vídeos</span>';
   }
   const porcentaje = Math.round(valor * 100);
-  const color = valor >= 0.7 ? 'var(--teal)' : valor >= 0.45 ? 'var(--amber)' : 'var(--red)';
+  const color = valor >= 0.7 ? 'var(--accent)' : valor >= 0.45 ? 'var(--amber)' : 'var(--red)';
   return `
     <div class="bar" style="margin-top:6px"><i style="width:${porcentaje}%;background:${color}"></i></div>
     <div class="muted tiny" style="margin-top:5px">
@@ -99,7 +99,7 @@ export default {
     root.innerHTML = `
       <div class="grid side">
         <div style="display:flex;flex-direction:column;gap:20px">
-          <div class="card" style="border-color:${data.state === 'parado' ? 'rgba(255,107,129,.35)' : 'var(--line-soft)'}">
+          <div class="card" style="border-color:${data.state === 'parado' ? 'rgba(255,107,129,.35)' : 'var(--line)'}">
             <div class="card-head">
               <div>
                 <h3>${escapeHtml(data.headline)}</h3>

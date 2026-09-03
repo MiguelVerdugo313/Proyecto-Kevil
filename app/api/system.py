@@ -43,6 +43,8 @@ class SettingsIn(BaseModel):
     tiktok_client_key: str | None = None
     tiktok_client_secret: str | None = None
     youtube_api_key: str | None = None
+    youtube_client_id: str | None = None
+    youtube_client_secret: str | None = None
     dry_run: bool | None = None
     workers: int | None = None
     watch_interval_minutes: int | None = None

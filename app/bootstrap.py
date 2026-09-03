@@ -17,6 +17,8 @@ EDITABLE_SETTINGS = {
     "tiktok_client_key": str,
     "tiktok_client_secret": str,
     "youtube_api_key": str,
+    "youtube_client_id": str,
+    "youtube_client_secret": str,
     "dry_run": bool,
     "workers": int,
     "watch_interval_minutes": int,
@@ -35,22 +37,53 @@ EDITABLE_SETTINGS = {
     "notifications_desktop": bool,
 }
 
-SECRET_SETTINGS = {"tiktok_client_secret", "youtube_api_key", "ai_api_key"}
+SECRET_SETTINGS = {
+    "tiktok_client_secret", "youtube_api_key", "youtube_client_secret", "ai_api_key",
+}
+
+
+SEEDED_KEY = "seeded_presets"
 
 
 def seed_flows(session: Session) -> None:
-    if session.scalars(select(Flow).limit(1)).first():
-        return
-    for index, preset in enumerate(FLOW_PRESETS):
+    """Crea las plantillas de flujo que aún no se hayan creado nunca.
+
+    Se recuerda cuáles se han sembrado ya, así que al actualizar la aplicación
+    aparecen las plantillas nuevas sin resucitar las que hayas borrado.
+    """
+    primera_vez = session.scalars(select(Flow).limit(1)).first() is None
+
+    registro = session.get(Setting, SEEDED_KEY)
+    ya_sembradas: list[str] = list((registro.value if registro else None) or [])
+
+    # Al actualizar desde una versión anterior no existe el registro: se da por
+    # sembrado todo lo que ya esté en la base de datos para no duplicarlo.
+    if registro is None:
+        ya_sembradas += [
+            nombre for (nombre,) in session.execute(select(Flow.name)).all()
+        ]
+
+    creadas = 0
+    for preset in FLOW_PRESETS:
+        if preset["name"] in ya_sembradas:
+            continue
         session.add(
             Flow(
                 name=preset["name"],
                 description=preset["description"],
                 icon=preset["icon"],
                 steps=normalize_steps(preset["steps"]),
-                is_default=index == 0,
+                is_default=primera_vez and creadas == 0,
             )
         )
+        ya_sembradas.append(preset["name"])
+        creadas += 1
+
+    if creadas:
+        if registro is None:
+            session.add(Setting(key=SEEDED_KEY, value=ya_sembradas))
+        else:
+            registro.value = ya_sembradas
 
 
 def load_setting_overrides(session: Session) -> None:

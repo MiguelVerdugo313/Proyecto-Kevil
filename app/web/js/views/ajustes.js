@@ -9,8 +9,9 @@ export default {
   refreshMs: 6000,
 
   async render(root, ctx) {
-    const [config, status, jobs, ia] = await Promise.all([
-      api.settings(), api.status(), api.jobs('?limit=25'), api.get('/api/ai/status'),
+    const [config, status, jobs, ia, yt] = await Promise.all([
+      api.settings(), api.status(), api.jobs('?limit=25'),
+      api.get('/api/ai/status'), api.get('/api/youtube/config'),
     ]);
     const values = config.settings;
     const proveedor = values.ai_provider || '';
@@ -35,7 +36,7 @@ export default {
                     `<option value="${clave}" ${proveedor === clave ? 'selected' : ''}>${escapeHtml(valor.label)}</option>`).join('')}
                 </select>
                 ${meta ? `<span class="help">Consigue tu clave en
-                  <a href="${escapeHtml(meta.keys_url)}" target="_blank" rel="noreferrer" style="color:var(--teal)">${escapeHtml(meta.keys_url)}</a></span>` : ''}
+                  <a href="${escapeHtml(meta.keys_url)}" target="_blank" rel="noreferrer" style="color:var(--accent)">${escapeHtml(meta.keys_url)}</a></span>` : ''}
               </div>
               <div class="field"><label>Clave de API</label>
                 <input type="password" id="ai-key" value="${escapeHtml(values.ai_api_key || '')}" placeholder="sk-…"></div>
@@ -80,6 +81,45 @@ export default {
                 <span class="track"></span>
                 <span class="switch-label">Avisos en el escritorio (además de la campana)</span></label></div>
             </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div><h3>YouTube</h3>
+                <p class="muted small" style="margin-top:4px">
+                  Sólo hace falta para <b>publicar Shorts</b>. Para vigilar canales y
+                  bajar vídeos no se necesita nada.</p></div>
+              ${yt.connected ? '<span class="pill ok">canal conectado</span>'
+                : yt.configured ? '<span class="pill warn">falta autorizar</span>'
+                : '<span class="pill">sin configurar</span>'}
+            </div>
+            <div class="form-grid">
+              <div class="field"><label>ID de cliente de Google</label>
+                <input type="text" id="yt-id" value="${escapeHtml(values.youtube_client_id || '')}"
+                  placeholder="123456789-abc.apps.googleusercontent.com"></div>
+              <div class="field"><label>Secreto de cliente</label>
+                <input type="password" id="yt-secret" value="${escapeHtml(values.youtube_client_secret || '')}"
+                  placeholder="••••••••"></div>
+              <div class="field full">
+                <label>URL de retorno (cópiala en Google Cloud)</label>
+                <input type="text" value="${escapeHtml(yt.redirect_uri)}" readonly class="mono">
+              </div>
+            </div>
+            <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              ${yt.configured
+                ? `<a class="btn ${yt.connected ? '' : 'primary'}" href="/api/oauth/youtube/start">
+                     ${yt.connected ? 'Volver a autorizar' : 'Autorizar mi canal'}</a>`
+                : '<span class="muted small">Guarda las credenciales para poder autorizar.</span>'}
+              ${yt.connected ? `<span class="muted small">
+                Cuota de hoy: <b style="color:var(--text)">${yt.quota.uploads_left}</b>
+                de ${Math.floor(yt.quota.daily_units / yt.quota.cost_per_upload)} subidas
+                (${yt.quota.uploads_today} usadas)</span>` : ''}
+            </div>
+            <p class="muted tiny" style="margin-top:12px;line-height:1.6">
+              Google permite 10.000 unidades de cuota al día y cada subida cuesta 1.600,
+              así que salen unas <b>6 publicaciones diarias</b> por proyecto. Se puede pedir
+              ampliación desde la consola de Google Cloud.
+            </p>
           </div>
 
           <div class="card">
@@ -191,6 +231,8 @@ export default {
           ffmpeg_path: root.querySelector('#s-ffmpeg').value.trim(),
           ffprobe_path: root.querySelector('#s-ffprobe').value.trim(),
           dry_run: root.querySelector('#s-dry').checked,
+          youtube_client_id: root.querySelector('#yt-id').value.trim(),
+          youtube_client_secret: root.querySelector('#yt-secret').value.trim(),
           ai_provider: root.querySelector('#ai-prov').value,
           ai_api_key: root.querySelector('#ai-key').value.trim(),
           ai_text_model: root.querySelector('#ai-model').value.trim(),

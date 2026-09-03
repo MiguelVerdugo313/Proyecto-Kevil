@@ -14,7 +14,7 @@ function statCard(label, value, hint, warn = false) {
 function healthRing(value) {
   const circumference = 2 * Math.PI * 20;
   const offset = circumference * (1 - value / 100);
-  const color = value >= 70 ? 'var(--teal)' : value >= 45 ? 'var(--amber)' : 'var(--red)';
+  const color = value >= 70 ? 'var(--accent)' : value >= 45 ? 'var(--amber)' : 'var(--red)';
   return `<svg width="52" height="52" viewBox="0 0 52 52" style="flex:none">
     <circle cx="26" cy="26" r="20" fill="none" stroke="var(--surface-3)" stroke-width="5"/>
     <circle cx="26" cy="26" r="20" fill="none" stroke="${color}" stroke-width="5"
@@ -68,19 +68,19 @@ export default {
 
     root.innerHTML = `
       ${noAccounts ? `
-      <div class="card" style="background:var(--grad-soft);border-color:rgba(124,92,255,.3)">
+      <div class="card" style="background:var(--accent-soft);border-color:var(--line-strong)">
         <div class="card-head"><h3>Bienvenido a Kevil Studio 👋</h3></div>
         <p class="muted" style="line-height:1.7;max-width:720px">
-          En tres pasos tendrás tus vídeos de YouTube convertidos en TikToks verticales, cortados,
-          subtitulados y programados a la mejor hora. Todo se ejecuta en tu ordenador.
+          Kevil corta tus vídeos y directos en clips verticales, los publica en TikTok y en
+          YouTube Shorts a la mejor hora, y te prepara las subidas de tu canal. Todo en tu ordenador.
         </p>
         <div class="grid cols-3" style="margin-top:18px">
           <div class="stat"><div class="label">Paso 1</div><div class="value" style="font-size:16px">Conecta tu canal</div>
             <div class="hint">Pega la URL de tu canal de YouTube</div></div>
           <div class="stat"><div class="label">Paso 2</div><div class="value" style="font-size:16px">Elige el flujo</div>
             <div class="hint">Cómo se corta, se edita y se publica</div></div>
-          <div class="stat"><div class="label">Paso 3</div><div class="value" style="font-size:16px">Conecta TikTok</div>
-            <div class="hint">O trabaja en modo simulación para probar</div></div>
+          <div class="stat"><div class="label">Paso 3</div><div class="value" style="font-size:16px">Conecta los destinos</div>
+            <div class="hint">TikTok y/o YouTube Shorts, o modo simulación</div></div>
         </div>
         <div style="margin-top:18px"><a class="btn primary" href="#cuentas">Empezar por las cuentas</a></div>
       </div>` : ''}
@@ -137,9 +137,9 @@ export default {
 
         <div style="display:flex;flex-direction:column;gap:20px">
           <div class="card">
-            <div class="card-head"><h3>Tus cuentas de TikTok</h3><a class="btn sm ghost" href="#cuentas">Gestionar</a></div>
+            <div class="card-head"><h3>Tus cuentas</h3><a class="btn sm ghost" href="#cuentas">Gestionar</a></div>
             ${data.accounts.length ? `<div class="list">${data.accounts.map(accountCard).join('')}</div>`
-              : emptyState('◍', 'Sin cuentas conectadas', 'Conecta TikTok para programar y publicar automáticamente.')}
+              : emptyState('◍', 'Sin cuentas conectadas', 'Conecta TikTok o tu canal de YouTube para publicar automáticamente.')}
           </div>
 
           <div class="card">

@@ -104,11 +104,11 @@ async function addTikTok(reload) {
                <span class="mono">user.info.basic</span> y <span class="mono">video.list</span>.<br>
             3. Añade esta URL de retorno:<br>
             <span class="mono" style="display:inline-block;margin-top:6px;padding:5px 9px;border-radius:8px;background:var(--bg-soft)">${escapeHtml(config.redirect_uri)}</span><br>
-            4. Copia la clave y el secreto en <a href="#ajustes" style="color:var(--teal)">Ajustes</a>.
+            4. Copia la clave y el secreto en <a href="#ajustes" style="color:var(--accent)">Ajustes</a>.
           </p>
         </div>`}
 
-      <div style="border-top:1px solid var(--line-soft);padding-top:16px">
+      <div style="border-top:1px solid var(--line);padding-top:16px">
         <strong style="font-size:13.5px">O crea una cuenta de prueba</strong>
         <p class="muted small" style="margin:6px 0 12px;line-height:1.6">
           Sirve para montar todo el flujo sin publicar de verdad: los clips se generan y se programan,
@@ -134,6 +134,61 @@ async function addTikTok(reload) {
           reload();
         },
       },
+    ],
+  });
+}
+
+function traerShortsDialog(reload) {
+  const flowOptions = cache.flows
+    .map((flow) => `<option value="${flow.id}" ${flow.name.startsWith('Shorts a TikTok') ? 'selected' : ''}>${escapeHtml(flow.icon)} ${escapeHtml(flow.name)}</option>`)
+    .join('');
+  const tiktokOptions = cache.accounts.filter((a) => a.platform === 'tiktok')
+    .map((a) => `<option value="${a.id}">@${escapeHtml(a.handle || a.display_name)}</option>`).join('');
+
+  modal({
+    title: 'Pasar tus Shorts a TikTok',
+    body: `
+      <p class="muted small" style="line-height:1.7">
+        Kevil mira la pestaña de <b>Shorts</b> de tu canal, baja cada uno y lo publica
+        tal cual en TikTok (ya son verticales: no se recortan ni se les añade nada).
+        Los Shorts nuevos que subas se republicarán solos.
+      </p>
+      <div class="field">
+        <label>URL o @usuario del canal</label>
+        <input type="text" id="sh-url" placeholder="https://www.youtube.com/@micanal">
+      </div>
+      <div class="form-grid">
+        <div class="field"><label>Flujo</label><select id="sh-flow">${flowOptions}</select></div>
+        <div class="field"><label>Publicar en</label>
+          <select id="sh-target"><option value="">Primera cuenta disponible</option>${tiktokOptions}</select></div>
+        <div class="field"><label>Cuántos traer</label>
+          <input type="number" id="sh-limit" value="30" min="1" max="200"></div>
+        <div class="field"><label class="switch"><input type="checkbox" id="sh-auto" checked>
+          <span class="track"></span><span class="switch-label">Vigilar los nuevos</span></label></div>
+      </div>`,
+    actions: [
+      { label: 'Cancelar' },
+      { label: 'Traer mis Shorts', variant: 'primary', onClick: async (root) => {
+        const url = root.querySelector('#sh-url').value.trim();
+        if (!url) { toast('Pega la URL del canal', 'warn'); return false; }
+        const boton = root.querySelector('[data-action="1"]');
+        boton.disabled = true;
+        boton.textContent = 'Leyendo el canal…';
+        try {
+          const resultado = await api.post('/api/sources/shorts', {
+            url,
+            flow_id: Number(root.querySelector('#sh-flow').value) || null,
+            target_account_id: Number(root.querySelector('#sh-target').value) || null,
+            limit: Number(root.querySelector('#sh-limit').value),
+            auto_ingest: root.querySelector('#sh-auto').checked,
+          });
+          toast(resultado.warning || 'Buscando tus Shorts…', resultado.warning ? 'warn' : 'ok');
+          reload();
+        } finally {
+          boton.disabled = false;
+          boton.textContent = 'Traer mis Shorts';
+        }
+      } },
     ],
   });
 }
@@ -322,13 +377,15 @@ export default {
   subtitle: 'De dónde sale el contenido y a dónde va',
 
   actions: [
+    { label: '↻ Shorts a TikTok', onClick: () => traerShortsDialog(reloadView) },
     { label: '+ Canal de YouTube', onClick: () => addYouTube(reloadView) },
     { label: '+ Cuenta de TikTok', variant: 'primary', onClick: () => addTikTok(reloadView) },
   ],
 
   async render(root, ctx) {
-    const [accounts, sources, flows, tiktokConfig] = await Promise.all([
-      api.accounts(), api.sources(), api.flows(), api.get('/api/tiktok/config'),
+    const [accounts, sources, flows, tiktokConfig, ytConfig] = await Promise.all([
+      api.accounts(), api.sources(), api.flows(),
+      api.get('/api/tiktok/config'), api.get('/api/youtube/config'),
     ]);
     cache = { accounts, sources, flows, tiktok: tiktokConfig };
 
@@ -344,7 +401,10 @@ export default {
             <h3>Canales de YouTube</h3>
             <p class="muted small" style="margin-top:4px">Se revisan solos cada poco en busca de vídeos y directos nuevos.</p>
           </div>
-          <button class="btn" data-add-yt>+ Conectar canal</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" data-add-shorts>↻ Shorts a TikTok</button>
+            <button class="btn" data-add-yt>+ Conectar canal</button>
+          </div>
         </div>
         ${sources.length ? `
         <table class="table">
@@ -360,6 +420,7 @@ export default {
                 </td>
                 <td>${flow ? `${escapeHtml(flow.icon)} ${escapeHtml(flow.name)}` : '<span class="muted">por defecto</span>'}</td>
                 <td>${source.auto_ingest ? '<span class="pill ok">activo</span>' : '<span class="pill">manual</span>'}
+                    ${source.kind === 'shorts' ? '<span class="pill violet">shorts</span>' : ''}
                     ${source.include_lives ? '<span class="pill pink">directos</span>' : ''}</td>
                 <td class="small muted">${source.last_checked_at ? fmt.relative(source.last_checked_at) : 'nunca'}</td>
                 <td><div class="actions">
@@ -414,18 +475,41 @@ export default {
       </div>
 
       ${youtube.length ? `<div class="card">
-        <div class="card-head"><h3>Resumen de canales</h3></div>
+        <div class="card-head">
+          <div>
+            <h3>Mis canales de YouTube</h3>
+            <p class="muted small" style="margin-top:4px">
+              ${ytConfig.connected
+                ? `Puedes publicar Shorts · te quedan <b style="color:var(--text)">${ytConfig.quota.uploads_left}</b> subidas hoy`
+                : 'Para publicar Shorts hay que autorizar el canal en Ajustes → YouTube.'}
+            </p>
+          </div>
+          ${ytConfig.configured && !ytConfig.connected
+            ? '<a class="btn sm primary" href="/api/oauth/youtube/start">Autorizar para publicar</a>'
+            : '<a class="btn sm ghost" href="#ajustes">Ajustes de YouTube</a>'}
+        </div>
         <div class="list">${youtube.map((account) => `
           <div class="list-row">
-            <div class="avatar">${account.avatar_url ? `<img src="${escapeHtml(account.avatar_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:12px">` : '▶'}</div>
-            <div class="grow"><strong>${escapeHtml(account.display_name)}</strong>
-              <div class="muted small">${fmt.number(account.stats?.subscribers || 0)} suscriptores</div></div>
+            <div class="avatar">${account.avatar_url ? `<img src="${escapeHtml(account.avatar_url)}" style="width:100%;height:100%;object-fit:cover">` : '▶'}</div>
+            <div class="grow" style="min-width:0">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <strong>${escapeHtml(account.display_name)}</strong>
+                ${account.has_token
+                  ? '<span class="pill ok">publica Shorts</span>'
+                  : '<span class="pill">sólo lectura</span>'}
+              </div>
+              <div class="muted small" style="margin-top:3px">
+                ${fmt.number(account.stats?.subscribers || 0)} suscriptores</div>
+            </div>
             <button class="btn sm danger" data-del-account="${account.id}">Quitar</button>
           </div>`).join('')}</div>
       </div>` : ''}`;
 
     root.querySelectorAll('[data-add-yt]').forEach((b) => { b.onclick = () => addYouTube(reload); });
     root.querySelectorAll('[data-add-tt]').forEach((b) => { b.onclick = () => addTikTok(reload); });
+    root.querySelectorAll('[data-add-shorts]').forEach((b) => {
+      b.onclick = () => traerShortsDialog(reload);
+    });
 
     root.querySelectorAll('[data-sync]').forEach((button) => {
       button.onclick = async () => {

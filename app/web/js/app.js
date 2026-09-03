@@ -118,6 +118,23 @@ async function heartbeat() {
   }
 }
 
+/* --------------------------------------------------------------- el tema */
+const botonTema = document.getElementById('theme');
+
+function aplicarTema(tema) {
+  if (tema === 'light') document.documentElement.dataset.theme = 'light';
+  else delete document.documentElement.dataset.theme;
+  botonTema.textContent = tema === 'light' ? '◑' : '◐';
+  botonTema.title = tema === 'light' ? 'Cambiar a modo oscuro' : 'Cambiar a modo claro';
+  try { localStorage.setItem('kevil-tema', tema); } catch { /* modo privado */ }
+}
+
+botonTema.onclick = () => {
+  aplicarTema(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
+};
+
+aplicarTema(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
+
 /* ------------------------------------------------------- campana de avisos */
 let avisosAbiertos = false;
 

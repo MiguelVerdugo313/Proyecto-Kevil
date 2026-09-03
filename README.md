@@ -5,9 +5,9 @@
 Kevil Studio se descarga, se ejecuta en local y abre una interfaz en el navegador.
 Hace tres cosas:
 
-1. **Reaprovecha tu contenido**: vigila tus canales de YouTube, corta los vídeos largos
-   y los directos en trozos con gancho, los pasa a vertical (9:16) con rótulos y los
-   publica en TikTok a las horas que mejor funcionan para esa cuenta.
+1. **Reaprovecha tu contenido en las dos direcciones**: corta tus vídeos y directos de
+   YouTube en clips verticales y los publica en **TikTok y en YouTube Shorts**; y trae
+   los **Shorts que ya tienes** para republicarlos en TikTok tal cual.
 2. **Prepara tus subidas a YouTube**: subes el vídeo y te devuelve títulos, descripción
    con capítulos, etiquetas, hashtags y varias miniaturas, siguiendo las buenas prácticas
    de la plataforma. Con IA si le das una clave; si no, generado en local.
@@ -24,19 +24,21 @@ tu proveedor de IA.
 ## Qué hace, paso a paso
 
 ```
-                          ┌──────────── Coach del canal ────────────┐
-                          │  cadencia · avisos · ideas validadas    │
-                          └────────────────────────────────────────┘
-                                          ▲
-Canal de YouTube ──► Descarga ──► Transcripción ──► Selección de momentos
-        │                                                   │
-        │                                                   ▼
-        │                        Publicación en TikTok ◄── Vertical + rótulos
-        ▼
+                       ┌──────────── Coach del canal ────────────┐
+                       │  cadencia · avisos · ideas validadas    │
+                       └────────────────────────────────────────┘
+                                       ▲
+Vídeos y directos ──► Descarga ──► Transcripción ──► Cortes ──► Vertical + rótulos
+                                                                        │
+                                                            ┌───────────┴───────────┐
+                                                            ▼                       ▼
+                                                         TikTok            YouTube Shorts
+Tus Shorts de YouTube ────────────────────────────────────► TikTok (tal cual)
+
 Vídeo que subes tú ──► Kit de publicación: títulos · descripción · etiquetas · miniaturas
 ```
 
-### Camino 1 — de YouTube a TikTok
+### Camino 1 — de tus vídeos largos a TikTok y Shorts
 
 1. **Vigila** tus canales: subidas normales y directos ya emitidos. Los vídeos nuevos
    entran solos en el proceso.
@@ -49,10 +51,20 @@ Vídeo que subes tú ──► Kit de publicación: títulos · descripción · 
    split o recorte fijo; rótulos estilo karaoke; gancho arriba; marca de agua;
    barra de progreso; audio nivelado a −14 LUFS.
 6. **Escribe** título, descripción y hashtags con tus plantillas.
-7. **Programa** cada clip en la mejor franja de esa cuenta (ver más abajo).
-8. **Publica** solo, lo deja en tus borradores de TikTok, o espera tu visto bueno.
+7. **Programa** cada clip en la mejor franja de cada cuenta (ver más abajo).
+8. **Publica** en TikTok, en YouTube Shorts o en ambos a la vez; lo deja en borradores,
+   o espera tu visto bueno. Cada destino recibe su propio horario.
 
-### Camino 2 — preparar una subida a YouTube
+### Camino 2 — tus Shorts de YouTube a TikTok
+
+En **Cuentas → ↻ Shorts a TikTok** pegas la URL de tu canal. Kevil mira la pestaña de
+Shorts, se los baja y los publica en TikTok **tal cual** (ya son verticales: no se
+recortan ni se les añade nada encima). Los Shorts nuevos que subas se republican solos.
+
+La plantilla de flujo **🔁 Shorts a TikTok** ya viene preparada: estrategia «vídeo
+entero» y los pasos de rótulos y gancho apagados, porque el Short ya viene montado.
+
+### Camino 3 — preparar una subida a YouTube
 
 En **Estudio** arrastras el vídeo y obtienes, en un par de minutos:
 
@@ -124,11 +136,21 @@ Dos opciones:
 * **Cuenta de prueba**: se crea en un clic y simula las publicaciones. Todo el proceso
   funciona igual (cortes, render, programación) pero no sube nada. Ideal para probar.
 
+### 2 bis. (Opcional) Conecta YouTube para publicar Shorts
+
+Sólo si quieres que Kevil **suba** los clips a tu canal. Necesitas un proyecto en Google
+Cloud con la YouTube Data API v3; los pasos están en
+[`docs/CONECTAR-YOUTUBE.md`](docs/CONECTAR-YOUTUBE.md).
+
+> **Importante**: Google da 10.000 unidades de cuota al día y cada subida cuesta 1.600,
+> así que salen **unas 6 publicaciones diarias**. Kevil lleva la cuenta y te la muestra
+> en Ajustes. Es un límite de Google, igual para cualquier programa que use su API.
+
 ### 3. Ajusta el flujo y deja que trabaje
 
-En **Flujos** tienes cuatro plantillas listas (cortes virales, directos largos,
-podcast, tutoriales/gameplay). Duplica la que más se acerque, toca lo que quieras
-y márcala como predeterminada.
+En **Flujos** tienes seis plantillas listas: cortes virales, directos largos, podcast,
+tutoriales/gameplay, **🔁 Shorts a TikTok** y **🚀 Clips a TikTok y Shorts**. Duplica la
+que más se acerque, toca lo que quieras y márcala como predeterminada.
 
 Los clips terminados aparecen en **Clips**. Ahí los ves, ajustas el corte,
 el encuadre y el texto, y los apruebas. En **Agenda** ves cuándo sale cada uno.
@@ -163,7 +185,7 @@ los que no son imprescindibles se pueden desactivar con su interruptor.
 | 7 | Audio | normalización, volumen objetivo, entradas y salidas suaves |
 | 8 | Título y descripción | plantillas con variables, hashtags fijos y automáticos |
 | 9 | Programación | publicaciones por día, separación mínima, días de reparto, orden |
-| 10 | Publicación en TikTok | automático / revisar / borrador / solo exportar, privacidad, comentarios, dúos, stitch |
+| 10 | Publicación | **destinos (TikTok y/o YouTube Shorts)**, automático / revisar / borrador / solo exportar, privacidad de cada plataforma, comentarios, dúos, stitch |
 
 Variables disponibles en las plantillas de texto:
 `{titulo}` `{hook}` `{n}` `{total}` `{canal}` `{hashtags}`.
@@ -263,6 +285,16 @@ Las ideas se guardan o se descartan, así no te repite siempre lo mismo.
 
 ---
 
+## El aspecto
+
+Interfaz en **modo oscuro** (negro puro con capas de cristal esmerilado y una textura
+de grano finísima) o **claro** (grises suaves), con el botón ◐ de la barra superior para
+cambiar; tu elección se recuerda. Tipografía Inter, acento esmeralda, esquinas muy
+redondeadas y animaciones de entrada suaves. Si te quedas sin conexión, Inter cae en la
+tipografía del sistema y todo sigue viéndose bien.
+
+---
+
 ## Dónde queda todo
 
 ```
@@ -336,9 +368,10 @@ Sube `Tareas en paralelo` en Ajustes si tu equipo lo aguanta.
 **¿Tengo que pagar por la IA?** No es obligatoria: sin clave todo se genera en local.
 Si la quieres, tanto OpenRouter como NVIDIA tienen opciones gratuitas para empezar.
 
-**¿Sube el vídeo a YouTube por mí?** No. Kevil te prepara todo (título, descripción,
-etiquetas y miniatura) para que lo pegues al subirlo. Publicar en YouTube requiere su
-API oficial con verificación; en TikTok sí publica directamente.
+**¿Sube el vídeo a YouTube por mí?** Los **Shorts sí**, si conectas tu canal
+(ver arriba); recuerda el límite de ~6 subidas al día que impone Google. Los **vídeos
+largos no**: para esos Kevil te prepara el kit (título, descripción, etiquetas y
+miniatura) y los subes tú, que además así eliges la miniatura con calma.
 
 **¿De dónde saca las mejores horas de YouTube?** De tus propios vídeos: cruza la hora de
 publicación con las visitas que consiguieron. Hasta tener seis vídeos con datos usa unas
@@ -368,7 +401,8 @@ app/
 │   ├── segmenter.py   elección de los mejores momentos
 │   ├── captions.py    generación del ASS (rótulos, gancho, barra)
 │   ├── renderer.py    grafo de filtros de ffmpeg
-│   ├── timing.py      motor de horarios de TikTok
+│   ├── timing.py      motor de horarios (por cuenta y plataforma)
+│   ├── youtube_api.py publicación de Shorts (API oficial, subida reanudable)
 │   ├── ai.py          conector de IA (OpenRouter y NVIDIA)
 │   ├── seo.py         kit de publicación de YouTube
 │   ├── thumbnails.py  análisis de fotogramas y montaje de miniaturas

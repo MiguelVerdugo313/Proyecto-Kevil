@@ -17,6 +17,7 @@ from app.models import (
     Clip,
     ClipStatus,
     Flow,
+    MetricSample,
     Platform,
     Post,
     PostStatus,
@@ -25,7 +26,9 @@ from app.models import (
     VideoStatus,
     utcnow,
 )
-from app.services import events, metadata, renderer, segmenter, timing, tiktok, transcript
+from app.services import (
+    events, metadata, renderer, segmenter, timing, tiktok, transcript, youtube_api,
+)
 from app.services import media as media_service
 from app.services import youtube as youtube_service
 from app.services.queue import JobContext, enqueue, register
@@ -70,6 +73,34 @@ def target_account_for(session: Session, video: Video) -> Account | None:
     return default_tiktok_account(session)
 
 
+def publishable_youtube_account(session: Session) -> Account | None:
+    """Primer canal de YouTube conectado con permiso para subir."""
+    for account in session.scalars(
+        select(Account)
+        .where(Account.platform == Platform.youtube.value, Account.enabled.is_(True))
+        .order_by(Account.id)
+    ).all():
+        if (account.credentials or {}).get("access_token"):
+            return account
+    return None
+
+
+def destinations_for(
+    session: Session, video: Video, publish_config: dict[str, Any]
+) -> list[Account]:
+    """Cuentas a las que hay que publicar este clip, según el flujo."""
+    cuentas: list[Account] = []
+    if publish_config.get("publish_tiktok", True):
+        tiktok_account = target_account_for(session, video)
+        if tiktok_account:
+            cuentas.append(tiktok_account)
+    if publish_config.get("publish_youtube_shorts", False):
+        youtube_account = publishable_youtube_account(session)
+        if youtube_account:
+            cuentas.append(youtube_account)
+    return cuentas
+
+
 # --------------------------------------------------------------------------
 # 1. Sincronizar un canal
 # --------------------------------------------------------------------------
@@ -89,6 +120,7 @@ def job_sync_source(session: Session, ctx: JobContext) -> None:
             limit=max(1, int(source.backfill_limit or 20)),
             include_lives=bool(source.include_lives),
             include_shorts=bool(source.include_shorts),
+            only_shorts=source.kind == "shorts",
             cookies_from_browser=ingest_config.get("cookies_from_browser", ""),
         )
     except Exception as exc:
@@ -414,11 +446,12 @@ def job_render(session: Session, ctx: JobContext) -> None:
 
     mode = str(publish_config.get("mode", "review"))
     if mode in {"auto", "draft"} and schedule_config.get("auto_schedule", True):
-        account = target_account_for(session, video)
-        if account:
-            schedule_clip(session, clip, account, schedule_config)
+        cuentas = destinations_for(session, video, publish_config)
+        if cuentas:
+            for cuenta in cuentas:
+                schedule_clip(session, clip, cuenta, schedule_config)
         else:
-            ctx.log("No hay ninguna cuenta de TikTok conectada: el clip queda pendiente.")
+            ctx.log("No hay ninguna cuenta conectada para publicar: el clip queda pendiente.")
 
     events.log(
         session,
@@ -505,28 +538,19 @@ def job_publish(session: Session, ctx: JobContext) -> None:
     flow = resolve_flow(session, clip.flow_id)
     publish_config = step_config(flow.steps, "publish")
 
+    es_youtube = account.platform == Platform.youtube.value
+    destino = "YouTube Shorts" if es_youtube else "TikTok"
+
     post.status = PostStatus.publishing.value
     clip.status = ClipStatus.publishing.value
     session.commit()
-    ctx.progress(0.15, "Subiendo a TikTok…")
-
-    simulate = settings.dry_run or not tiktok.is_configured() or not (
-        account.credentials or {}
-    ).get("access_token")
+    ctx.progress(0.15, f"Subiendo a {destino}…")
 
     try:
-        result = tiktok.publish_video(
-            account.credentials or {},
-            video_path=clip.render_path,
-            caption=post.caption or clip.caption,
-            mode="draft" if publish_config.get("mode") == "draft" else "auto",
-            privacy_level=str(publish_config.get("privacy_level", "PUBLIC_TO_EVERYONE")),
-            allow_comments=bool(publish_config.get("allow_comments", True)),
-            allow_duet=bool(publish_config.get("allow_duet", True)),
-            allow_stitch=bool(publish_config.get("allow_stitch", True)),
-            commercial_content=bool(publish_config.get("commercial_content", False)),
-            dry_run=simulate,
-        )
+        if es_youtube:
+            result = _publish_to_youtube(session, ctx, post, clip, account, publish_config)
+        else:
+            result = _publish_to_tiktok(session, ctx, post, clip, account, publish_config)
     except Exception as exc:
         post.status = PostStatus.failed.value
         post.error = str(exc)[:1000]
@@ -534,23 +558,17 @@ def job_publish(session: Session, ctx: JobContext) -> None:
         clip.error = str(exc)[:1000]
         events.log(
             session,
-            f"Fallo al publicar «{clip.title[:50]}»: {exc}",
+            f"Fallo al publicar «{clip.title[:50]}» en {destino}: {exc}",
             level="error",
-            scope="tiktok",
+            scope="youtube" if es_youtube else "tiktok",
             data={"post_id": post.id},
         )
         raise
 
-    # las credenciales pueden haberse renovado durante la subida
-    if not simulate:
-        try:
-            account.credentials = tiktok.valid_credentials(account.credentials or {})
-        except Exception:
-            pass
-
     post.status = PostStatus.published.value
     post.published_at = utcnow()
     post.publish_id = str(result.get("publish_id", ""))
+    post.external_post_id = str(result.get("external_id", ""))
     post.share_url = str(result.get("share_url", ""))
     post.error = ""
     clip.status = ClipStatus.published.value
@@ -559,11 +577,97 @@ def job_publish(session: Session, ctx: JobContext) -> None:
     events.log(
         session,
         ("[simulación] " if result.get("dry_run") else "")
-        + f"Publicado «{clip.title[:50]}» en @{account.handle or account.display_name}",
+        + f"Publicado «{clip.title[:50]}» en {destino} "
+        + f"(@{account.handle or account.display_name})",
         level="success",
-        scope="tiktok",
+        scope="youtube" if es_youtube else "tiktok",
         data={"post_id": post.id, "dry_run": bool(result.get("dry_run"))},
     )
+
+
+def _publish_to_tiktok(session, ctx, post, clip, account, publish_config) -> dict[str, Any]:
+    simulate = settings.dry_run or not tiktok.is_configured() or not (
+        account.credentials or {}
+    ).get("access_token")
+
+    result = tiktok.publish_video(
+        account.credentials or {},
+        video_path=clip.render_path,
+        caption=post.caption or clip.caption,
+        mode="draft" if publish_config.get("mode") == "draft" else "auto",
+        privacy_level=str(publish_config.get("privacy_level", "PUBLIC_TO_EVERYONE")),
+        allow_comments=bool(publish_config.get("allow_comments", True)),
+        allow_duet=bool(publish_config.get("allow_duet", True)),
+        allow_stitch=bool(publish_config.get("allow_stitch", True)),
+        commercial_content=bool(publish_config.get("commercial_content", False)),
+        dry_run=simulate,
+    )
+
+    # las credenciales pueden haberse renovado durante la subida
+    if not simulate:
+        try:
+            account.credentials = tiktok.valid_credentials(account.credentials or {})
+        except Exception:
+            pass
+
+    return {
+        "publish_id": result.get("publish_id", ""),
+        "external_id": "",
+        "share_url": result.get("share_url", ""),
+        "dry_run": result.get("dry_run", False),
+    }
+
+
+def _publish_to_youtube(session, ctx, post, clip, account, publish_config) -> dict[str, Any]:
+    """Sube el clip vertical como Short al canal conectado."""
+    simulate = settings.dry_run or not youtube_api.is_configured() or not (
+        account.credentials or {}
+    ).get("access_token")
+
+    salida = (clip.render_config or {}).get("output") or {}
+    avisos = youtube_api.validate_short(
+        int(salida.get("width") or 0),
+        int(salida.get("height") or 0),
+        float(salida.get("duration") or clip.duration_s),
+    )
+    for aviso in avisos:
+        ctx.log(f"Aviso: {aviso}")
+
+    sufijo = str(publish_config.get("youtube_title_suffix", " #Shorts"))
+    titulo = f"{clip.title}{sufijo}"[: youtube_api.MAX_TITLE]
+
+    result = youtube_api.upload_short(
+        account.credentials or {},
+        video_path=clip.render_path,
+        title=titulo,
+        description=post.caption or clip.caption,
+        tags=list(clip.hashtags or []),
+        privacy_status=str(publish_config.get("youtube_privacy", "public")),
+        made_for_kids=bool(publish_config.get("youtube_made_for_kids", False)),
+        dry_run=simulate,
+        on_progress=lambda ratio: ctx.progress(0.15 + ratio * 0.8, f"Subiendo… {ratio * 100:.0f}%"),
+    )
+
+    if not simulate:
+        try:
+            account.credentials = youtube_api.valid_credentials(account.credentials or {})
+        except Exception:
+            pass
+        # la miniatura del clip sirve de portada si el canal está verificado
+        if clip.thumb_path and result.get("video_id"):
+            try:
+                youtube_api.set_thumbnail(
+                    account.credentials or {}, result["video_id"], clip.thumb_path
+                )
+            except Exception:
+                pass
+
+    return {
+        "publish_id": result.get("video_id", ""),
+        "external_id": result.get("video_id", ""),
+        "share_url": result.get("url", ""),
+        "dry_run": result.get("dry_run", False),
+    }
 
 
 # --------------------------------------------------------------------------
@@ -571,20 +675,72 @@ def job_publish(session: Session, ctx: JobContext) -> None:
 # --------------------------------------------------------------------------
 @register("refresh_metrics")
 def job_refresh_metrics(session: Session, ctx: JobContext) -> None:
-    from app.models import MetricSample
-
     account_id = ctx.payload.get("account_id")
     accounts = (
         [session.get(Account, int(account_id))]
         if account_id
-        else session.scalars(
-            select(Account).where(
-                Account.platform == Platform.tiktok.value, Account.enabled.is_(True)
-            )
-        ).all()
+        else session.scalars(select(Account).where(Account.enabled.is_(True))).all()
     )
 
-    for account in [a for a in accounts if a]:
+    # --- YouTube: estadísticas de los Shorts que hemos subido -------------
+    for account in [
+        a for a in accounts if a and a.platform == Platform.youtube.value
+    ]:
+        credentials = account.credentials or {}
+        if not credentials.get("access_token") or settings.dry_run:
+            continue
+        try:
+            credentials = youtube_api.valid_credentials(credentials)
+            account.credentials = credentials
+            canal = youtube_api.fetch_channel(credentials)
+            account.stats = {
+                **(account.stats or {}),
+                "subscribers": canal.get("subscribers", 0),
+                "videos": canal.get("videos", 0),
+                "views": canal.get("views", 0),
+                "updated_at": utcnow().isoformat(),
+            }
+
+            publicaciones = session.scalars(
+                select(Post).where(
+                    Post.account_id == account.id,
+                    Post.status == PostStatus.published.value,
+                    Post.external_post_id != "",
+                )
+            ).all()
+            estadisticas = youtube_api.fetch_video_stats(
+                credentials, [p.external_post_id for p in publicaciones]
+            )
+            for post in publicaciones:
+                datos = estadisticas.get(post.external_post_id)
+                if not datos:
+                    continue
+                post.metrics = {
+                    "views": datos["views"],
+                    "likes": datos["likes"],
+                    "comments": datos["comments"],
+                }
+                session.add(
+                    MetricSample(
+                        account_id=account.id,
+                        post_id=post.id,
+                        posted_at=post.published_at,
+                        views=datos["views"],
+                        likes=datos["likes"],
+                        comments=datos["comments"],
+                        followers=account.stats.get("subscribers", 0),
+                        extra={"video_id": post.external_post_id},
+                    )
+                )
+        except Exception as exc:
+            account.status = AccountStatus.error.value
+            account.status_detail = str(exc)[:400]
+            ctx.log(f"{account.display_name}: {exc}")
+
+    # --- TikTok -----------------------------------------------------------
+    for account in [
+        a for a in accounts if a and a.platform == Platform.tiktok.value
+    ]:
         credentials = account.credentials or {}
         if not credentials.get("access_token") or settings.dry_run:
             continue

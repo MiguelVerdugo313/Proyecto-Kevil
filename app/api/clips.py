@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.api.common import clip_to_dict, naive_utc
 from app.db import get_db
-from app.models import Account, Clip, ClipStatus, Platform, Post, PostStatus
+from app.models import Account, Clip, ClipStatus, Post, PostStatus
 from app.services import events, pipeline
 from app.services.queue import enqueue
 
@@ -120,39 +120,50 @@ def approve_clip(clip_id: int, body: ApproveIn, db: Session = Depends(get_db)):
     if not clip:
         raise HTTPException(404, "Clip no encontrado")
 
-    account = None
-    if body.account_id:
-        account = db.get(Account, body.account_id)
-    if account is None:
-        account = pipeline.target_account_for(db, clip.video)
-    if account is None or account.platform != Platform.tiktok.value:
-        raise HTTPException(400, "Conecta antes una cuenta de TikTok.")
-
-    flow = pipeline.resolve_flow(db, clip.flow_id)
     from app.flow_schema import step_config
 
+    flow = pipeline.resolve_flow(db, clip.flow_id)
     schedule_config = step_config(flow.steps, "schedule")
+    publish_config = step_config(flow.steps, "publish")
 
-    existing = db.scalars(
-        select(Post).where(
-            Post.clip_id == clip.id, Post.status == PostStatus.scheduled.value
+    # Una cuenta concreta si la piden; si no, los destinos que marque el flujo
+    if body.account_id:
+        elegida = db.get(Account, body.account_id)
+        cuentas = [elegida] if elegida else []
+    else:
+        cuentas = pipeline.destinations_for(db, clip.video, publish_config)
+    if not cuentas:
+        raise HTTPException(
+            400,
+            "No hay ninguna cuenta conectada para publicar. Conecta TikTok o tu canal "
+            "de YouTube en «Cuentas».",
         )
-    ).first()
-    if existing:
-        if body.scheduled_at:
-            existing.scheduled_at = naive_utc(body.scheduled_at)
-        db.commit()
-        return clip_to_dict(clip)
 
-    post = pipeline.schedule_clip(
-        db,
-        clip,
-        account,
-        schedule_config,
-        when=naive_utc(body.scheduled_at),
-    )
+    # No se duplica lo que ya esté programado en esa misma cuenta
+    ya_programadas = {
+        post.account_id
+        for post in db.scalars(
+            select(Post).where(
+                Post.clip_id == clip.id, Post.status == PostStatus.scheduled.value
+            )
+        ).all()
+    }
+
+    creados = []
+    for cuenta in cuentas:
+        if cuenta.id in ya_programadas:
+            continue
+        post = pipeline.schedule_clip(
+            db, clip, cuenta, schedule_config, when=naive_utc(body.scheduled_at)
+        )
+        creados.append(post.id)
+
     db.commit()
-    return {"clip": clip_to_dict(clip), "post_id": post.id}
+    return {
+        "clip": clip_to_dict(clip),
+        "post_ids": creados,
+        "post_id": creados[0] if creados else None,
+    }
 
 
 @router.post("/{clip_id}/reject")

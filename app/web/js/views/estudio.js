@@ -306,14 +306,14 @@ export default {
 
 function avisoSinIA(aiStatus) {
   const proveedores = Object.entries(aiStatus.providers || {})
-    .map(([, value]) => `<a href="${escapeHtml(value.keys_url)}" target="_blank" rel="noreferrer" style="color:var(--teal)">${escapeHtml(value.label)}</a>`)
+    .map(([, value]) => `<a href="${escapeHtml(value.keys_url)}" target="_blank" rel="noreferrer" style="color:var(--accent)">${escapeHtml(value.label)}</a>`)
     .join(' o ');
   return `<div class="card" style="border-color:rgba(255,181,69,.3);background:rgba(255,181,69,.06)">
     <strong style="font-size:13.5px">Sin IA configurada</strong>
     <p class="muted small" style="margin-top:7px;line-height:1.7">
       El kit se genera igual a partir de tu transcripción, pero con ${proveedores}
       los títulos y la descripción salen mucho mejor (y puedes crear fondos de miniatura).
-      Se configura en <a href="#ajustes" style="color:var(--teal)">Ajustes</a>.
+      Se configura en <a href="#ajustes" style="color:var(--accent)">Ajustes</a>.
     </p>
   </div>`;
 }

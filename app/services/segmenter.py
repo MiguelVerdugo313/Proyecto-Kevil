@@ -108,6 +108,26 @@ def segment_uniform(duration: float, config: dict[str, Any]) -> list[dict[str, A
     return candidates
 
 
+def segment_whole(duration: float, config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Un único «clip» con el vídeo entero.
+
+    Es lo que se usa para republicar Shorts que ya están hechos: no hay nada
+    que recortar, sólo reencuadrar (si hiciera falta) y publicar.
+    """
+    if duration <= 0:
+        return []
+    return [
+        {
+            "start": 0.0,
+            "end": round(duration, 2),
+            "score": 0.9,
+            "reason": "Vídeo completo",
+            "hook": "",
+            "text": "",
+        }
+    ]
+
+
 def segment_by_silence(
     media_path: str, duration: float, config: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -253,6 +273,10 @@ def find_segments(
 
     if strategy == "manual":
         return []
+
+    # El vídeo entero se devuelve tal cual, sin márgenes ni recortes por duración
+    if strategy == "completo":
+        return segment_whole(duration, config)
 
     candidates: list[dict[str, Any]] = []
     if strategy == "smart":

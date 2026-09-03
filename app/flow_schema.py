@@ -136,6 +136,10 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                     {"value": "uniform", "label": "Trozos iguales"},
                     {"value": "silence", "label": "Por pausas del audio"},
                     {"value": "manual", "label": "Manual (los marco yo)"},
+                    {
+                        "value": "completo",
+                        "label": "El vídeo entero (para Shorts que ya tienes)",
+                    },
                 ],
             },
             {
@@ -610,10 +614,24 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "type": "publish",
-        "label": "Publicación en TikTok",
+        "label": "Publicación",
         "icon": "🚀",
-        "description": "Cómo sale el clip a tu cuenta.",
+        "description": "Dónde y cómo sale cada clip.",
         "fields": [
+            {
+                "key": "publish_tiktok",
+                "label": "Publicar en TikTok",
+                "type": "bool",
+                "default": True,
+            },
+            {
+                "key": "publish_youtube_shorts",
+                "label": "Publicar en YouTube Shorts",
+                "type": "bool",
+                "default": False,
+                "help": "Requiere conectar tu canal con permiso de subida "
+                        "(Ajustes → YouTube). Google permite unas 6 subidas al día.",
+            },
             {
                 "key": "mode",
                 "label": "Modo",
@@ -642,7 +660,31 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
             {"key": "allow_stitch", "label": "Permitir stitch", "type": "bool", "default": True},
             {
                 "key": "commercial_content",
-                "label": "Contenido comercial",
+                "label": "Contenido comercial (TikTok)",
+                "type": "bool",
+                "default": False,
+            },
+            {
+                "key": "youtube_privacy",
+                "label": "Privacidad en YouTube",
+                "type": "select",
+                "default": "public",
+                "options": [
+                    {"value": "public", "label": "Público"},
+                    {"value": "unlisted", "label": "Oculto (con enlace)"},
+                    {"value": "private", "label": "Privado (pruebas)"},
+                ],
+            },
+            {
+                "key": "youtube_title_suffix",
+                "label": "Añadir al título en YouTube",
+                "type": "text",
+                "default": " #Shorts",
+                "help": "Ayuda a que YouTube lo clasifique como Short.",
+            },
+            {
+                "key": "youtube_made_for_kids",
+                "label": "Contenido para niños (YouTube)",
                 "type": "bool",
                 "default": False,
             },
@@ -734,11 +776,15 @@ def step_enabled(steps: list[dict[str, Any]], step_type: str) -> bool:
 # --------------------------------------------------------------------------
 # Plantillas de flujo listas para usar
 # --------------------------------------------------------------------------
-def _preset(overrides: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _preset(
+    overrides: dict[str, dict[str, Any]], disabled: tuple[str, ...] = ()
+) -> list[dict[str, Any]]:
     steps = default_steps()
     for step in steps:
         if step["type"] in overrides:
             step["config"].update(overrides[step["type"]])
+        if step["type"] in disabled and not STEP_INDEX[step["type"]].get("locked"):
+            step["enabled"] = False
     return steps
 
 
@@ -777,6 +823,37 @@ FLOW_PRESETS: list[dict[str, Any]] = [
                 "reframe": {"mode": "crop", "zoom": 1.1},
                 "subtitles": {"style": "blocks", "font_size": 58, "position_y": 76},
                 "segment": {"min_duration": 30, "max_duration": 90, "clips_per_hour": 6},
+            }
+        ),
+    },
+    {
+        "name": "Shorts a TikTok",
+        "icon": "🔁",
+        "description": "Republica tal cual los Shorts que ya tienes en YouTube.",
+        "steps": _preset(
+            {
+                # El Short ya está montado: ni se corta ni se le añade nada encima
+                "segment": {"strategy": "completo", "skip_intro": 0, "skip_outro": 0,
+                            "pad_start": 0, "pad_end": 0, "max_clips": 1},
+                "reframe": {"mode": "crop", "zoom": 1.0},
+                "metadata": {"title_template": "{titulo}",
+                             "caption_template": "{titulo}\n\n{hashtags}"},
+                "schedule": {"max_per_day": 2, "spread_days": 10},
+                "publish": {"publish_tiktok": True, "publish_youtube_shorts": False},
+            },
+            # el Short ya lleva sus propios rótulos y su gancho
+            disabled=("transcribe", "subtitles", "overlays"),
+        ),
+    },
+    {
+        "name": "Clips a TikTok y Shorts",
+        "icon": "🚀",
+        "description": "Cada corte sale a la vez en TikTok y en YouTube Shorts.",
+        "steps": _preset(
+            {
+                "segment": {"max_duration": 58},   # por debajo de 60 s en ambas
+                "publish": {"publish_tiktok": True, "publish_youtube_shorts": True},
+                "schedule": {"max_per_day": 2},
             }
         ),
     },

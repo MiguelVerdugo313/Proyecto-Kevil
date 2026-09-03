@@ -140,9 +140,14 @@ def list_channel_videos(
     limit: int = 30,
     include_lives: bool = True,
     include_shorts: bool = False,
+    only_shorts: bool = False,
     cookies_from_browser: str = "",
 ) -> list[dict[str, Any]]:
-    """Lista los vídeos publicados de un canal (y sus directos ya emitidos)."""
+    """Lista los vídeos publicados de un canal (y sus directos ya emitidos).
+
+    Con `only_shorts` se mira únicamente la pestaña de Shorts, que es lo que
+    interesa para republicarlos en TikTok.
+    """
     ydl = _require_ytdlp()
     url = normalize_channel_url(raw_url)
     opts = _base_opts(cookies_from_browser) | {
@@ -151,11 +156,14 @@ def list_channel_videos(
         "skip_download": True,
     }
 
-    tabs: list[tuple[str, bool]] = [("videos", False)]
-    if include_lives:
-        tabs.append(("streams", True))
-    if include_shorts:
-        tabs.append(("shorts", False))
+    if only_shorts:
+        tabs: list[tuple[str, bool]] = [("shorts", False)]
+    else:
+        tabs = [("videos", False)]
+        if include_lives:
+            tabs.append(("streams", True))
+        if include_shorts:
+            tabs.append(("shorts", False))
 
     results: dict[str, dict[str, Any]] = {}
     with ydl.YoutubeDL(opts) as dl:

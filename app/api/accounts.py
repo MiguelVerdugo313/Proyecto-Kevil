@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import secrets
 import time
+from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,14 +16,36 @@ from sqlalchemy.orm import Session
 from app.api.common import account_to_dict, source_to_dict
 from app.config import settings
 from app.db import get_db
-from app.models import Account, AccountStatus, Platform, Source, utcnow
-from app.services import events, tiktok, timing
+from app.models import Account, AccountStatus, Platform, Post, PostStatus, Source, utcnow
+from app.services import events, pipeline, tiktok, timing, youtube_api
 from app.services import youtube as youtube_service
 from app.services.queue import enqueue
 
 router = APIRouter(prefix="/api", tags=["cuentas"])
 
 _oauth_states: dict[str, float] = {}
+
+
+def _result_page(title: str, message: str, ok: bool) -> str:
+    """Página que se ve al volver de autorizar (TikTok o YouTube)."""
+    color = "#34D399" if ok else "#F87171"
+    return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
+<title>{title}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+body{{margin:0;height:100vh;display:grid;place-items:center;background:#000;
+color:#fafafa;font-family:'Inter',system-ui,sans-serif}}
+.card{{max-width:460px;padding:48px 40px;border-radius:40px;
+background:rgba(255,255,255,.05);backdrop-filter:blur(12px);
+border:1px solid rgba(255,255,255,.1);text-align:center}}
+h1{{font-size:22px;margin:0 0 14px;color:{color};font-weight:600;letter-spacing:-.05em}}
+p{{color:#71717A;line-height:1.6;margin:0;font-weight:300}}
+a{{color:{color};display:inline-block;margin-top:26px;text-decoration:none;
+font-weight:500;font-size:14px}}
+</style></head><body><div class="card"><h1>{title}</h1><p>{message}</p>
+<a href="/#cuentas">Volver a Kevil Studio</a></div>
+<script>setTimeout(()=>{{window.location='/#cuentas'}},2600)</script></body></html>"""
 
 
 # --------------------------------------------------------------------------
@@ -182,20 +205,7 @@ def tiktok_oauth_start():
 def tiktok_oauth_callback(
     code: str = "", state: str = "", error: str = "", db: Session = Depends(get_db)
 ):
-    def page(title: str, message: str, ok: bool) -> str:
-        color = "#28E7C5" if ok else "#FF6B81"
-        return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
-<title>{title}</title><style>
-body{{margin:0;height:100vh;display:grid;place-items:center;background:#0b0d13;
-color:#e9ecf5;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}}
-.card{{max-width:460px;padding:40px;border-radius:20px;background:#151824;
-border:1px solid #262b3d;text-align:center}}
-h1{{font-size:20px;margin:0 0 10px;color:{color}}}
-p{{color:#9aa3bd;line-height:1.6;margin:0}}
-a{{color:{color};display:inline-block;margin-top:22px;text-decoration:none;font-weight:600}}
-</style></head><body><div class="card"><h1>{title}</h1><p>{message}</p>
-<a href="/#cuentas">Volver a Kevil Studio</a></div>
-<script>setTimeout(()=>{{window.location='/#cuentas'}},2600)</script></body></html>"""
+    page = _result_page
 
     if error:
         return HTMLResponse(page("No se ha podido conectar", error, False), status_code=400)
@@ -243,6 +253,176 @@ a{{color:{color};display:inline-block;margin-top:22px;text-decoration:none;font-
     return HTMLResponse(
         page("¡Cuenta conectada!", f"@{account.handle or account.display_name} ya está lista.", True)
     )
+
+
+# --------------------------------------------------------------------------
+# YouTube con permiso de subida (para publicar Shorts)
+# --------------------------------------------------------------------------
+@router.get("/oauth/youtube/start")
+def youtube_oauth_start():
+    if not youtube_api.is_configured():
+        raise HTTPException(
+            400,
+            "Añade primero el ID y el secreto de cliente de Google en Ajustes → YouTube.",
+        )
+    state = secrets.token_urlsafe(24)
+    _oauth_states[state] = time.time()
+    return RedirectResponse(youtube_api.build_auth_url(state), status_code=302)
+
+
+@router.get("/oauth/youtube/callback", response_class=HTMLResponse)
+def youtube_oauth_callback(
+    code: str = "", state: str = "", error: str = "", db: Session = Depends(get_db)
+):
+    if error:
+        return HTMLResponse(_result_page("No se ha podido conectar", error, False), status_code=400)
+    if not code or state not in _oauth_states:
+        return HTMLResponse(
+            _result_page("Petición no válida", "Vuelve a intentarlo desde la aplicación.", False),
+            status_code=400,
+        )
+    _oauth_states.pop(state, None)
+
+    try:
+        credentials = youtube_api.exchange_code(code)
+        canal = youtube_api.fetch_channel(credentials)
+    except Exception as exc:
+        return HTMLResponse(_result_page("Error al conectar", str(exc), False), status_code=400)
+
+    account = db.scalars(
+        select(Account).where(
+            Account.platform == Platform.youtube.value,
+            Account.external_id == canal["channel_id"],
+        )
+    ).first()
+    if account is None:
+        account = Account(
+            platform=Platform.youtube.value,
+            external_id=canal["channel_id"],
+            strategy=timing.default_strategy(),
+        )
+        db.add(account)
+
+    account.display_name = canal["name"] or "Canal de YouTube"
+    account.handle = canal.get("handle") or account.handle
+    account.avatar_url = canal.get("avatar_url", "")
+    account.credentials = credentials
+    account.status = AccountStatus.connected.value
+    account.status_detail = ""
+    account.stats = {
+        **(account.stats or {}),
+        "subscribers": canal.get("subscribers", 0),
+        "videos": canal.get("videos", 0),
+        "views": canal.get("views", 0),
+        "updated_at": utcnow().isoformat(),
+    }
+    events.log(
+        db, f"YouTube conectado para publicar: {account.display_name}",
+        level="success", scope="youtube",
+    )
+    db.commit()
+    return HTMLResponse(
+        _result_page(
+            "¡Canal conectado!",
+            f"{account.display_name} ya puede recibir Shorts automáticamente.",
+            True,
+        )
+    )
+
+
+class ShortsImportIn(BaseModel):
+    url: str = Field(..., description="URL o @usuario del canal cuyos Shorts se traen")
+    limit: int = 30
+    flow_id: int | None = None
+    target_account_id: int | None = None
+    auto_ingest: bool = True
+
+
+@router.post("/sources/shorts")
+def add_shorts_source(body: ShortsImportIn, db: Session = Depends(get_db)):
+    """Vigila la pestaña de Shorts de un canal para republicarlos en TikTok."""
+    warning = ""
+    try:
+        info = youtube_service.resolve_channel(body.url)
+    except Exception as exc:
+        warning = f"No se han podido leer los datos del canal ({exc}). Se guardará la URL tal cual."
+        info = {
+            "channel_id": "",
+            "name": body.url,
+            "url": youtube_service.normalize_channel_url(body.url),
+        }
+
+    flow_id = body.flow_id
+    if flow_id is None:
+        # se busca la plantilla de republicar Shorts
+        from app.models import Flow
+
+        flow = db.scalars(
+            select(Flow).where(Flow.name.like("Shorts a TikTok%")).limit(1)
+        ).first()
+        flow_id = flow.id if flow else None
+
+    source = Source(
+        name=f"Shorts de {info['name']}",
+        url=info["url"],
+        channel_id=info.get("channel_id", ""),
+        kind="shorts",
+        auto_ingest=body.auto_ingest,
+        include_lives=False,
+        include_shorts=True,
+        min_duration_s=0,            # un Short dura poco: no se filtra por duración
+        backfill_limit=max(1, min(200, body.limit)),
+        flow_id=flow_id,
+        target_account_id=body.target_account_id,
+    )
+    db.add(source)
+    db.flush()
+
+    enqueue(
+        db,
+        "sync_source",
+        {"source_id": source.id},
+        priority=75,
+        message=f"Traer los Shorts de «{info['name']}»",
+    )
+    events.log(db, f"Shorts vigilados: {info['name']}", level="success", scope="canal")
+    db.commit()
+    return {"source": source_to_dict(source), "warning": warning}
+
+
+@router.get("/youtube/config")
+def youtube_config(db: Session = Depends(get_db)):
+    """Estado de la conexión con YouTube y cuánta cuota queda hoy."""
+    cuenta = pipeline.publishable_youtube_account(db)
+    usados = _uploads_today(db)
+    return {
+        "configured": youtube_api.is_configured(),
+        "connected": cuenta is not None,
+        "account": account_to_dict(cuenta) if cuenta else None,
+        "redirect_uri": youtube_api.redirect_uri(),
+        "scopes": youtube_api.SCOPES,
+        "quota": {
+            "daily_units": youtube_api.DAILY_QUOTA,
+            "cost_per_upload": youtube_api.COST_UPLOAD,
+            "uploads_today": usados,
+            "uploads_left": max(0, youtube_api.DAILY_QUOTA // youtube_api.COST_UPLOAD - usados),
+        },
+    }
+
+
+def _uploads_today(db: Session) -> int:
+    """Shorts subidos hoy (la cuota de Google se reinicia a medianoche del Pacífico)."""
+    desde = utcnow() - timedelta(hours=24)
+    filas = db.execute(
+        select(Post.id)
+        .join(Account, Post.account_id == Account.id)
+        .where(
+            Account.platform == Platform.youtube.value,
+            Post.status == PostStatus.published.value,
+            Post.published_at >= desde,
+        )
+    ).all()
+    return len(filas)
 
 
 @router.post("/accounts/tiktok/manual")
