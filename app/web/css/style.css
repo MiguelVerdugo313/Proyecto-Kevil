@@ -842,6 +842,25 @@ video.preview { width: 100%; border-radius: var(--r-lg); background: #000; max-h
 }
 .bloque-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 
+/* Guía de conexión: los pasos numerados de Google y de TikTok */
+.guia {
+  margin: 18px 0 6px;
+  border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: var(--surface-2); padding: 6px 18px 18px;
+}
+.paso-guia { display: flex; gap: 14px; align-items: flex-start; padding: 14px 0 10px; }
+.paso-guia strong { font-size: 13.5px; font-weight: 500; letter-spacing: -.02em; }
+.paso-guia a { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; }
+.paso-guia a:hover { border-bottom-color: var(--accent); }
+.paso-num {
+  flex: none; width: 24px; height: 24px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: 11px; font-weight: 700;
+}
+.guia .field { margin: 2px 0 6px 38px; }
+.guia textarea, .modal textarea.mono { font-size: 12px; line-height: 1.5; }
+
 .canales { display: flex; gap: 10px; flex-wrap: wrap; }
 .canal {
   display: flex; align-items: center; gap: 10px;

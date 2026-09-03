@@ -119,75 +119,248 @@ async function guardarIA(root) {
   });
 }
 
+/* Campo de sólo lectura con botón de copiar: la URL de retorno hay que pegarla
+   tal cual en Google y en TikTok, y equivocarse en una letra rompe el enlace. */
+function campoCopiable(etiqueta, valor, id) {
+  return `<div class="field full"><label>${escapeHtml(etiqueta)}</label>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="text" id="${id}" value="${escapeHtml(valor)}" readonly class="mono grow">
+      <button class="btn sm" data-copiar="${id}">Copiar</button>
+    </div></div>`;
+}
+
+function activarCopiar(root) {
+  root.querySelectorAll('[data-copiar]').forEach((boton) => {
+    boton.addEventListener('click', async () => {
+      const campo = root.querySelector(`#${boton.dataset.copiar}`);
+      try {
+        await navigator.clipboard.writeText(campo.value);
+      } catch {
+        campo.select();
+        document.execCommand('copy');
+      }
+      boton.textContent = 'Copiado';
+      setTimeout(() => { boton.textContent = 'Copiar'; }, 1600);
+    });
+  });
+}
+
+function paso(numero, titulo, cuerpo) {
+  return `<div class="paso-guia">
+    <span class="paso-num">${numero}</span>
+    <div class="grow" style="min-width:0">
+      <strong>${titulo}</strong>
+      <div class="muted small" style="margin-top:4px;line-height:1.65">${cuerpo}</div>
+    </div>
+  </div>`;
+}
+
 function editarYouTube(valores, yt, reload) {
+  // Ya conectado: nada que configurar, sólo el estado y el botón de rehacerlo.
+  if (yt.connected) {
+    const porDia = Math.floor(yt.quota.daily_units / yt.quota.cost_per_upload);
+    modal({
+      title: 'YouTube',
+      body: `<p class="muted small" style="line-height:1.7">
+          Tu canal está conectado y Kevil puede publicar Shorts en él.
+          Hoy te quedan <b style="color:var(--text)">${yt.quota.uploads_left}</b>
+          de ${porDia} subidas (es el límite de cuota que pone Google, no Kevil).
+        </p>`,
+      actions: [
+        { label: 'Cerrar' },
+        { label: 'Conectar otra cuenta', variant: 'primary',
+          onClick: () => { window.location.href = '/api/oauth/youtube/start'; return false; } },
+      ],
+    });
+    return;
+  }
+
+  // Ya hay credenciales: un solo botón.
+  if (yt.configured) {
+    modal({
+      title: 'Conectar con Google',
+      body: `<p class="muted small" style="line-height:1.7">
+          Todo listo. Pulsa el botón, elige tu cuenta de Google y acepta los permisos:
+          vuelves aquí solo y el canal queda conectado.
+        </p>
+        <p class="muted tiny" style="margin-top:14px">
+          Si Google te enseña un aviso de «aplicación no verificada», es normal:
+          la aplicación es tuya y se ejecuta en tu ordenador. Pulsa
+          «Configuración avanzada» → «Ir a Kevil Studio».
+        </p>`,
+      actions: [
+        { label: 'Cancelar' },
+        { label: 'Rehacer la configuración', onClick: () => { yt.configured = false; editarYouTube(valores, yt, reload); return false; } },
+        { label: 'Conectar con Google', variant: 'primary',
+          onClick: () => { window.location.href = '/api/oauth/youtube/start'; return false; } },
+      ],
+    });
+    return;
+  }
+
+  // Primera vez: la guía.
   modal({
-    title: 'YouTube',
+    title: 'Conectar con Google',
     body: `
       <p class="muted small" style="line-height:1.7">
-        Sólo hace falta para <b>publicar Shorts</b>. Vigilar canales, bajar vídeos y traer
-        tus Shorts a TikTok funciona sin nada de esto. Los pasos están en
-        <span class="mono">docs/CONECTAR-YOUTUBE.md</span>.
+        Sólo hace falta para <b>publicar Shorts</b>. Vigilar tus canales, bajar vídeos y
+        pasar tus Shorts a TikTok ya funciona sin esto.
       </p>
-      <div class="form-grid">
-        <div class="field full"><label>ID de cliente de Google</label>
-          <input type="text" id="yt-id" value="${escapeHtml(valores.youtube_client_id || '')}"
-            placeholder="123456789-abc.apps.googleusercontent.com"></div>
-        <div class="field full"><label>Secreto de cliente</label>
-          <input type="password" id="yt-secret" value="${escapeHtml(valores.youtube_client_secret || '')}"
-            placeholder="••••••••"></div>
-        <div class="field full"><label>URL de retorno (cópiala en Google Cloud)</label>
-          <input type="text" value="${escapeHtml(yt.redirect_uri)}" readonly class="mono"></div>
+      <p class="muted small" style="line-height:1.7;margin-top:10px">
+        Google exige que cada programa se registre con ellos una vez. Son
+        <b>tres pasos y cinco minutos</b>, y no hay que volver a hacerlo nunca más.
+      </p>
+
+      <div class="guia">
+        ${paso(1, 'Crea el proyecto y activa la API',
+          `Abre <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">crear proyecto</a>,
+           ponle el nombre que quieras y créalo. Después entra en
+           <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noreferrer">YouTube Data API v3</a>
+           y pulsa <b>Habilitar</b>.`)}
+        ${paso(2, 'Crea las credenciales',
+          `En <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Credenciales</a>:
+           <b>Crear credenciales → ID de cliente de OAuth</b>, tipo
+           <b>Aplicación web</b>. En «URI de redireccionamiento autorizados»
+           pega esta dirección:`)}
+        ${campoCopiable('URL de retorno', yt.redirect_uri, 'yt-redirect')}
+        ${paso(3, 'Descarga el archivo y pégalo aquí',
+          `Al crearla, Google te ofrece descargar un archivo
+           <span class="mono">client_secret_….json</span>. Ábrelo con el Bloc de notas,
+           copia <b>todo</b> y pégalo abajo. Yo saco de ahí lo que hace falta.`)}
       </div>
-      ${yt.connected ? `<p class="muted small">
-        Canal conectado · te quedan <b style="color:var(--text)">${yt.quota.uploads_left}</b>
-        de ${Math.floor(yt.quota.daily_units / yt.quota.cost_per_upload)} subidas hoy
-        (es el límite de cuota de Google, no de Kevil).</p>` : ''}`,
+
+      <div class="field full" style="margin-top:6px">
+        <label>Pega aquí el archivo de Google</label>
+        <textarea id="yt-json" rows="5" class="mono"
+          placeholder='{"web":{"client_id":"…","client_secret":"…"}}'></textarea>
+      </div>
+
+      <details style="margin-top:12px">
+        <summary class="muted small">O ponlo a mano</summary>
+        <div class="form-grid" style="margin-top:12px">
+          <div class="field full"><label>ID de cliente</label>
+            <input type="text" id="yt-id" value="${escapeHtml(valores.youtube_client_id || '')}"
+              placeholder="123456789-abc.apps.googleusercontent.com"></div>
+          <div class="field full"><label>Secreto de cliente</label>
+            <input type="password" id="yt-secret" value="${escapeHtml(valores.youtube_client_secret || '')}"
+              placeholder="••••••••"></div>
+        </div>
+      </details>`,
+    wide: true,
+    onOpen: activarCopiar,
     actions: [
       { label: 'Cancelar' },
-      ...(yt.configured ? [{
-        label: yt.connected ? 'Volver a autorizar' : 'Autorizar mi canal',
-        onClick: () => { window.location.href = '/api/oauth/youtube/start'; return false; },
-      }] : []),
-      { label: 'Guardar', variant: 'primary', onClick: async (root) => {
-        const limpio = (v) => (v === '••••••••' ? undefined : v);
-        await api.put('/api/settings', {
-          youtube_client_id: root.querySelector('#yt-id').value.trim(),
-          youtube_client_secret: limpio(root.querySelector('#yt-secret').value.trim()),
-        });
-        toast('Credenciales guardadas');
-        reload();
+      { label: 'Guardar y conectar', variant: 'primary', onClick: async (root) => {
+        const pegado = root.querySelector('#yt-json').value.trim();
+        if (pegado) {
+          await api.post('/api/credentials/youtube', { text: pegado });
+        } else {
+          const id = root.querySelector('#yt-id').value.trim();
+          const secreto = root.querySelector('#yt-secret').value.trim();
+          if (!id || !secreto) {
+            toastError('Pega el archivo de Google, o rellena los dos campos de abajo.');
+            return false;
+          }
+          await api.put('/api/settings', {
+            youtube_client_id: id,
+            youtube_client_secret: secreto === '••••••••' ? undefined : secreto,
+          });
+        }
+        toast('Credenciales guardadas · abriendo Google…');
+        setTimeout(() => { window.location.href = '/api/oauth/youtube/start'; }, 700);
+        return true;
       } },
     ],
   });
 }
 
 function editarTikTok(valores, tt, reload) {
+  if (tt.configured) {
+    modal({
+      title: 'Conectar con TikTok',
+      body: `<p class="muted small" style="line-height:1.7">
+          Todo listo. Pulsa el botón, entra en tu cuenta de TikTok y acepta los
+          permisos: vuelves aquí solo y la cuenta queda conectada.
+        </p>
+        <p class="muted tiny" style="margin-top:14px">
+          Puedes conectar varias cuentas: cada canal de YouTube publica en la que
+          le asignes.
+        </p>`,
+      actions: [
+        { label: 'Cancelar' },
+        { label: 'Rehacer la configuración', onClick: () => { tt.configured = false; editarTikTok(valores, tt, reload); return false; } },
+        { label: 'Conectar con TikTok', variant: 'primary',
+          onClick: () => { window.location.href = '/api/oauth/tiktok/start'; return false; } },
+      ],
+    });
+    return;
+  }
+
   modal({
-    title: 'TikTok',
+    title: 'Conectar con TikTok',
     body: `
       <p class="muted small" style="line-height:1.7">
-        Hace falta para publicar de verdad. Sin esto se simula: se genera y se programa
-        todo, pero no se sube nada. Los pasos están en
-        <span class="mono">docs/CONECTAR-TIKTOK.md</span>.
+        Sin esto Kevil funciona en <b>simulación</b>: corta, monta y programa todo,
+        pero no sube nada. Para publicar de verdad, TikTok exige registrar la
+        aplicación una vez.
       </p>
-      <div class="form-grid">
-        <div class="field full"><label>Client key</label>
-          <input type="text" id="tt-key" value="${escapeHtml(valores.tiktok_client_key || '')}" placeholder="aw…"></div>
-        <div class="field full"><label>Client secret</label>
-          <input type="password" id="tt-secret" value="${escapeHtml(valores.tiktok_client_secret || '')}" placeholder="••••••••"></div>
-        <div class="field full"><label>URL de retorno (cópiala en tu app de TikTok)</label>
-          <input type="text" value="${escapeHtml(tt.redirect_uri)}" readonly class="mono"></div>
-      </div>`,
+
+      <div class="guia">
+        ${paso(1, 'Crea la aplicación',
+          `Entra en <a href="https://developers.tiktok.com/apps" target="_blank" rel="noreferrer">developers.tiktok.com/apps</a>,
+           inicia sesión con tu cuenta de TikTok y pulsa <b>Connect an app</b>.`)}
+        ${paso(2, 'Pide los productos y pega la URL de retorno',
+          `Añade <b>Login Kit</b> y <b>Content Posting API</b>. En «Redirect URI»
+           pega esta dirección exacta:`)}
+        ${campoCopiable('URL de retorno', tt.redirect_uri, 'tt-redirect')}
+        ${paso(3, 'Copia las dos claves y pégalas aquí',
+          `En la pantalla de tu app verás <b>Client key</b> y <b>Client secret</b>.
+           Pégalas abajo, una en cada línea.`)}
+      </div>
+
+      <div class="field full" style="margin-top:6px">
+        <label>Pega aquí las dos claves</label>
+        <textarea id="tt-pegado" rows="3" class="mono"
+          placeholder="Client key: awxxxxxxxxxxxx&#10;Client secret: xxxxxxxxxxxxxxxx"></textarea>
+      </div>
+
+      <p class="muted tiny" style="margin-top:12px">
+        TikTok revisa las aplicaciones antes de dejar publicar. Mientras tanto
+        Kevil sigue funcionando en simulación y no pierdes nada de lo programado.
+      </p>
+
+      <details style="margin-top:12px">
+        <summary class="muted small">O ponlas a mano</summary>
+        <div class="form-grid" style="margin-top:12px">
+          <div class="field full"><label>Client key</label>
+            <input type="text" id="tt-key" value="${escapeHtml(valores.tiktok_client_key || '')}" placeholder="aw…"></div>
+          <div class="field full"><label>Client secret</label>
+            <input type="password" id="tt-secret" value="${escapeHtml(valores.tiktok_client_secret || '')}" placeholder="••••••••"></div>
+        </div>
+      </details>`,
+    wide: true,
+    onOpen: activarCopiar,
     actions: [
       { label: 'Cancelar' },
-      { label: 'Guardar', variant: 'primary', onClick: async (root) => {
-        const limpio = (v) => (v === '••••••••' ? undefined : v);
-        await api.put('/api/settings', {
-          tiktok_client_key: root.querySelector('#tt-key').value.trim(),
-          tiktok_client_secret: limpio(root.querySelector('#tt-secret').value.trim()),
-        });
-        toast('Credenciales guardadas');
-        reload();
+      { label: 'Guardar y conectar', variant: 'primary', onClick: async (root) => {
+        const pegado = root.querySelector('#tt-pegado').value.trim();
+        if (pegado) {
+          await api.post('/api/credentials/tiktok', { text: pegado });
+        } else {
+          const clave = root.querySelector('#tt-key').value.trim();
+          const secreto = root.querySelector('#tt-secret').value.trim();
+          if (!clave || !secreto) {
+            toastError('Pega las dos claves, o rellena los campos de abajo.');
+            return false;
+          }
+          await api.put('/api/settings', {
+            tiktok_client_key: clave,
+            tiktok_client_secret: secreto === '••••••••' ? undefined : secreto,
+          });
+        }
+        toast('Credenciales guardadas · abriendo TikTok…');
+        setTimeout(() => { window.location.href = '/api/oauth/tiktok/start'; }, 700);
+        return true;
       } },
     ],
   });
@@ -378,15 +551,19 @@ export default {
                 estado: yt.connected ? 'conectado' : (yt.configured ? 'falta autorizar' : 'sin configurar'),
                 tono: yt.connected ? 'ok' : (yt.configured ? 'warn' : ''),
                 accion: 'youtube',
+                boton: yt.connected ? 'Editar' : 'Conectar',
               })}
               ${fila({
                 nombre: 'TikTok',
-                descripcion: tt.configured
-                  ? 'App configurada: puedes autorizar cuentas reales'
-                  : 'Sin credenciales: las publicaciones se simulan',
-                estado: tt.configured ? 'configurado' : 'simulación',
-                tono: tt.configured ? 'ok' : 'warn',
+                descripcion: tt.connected
+                  ? `${tt.accounts} cuenta(s) conectada(s) · publica de verdad`
+                  : (tt.configured
+                    ? 'App configurada: ya puedes autorizar tu cuenta'
+                    : 'Sin credenciales: las publicaciones se simulan'),
+                estado: tt.connected ? 'conectado' : (tt.configured ? 'falta autorizar' : 'simulación'),
+                tono: tt.connected ? 'ok' : 'warn',
                 accion: 'tiktok',
+                boton: tt.connected ? 'Editar' : 'Conectar',
               })}
               ${fila({
                 nombre: 'Colores',

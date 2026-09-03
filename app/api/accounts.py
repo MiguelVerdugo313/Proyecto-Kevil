@@ -527,9 +527,18 @@ def delete_account(account_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/tiktok/config")
-def tiktok_config():
+def tiktok_config(db: Session = Depends(get_db)):
+    autorizadas = [
+        cuenta
+        for cuenta in db.scalars(
+            select(Account).where(Account.platform == Platform.tiktok.value)
+        ).all()
+        if (cuenta.credentials or {}).get("access_token")
+    ]
     return {
         "configured": tiktok.is_configured(),
+        "connected": bool(autorizadas),
+        "accounts": len(autorizadas),
         "redirect_uri": tiktok.redirect_uri(),
         "scopes": tiktok.SCOPES,
         "dry_run": settings.dry_run,

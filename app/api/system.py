@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 import shutil
 from datetime import timedelta
 from typing import Any
@@ -32,7 +34,7 @@ from app.models import (
 )
 from app.services import branding
 from app.services import media as media_service
-from app.services import tiktok, timing
+from app.services import tiktok, timing, youtube_api
 from app.services.queue import enqueue
 
 router = APIRouter(prefix="/api", tags=["sistema"])
@@ -278,6 +280,123 @@ def put_settings(body: SettingsIn, db: Session = Depends(get_db)):
     applied = save_settings(db, values)
     db.commit()
     return {"applied": list(applied), "settings": current_settings(db)}
+
+
+# --------------------------------------------------------------------------
+# Credenciales pegadas de una sola vez
+# --------------------------------------------------------------------------
+class PastedCredentials(BaseModel):
+    text: str
+
+
+def _buscar_par(datos: Any, claves: tuple[str, ...]) -> str:
+    """Busca una clave en cualquier nivel de un JSON (Google anida en «installed»)."""
+    if isinstance(datos, dict):
+        for clave in claves:
+            valor = datos.get(clave)
+            if isinstance(valor, str) and valor.strip():
+                return valor.strip()
+        for valor in datos.values():
+            encontrado = _buscar_par(valor, claves)
+            if encontrado:
+                return encontrado
+    elif isinstance(datos, list):
+        for elemento in datos:
+            encontrado = _buscar_par(elemento, claves)
+            if encontrado:
+                return encontrado
+    return ""
+
+
+@router.post("/credentials/youtube")
+def paste_youtube_credentials(body: PastedCredentials, db: Session = Depends(get_db)):
+    """Pega el archivo JSON que descargas de Google y listo.
+
+    Google entrega un «client_secret_….json» con el identificador y el secreto
+    dentro. Así no hay que copiar dos campos a mano ni equivocarse de cuál es cuál.
+    """
+    try:
+        datos = json.loads(body.text or "")
+    except json.JSONDecodeError:
+        raise HTTPException(
+            400,
+            "Eso no es el archivo de Google. Descárgalo con el botón de la flecha "
+            "(⤓) en «Credenciales» y pega aquí su contenido entero.",
+        ) from None
+
+    client_id = _buscar_par(datos, ("client_id",))
+    client_secret = _buscar_par(datos, ("client_secret",))
+    if not client_id or not client_secret:
+        raise HTTPException(
+            400, "Al archivo le falta el identificador o el secreto de cliente."
+        )
+    if not client_id.endswith(".apps.googleusercontent.com"):
+        raise HTTPException(
+            400,
+            "Ese identificador no parece de Google. Asegúrate de crear las "
+            "credenciales como «ID de cliente de OAuth» de tipo «Aplicación de escritorio».",
+        )
+
+    save_settings(
+        db, {"youtube_client_id": client_id, "youtube_client_secret": client_secret}
+    )
+    db.commit()
+    return {
+        "ok": True,
+        "client_id": client_id,
+        "ready": youtube_api.is_configured(),
+        "redirect_uri": youtube_api.redirect_uri(),
+    }
+
+
+@router.post("/credentials/tiktok")
+def paste_tiktok_credentials(body: PastedCredentials, db: Session = Depends(get_db)):
+    """Pega de golpe la client key y el client secret de TikTok.
+
+    TikTok no da ningún archivo: se copian de la pantalla de la app. Se acepta
+    cualquier formato razonable (una por línea, con etiquetas, separadas por
+    comas…) para que baste con seleccionar y pegar.
+    """
+    texto = (body.text or "").strip()
+    if not texto:
+        raise HTTPException(400, "Pega aquí la client key y el client secret.")
+
+    clave = _buscar_etiqueta(texto, ("client key", "client_key", "clientkey", "key"))
+    secreto = _buscar_etiqueta(
+        texto, ("client secret", "client_secret", "clientsecret", "secret")
+    )
+    if not clave or not secreto:
+        # sin etiquetas: dos palabras sueltas, la primera es la clave
+        piezas = [p for p in re.split(r"[\s,;]+", texto) if len(p) >= 8]
+        if len(piezas) == 2:
+            clave, secreto = piezas
+    if not clave or not secreto:
+        raise HTTPException(
+            400,
+            "No he sabido distinguir la client key del client secret. Pégalos en "
+            "dos líneas, la clave primero, o rellénalos a mano abajo.",
+        )
+
+    save_settings(db, {"tiktok_client_key": clave, "tiktok_client_secret": secreto})
+    db.commit()
+    return {
+        "ok": True,
+        "client_key": clave,
+        "ready": tiktok.is_configured(),
+        "redirect_uri": tiktok.redirect_uri(),
+    }
+
+
+def _buscar_etiqueta(texto: str, etiquetas: tuple[str, ...]) -> str:
+    """Saca el valor que sigue a «client key:», «Client Secret =», etc."""
+    for etiqueta in etiquetas:
+        patron = re.compile(
+            rf"{re.escape(etiqueta)}\s*[:=]?\s*([A-Za-z0-9_\-.]{{8,}})", re.I
+        )
+        encontrado = patron.search(texto)
+        if encontrado:
+            return encontrado.group(1)
+    return ""
 
 
 # --------------------------------------------------------------------------

@@ -128,19 +128,26 @@ Ahí eliges:
 
 ### 2. Conecta TikTok
 
-Dos opciones:
+En **Ajustes → TikTok → Conectar**. La primera vez sale una guía de tres pasos con los
+enlaces directos y un botón para copiar la URL de retorno; al final pegas de golpe la
+*client key* y el *client secret* que te enseña TikTok y Kevil las separa solo. A partir
+de ahí es **un botón**: «Conectar con TikTok» → entras en tu cuenta → vuelves conectado.
+Los detalles largos están en [`docs/CONECTAR-TIKTOK.md`](docs/CONECTAR-TIKTOK.md).
 
-* **Cuenta real**: crea una app en [developers.tiktok.com](https://developers.tiktok.com),
-  copia la clave y el secreto en **Ajustes** y autoriza la cuenta.
-  Los detalles están en [`docs/CONECTAR-TIKTOK.md`](docs/CONECTAR-TIKTOK.md).
-* **Cuenta de prueba**: se crea en un clic y simula las publicaciones. Todo el proceso
-  funciona igual (cortes, render, programación) pero no sube nada. Ideal para probar.
+Si prefieres probar antes, crea una **cuenta de prueba**: se hace en un clic y simula las
+publicaciones. Todo lo demás (cortes, render, programación) funciona igual.
 
 ### 2 bis. (Opcional) Conecta YouTube para publicar Shorts
 
-Sólo si quieres que Kevil **suba** los clips a tu canal. Necesitas un proyecto en Google
-Cloud con la YouTube Data API v3; los pasos están en
-[`docs/CONECTAR-YOUTUBE.md`](docs/CONECTAR-YOUTUBE.md).
+Sólo si quieres que Kevil **suba** los clips a tu canal. En **Ajustes → YouTube →
+Conectar** tienes la misma guía de tres pasos; en el último pegas entero el archivo
+`client_secret_….json` que descargas de Google y Kevil saca de ahí lo que necesita.
+Después es **un botón**: «Conectar con Google» → eliges tu cuenta → vuelves conectado.
+Más detalle en [`docs/CONECTAR-YOUTUBE.md`](docs/CONECTAR-YOUTUBE.md).
+
+> Google y TikTok obligan a que **cada programa** se registre con ellos una vez; no es
+> algo que Kevil pueda saltarse, le pasa a cualquier aplicación que publique en tu
+> nombre. Son cinco minutos y no hay que repetirlo nunca más.
 
 > **Importante**: Google da 10.000 unidades de cuota al día y cada subida cuesta 1.600,
 > así que salen **unas 6 publicaciones diarias**. Kevil lleva la cuenta y te la muestra

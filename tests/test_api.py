@@ -282,3 +282,76 @@ def test_migracion_anade_columnas_que_faltan(client):
         columnas = {r[1] for r in conexion.execute(text("PRAGMA table_info('videos')"))}
     assert {"kit", "origin", "views", "likes"} <= columnas
     assert client.get("/api/status").status_code == 200
+
+
+def test_pegar_el_json_de_google(client):
+    """El archivo que descarga Google se pega tal cual y se saca lo necesario."""
+    archivo = {
+        "web": {
+            "client_id": "123-abc.apps.googleusercontent.com",
+            "project_id": "kevil-studio",
+            "client_secret": "GOCSPX-secreto",
+            "redirect_uris": ["http://127.0.0.1:8756/api/oauth/youtube/callback"],
+        }
+    }
+    import json as _json
+
+    respuesta = client.post("/api/credentials/youtube", json={"text": _json.dumps(archivo)})
+    assert respuesta.status_code == 200
+    assert respuesta.json()["ready"] is True
+
+    guardado = client.get("/api/settings").json()["settings"]
+    assert guardado["youtube_client_id"] == "123-abc.apps.googleusercontent.com"
+    assert guardado["youtube_client_secret"] == "••••••••"      # nunca se devuelve
+
+    # también vale el formato «installed» (app de escritorio)
+    escritorio = {"installed": dict(archivo["web"])}
+    assert client.post(
+        "/api/credentials/youtube", json={"text": _json.dumps(escritorio)}
+    ).status_code == 200
+
+    # y lo que no es el archivo se rechaza con un mensaje que se entiende
+    malo = client.post("/api/credentials/youtube", json={"text": "hola"})
+    assert malo.status_code == 400
+    assert "archivo de Google" in malo.json()["detail"]
+
+    sin_secreto = client.post(
+        "/api/credentials/youtube", json={"text": '{"web":{"client_id":"x.apps.googleusercontent.com"}}'}
+    )
+    assert sin_secreto.status_code == 400
+
+    otro_sitio = client.post(
+        "/api/credentials/youtube",
+        json={"text": '{"client_id":"123.example.com","client_secret":"x"}'},
+    )
+    assert otro_sitio.status_code == 400
+
+    client.put("/api/settings", json={"youtube_client_id": "", "youtube_client_secret": ""})
+
+
+def test_pegar_las_claves_de_tiktok(client):
+    """Se acepta el pegado tal cual salga de la pantalla de TikTok."""
+    con_etiquetas = "Client key: awabcdefghij\nClient secret: secretoxxxxxxxx"
+    respuesta = client.post("/api/credentials/tiktok", json={"text": con_etiquetas})
+    assert respuesta.status_code == 200
+    assert respuesta.json()["client_key"] == "awabcdefghij"
+    assert respuesta.json()["ready"] is True
+
+    guardado = client.get("/api/settings").json()["settings"]
+    assert guardado["tiktok_client_key"] == "awabcdefghij"
+    assert guardado["tiktok_client_secret"] == "••••••••"
+
+    # sin etiquetas, dos valores sueltos: el primero es la clave
+    suelto = client.post(
+        "/api/credentials/tiktok", json={"text": "awzzzzzzzzzz\notrosecreto123"}
+    )
+    assert suelto.status_code == 200
+    assert suelto.json()["client_key"] == "awzzzzzzzzzz"
+
+    assert client.post("/api/credentials/tiktok", json={"text": ""}).status_code == 400
+    # un solo valor no se puede repartir
+    assert client.post(
+        "/api/credentials/tiktok", json={"text": "solounacosa123"}
+    ).status_code == 400
+
+    client.put("/api/settings", json={"tiktok_client_key": "", "tiktok_client_secret": ""})
