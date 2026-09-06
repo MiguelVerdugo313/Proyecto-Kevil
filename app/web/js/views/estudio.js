@@ -239,12 +239,63 @@ function kitHtml(data) {
 }
 
 /* -------------------------------------------------------------- vista */
+/* ---------------------------------------------- miniatura para un directo */
+function miniaturaDirectoDialog() {
+  modal({
+    title: 'Miniatura para un directo',
+    body: `
+      <p class="muted small" style="line-height:1.7">
+        Para un directo que todavía no has hecho no hay fotogramas de los que
+        tirar. Kevil coge el fondo de <b>tu carpeta de marca</b>
+        (<span class="mono">data/branding</span>), eligiendo lo que mejor pegue
+        con el tema; si ahí no hay nada, lo genera con IA; y si tampoco, monta
+        un fondo con tu color.
+      </p>
+      <div class="form-grid" style="margin-top:16px">
+        <div class="field full"><label>Texto de la miniatura</label>
+          <input type="text" id="dir-texto" maxlength="40" placeholder="ZOMBIS A LAS 7">
+          <span class="help">Dos o tres palabras en grande. Más no se lee.</span></div>
+        <div class="field full"><label>¿De qué va el directo?</label>
+          <input type="text" id="dir-tema" placeholder="zombis, supervivencia, Minecraft">
+          <span class="help">Con esto se elige qué imagen tuya usar de fondo.</span></div>
+      </div>
+      <div id="dir-salida" style="margin-top:16px"></div>`,
+    actions: [
+      { label: 'Cerrar' },
+      { label: 'Crear la miniatura', variant: 'primary', onClick: async (root) => {
+        const texto = root.querySelector('#dir-texto').value.trim();
+        if (!texto) { toastError('Escribe el texto que va en la miniatura.'); return false; }
+        const salida = root.querySelector('#dir-salida');
+        salida.innerHTML = '<span class="muted small">Montándola…</span>';
+        try {
+          const r = await api.post('/api/brandkit/live-thumbnail', {
+            text: texto, topic: root.querySelector('#dir-tema').value.trim(),
+          });
+          const origen = { marca: 'tu carpeta de marca', ia: 'IA', degradado: 'tu color' };
+          salida.innerHTML = `
+            <img src="${r.url}&t=${Date.now()}" alt="Miniatura del directo"
+              style="width:100%;border-radius:var(--r);border:1px solid var(--line)">
+            <p class="muted tiny" style="margin-top:8px">
+              Fondo: ${escapeHtml(origen[r.source] || r.source)}
+              ${r.background ? `· ${escapeHtml(r.background)}` : ''}
+              · guardada en <span class="mono">data/media/miniaturas</span>
+            </p>`;
+        } catch (error) {
+          salida.innerHTML = `<span style="color:var(--red)" class="small">${escapeHtml(error.message)}</span>`;
+        }
+        return false;
+      } },
+    ],
+  });
+}
+
 export default {
   title: 'Estudio',
   subtitle: 'Sube un vídeo y sal con todo listo para publicar',
   refreshMs: 8000,
 
   actions: [
+    { label: '🎥 Miniatura de directo', onClick: () => miniaturaDirectoDialog() },
     { label: '⬆ Subir vídeo', variant: 'primary', onClick: () => subirDialog(reloadView) },
   ],
 

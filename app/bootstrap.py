@@ -41,6 +41,13 @@ EDITABLE_SETTINGS = {
     "brand_accent": str,
     "brand_accent_2": str,
     "brand_source": str,
+    # Espacio en disco
+    "light_mode": bool,
+    "keep_originals": bool,
+    "keep_clips": bool,
+    "disk_budget_gb": float,
+    # Ventana de la aplicación
+    "window_mode": str,
 }
 
 SECRET_SETTINGS = {

@@ -13,7 +13,7 @@ import traceback
 from datetime import datetime
 from typing import Any, Callable
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -66,6 +66,7 @@ def enqueue(
     priority: int = 100,
     message: str = "",
     dedupe: bool = True,
+    run_at: datetime | None = None,
 ) -> Job:
     payload = payload or {}
     if dedupe:
@@ -79,7 +80,10 @@ def enqueue(
             if (job.payload or {}) == payload:
                 return job
 
-    job = Job(kind=kind, payload=payload, priority=priority, message=message)
+    job = Job(
+        kind=kind, payload=payload, priority=priority, message=message,
+        run_at=run_at or utcnow(),
+    )
     session.add(job)
     session.flush()
     return job
@@ -94,7 +98,11 @@ class Worker(threading.Thread):
         with _claim_lock, session_scope() as session:
             job = session.scalars(
                 select(Job)
-                .where(Job.status == JobStatus.pending.value)
+                .where(
+                    Job.status == JobStatus.pending.value,
+                    # los trabajos de una base anterior no tienen hora: van ya
+                    or_(Job.run_at.is_(None), Job.run_at <= utcnow()),
+                )
                 .order_by(Job.priority.asc(), Job.created_at.asc())
                 .limit(1)
             ).first()

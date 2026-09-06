@@ -6,9 +6,12 @@ import json
 import re
 import shutil
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -34,7 +37,7 @@ from app.models import (
 )
 from app.services import branding
 from app.services import media as media_service
-from app.services import tiktok, timing, youtube_api
+from app.services import brandkit, storage, thumbnails, tiktok, timing, youtube_api
 from app.services.queue import enqueue
 
 router = APIRouter(prefix="/api", tags=["sistema"])
@@ -60,6 +63,11 @@ class SettingsIn(BaseModel):
     nvidia_api_key: str | None = None
     nvidia_text_model: str | None = None
     nvidia_image_model: str | None = None
+    light_mode: bool | None = None
+    keep_originals: bool | None = None
+    keep_clips: bool | None = None
+    disk_budget_gb: float | None = None
+    window_mode: str | None = None
     brand_accent: str | None = None
     brand_accent_2: str | None = None
     brand_source: str | None = None
@@ -397,6 +405,79 @@ def _buscar_etiqueta(texto: str, etiquetas: tuple[str, ...]) -> str:
         if encontrado:
             return encontrado.group(1)
     return ""
+
+
+# --------------------------------------------------------------------------
+# Espacio en disco
+# --------------------------------------------------------------------------
+@router.get("/storage")
+def storage_status():
+    """Cuánto ocupa Kevil ahora mismo y con qué reglas se limpia."""
+    datos = storage.usage()
+    datos["branding"] = brandkit.scan()["counts"]
+    return datos
+
+
+@router.post("/storage/clean")
+def storage_clean(db: Session = Depends(get_db)):
+    """Limpieza normal: temporales y lo que ya esté publicado."""
+    resultado = storage.enforce_budget(db)
+    db.commit()
+    return resultado | {"usage": storage.usage()}
+
+
+@router.post("/storage/purge")
+def storage_purge(db: Session = Depends(get_db)):
+    """Borra todos los vídeos. La base de datos y el historial se quedan."""
+    resultado = storage.purge_everything(db)
+    db.commit()
+    return resultado | {"usage": storage.usage()}
+
+
+# --------------------------------------------------------------------------
+# Tu carpeta de marca
+# --------------------------------------------------------------------------
+@router.get("/brandkit")
+def brandkit_status():
+    """Qué has metido en data/branding y cómo lo ha entendido Kevil."""
+    return brandkit.scan()
+
+
+class LiveThumbIn(BaseModel):
+    text: str
+    topic: str = ""
+    use_ai_image: bool = True
+
+
+@router.post("/brandkit/live-thumbnail")
+def live_thumbnail(body: LiveThumbIn):
+    """Una sola miniatura para anunciar un directo que aún no has hecho."""
+    texto = (body.text or "").strip()
+    if not texto:
+        raise HTTPException(400, "Escribe el texto que quieres que salga en la miniatura.")
+    try:
+        resultado = thumbnails.for_live(
+            text=texto,
+            out_dir=settings.thumbs_path,
+            prefix=f"directo-{int(utcnow().timestamp())}",
+            topic=body.topic or texto,
+            use_ai_image=body.use_ai_image,
+        )
+    except Exception as exc:
+        raise HTTPException(400, f"No se ha podido crear la miniatura: {exc}") from exc
+    resultado["url"] = f"/api/brandkit/live-thumbnail/file?path={quote(resultado['path'])}"
+    return resultado
+
+
+@router.get("/brandkit/live-thumbnail/file")
+def live_thumbnail_file(path: str):
+    archivo = Path(path).resolve()
+    # sólo se sirve lo que está dentro de la carpeta de miniaturas
+    if not str(archivo).startswith(str(settings.thumbs_path.resolve())):
+        raise HTTPException(404, "No encontrado")
+    if not archivo.is_file():
+        raise HTTPException(404, "No encontrado")
+    return FileResponse(archivo)
 
 
 # --------------------------------------------------------------------------

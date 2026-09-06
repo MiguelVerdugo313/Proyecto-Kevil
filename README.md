@@ -2,8 +2,8 @@
 
 **Tu estudio de YouTube y TikTok, funcionando en tu propio ordenador.**
 
-Kevil Studio se descarga, se ejecuta en local y abre una interfaz en el navegador.
-Hace tres cosas:
+Kevil Studio se descarga y se abre **en su propia ventana**, como cualquier otro
+programa. Hace tres cosas:
 
 1. **Reaprovecha tu contenido en las dos direcciones**: corta tus vídeos y directos de
    YouTube en clips verticales y los publica en **TikTok y en YouTube Shorts**; y trae
@@ -18,6 +18,10 @@ Hace tres cosas:
 No hay servidor en la nube ni suscripción, y tus vídeos no salen de tu equipo: las únicas
 conexiones son con YouTube (descargar y consultar), TikTok (publicar) y, si la activas,
 tu proveedor de IA.
+
+**Y no te llena el disco.** De cada vídeo largo se bajan *sólo los segundos que van a
+salir en un clip*, y en cuanto algo se publica su archivo se borra. Un directo de dos
+horas deja unos pocos MB de paso, no varios GB para siempre.
 
 ---
 
@@ -94,17 +98,21 @@ Después, desde la carpeta del proyecto:
 python run.py
 ```
 
-La primera vez crea un entorno virtual (`.venv`), instala las dependencias, comprueba
-ffmpeg, levanta el servidor y abre el navegador en <http://127.0.0.1:8756>.
-Las siguientes veces arranca en unos segundos.
+En Windows es más cómodo hacer **doble clic en `run.bat`**; en macOS y Linux, `./run.sh`.
 
-En Windows también puedes hacer doble clic en `run.bat`; en macOS y Linux, `./run.sh`.
+La primera vez crea un entorno virtual (`.venv`), instala las dependencias, comprueba
+ffmpeg y abre **la ventana de Kevil**. Las siguientes veces arranca en unos segundos.
+
+La ventana usa el motor web que ya trae tu sistema (WebView2 en Windows, WebKit en
+macOS, GTK en Linux): no descarga ningún navegador ni pesa cientos de megas. Si en tu
+equipo no se pudiera abrir, Kevil te lo dice y sigue funcionando en el navegador.
 
 Opciones útiles:
 
 ```bash
+python run.py --navegador       # abrirlo en el navegador en vez de en su ventana
+python run.py --sin-ventana     # sólo el servidor, no abrir nada
 python run.py --puerto 9000     # otro puerto
-python run.py --sin-navegador   # no abrir el navegador
 python run.py --reinstalar      # rehacer el entorno virtual
 ```
 
@@ -339,21 +347,68 @@ en una ventana que sólo abres si quieres cambiar algo.
 
 ---
 
-## Dónde queda todo
+## Dónde queda todo (y por qué ocupa tan poco)
 
 ```
 data/
 ├── kevil.db              base de datos SQLite (cuentas, flujos, clips, agenda)
+├── branding/             ← TUS COSAS: logos, fondos, fotos, tipografías
 ├── media/
-│   ├── originales/       vídeos descargados de YouTube
-│   ├── clips/            clips verticales listos (.mp4)
+│   ├── originales/       normalmente vacía (ver abajo)
+│   ├── clips/            clips a la espera de publicarse
 │   └── miniaturas/
-├── temp/                 archivos de trabajo
+├── temp/                 archivos de un solo uso
 └── logs/
 ```
 
 Puedes cambiar la carpeta con la variable de entorno `KEVIL_DATA_DIR`.
 Para llevártelo a otro equipo, copia esa carpeta entera.
+
+### No dejar rastro
+
+Kevil no está pensado para dejarte el ordenador lleno de vídeos:
+
+1. **No baja el vídeo entero.** Primero lee los subtítulos (unos kilobytes), decide con
+   ellos dónde están los mejores momentos, y sólo entonces baja **esos segundos**. Para
+   sacar tres clips de treinta segundos de un directo de dos horas se bajan noventa
+   segundos, no dos horas.
+2. **Borra al publicar.** En cuanto un clip sale en TikTok y en Shorts, su `.mp4` se va.
+   Si le queda algún destino pendiente, espera a que salgan todos.
+3. **Tiene un tope.** Si la carpeta de medios se pasa de lo que le digas (3 GB por
+   defecto), se borra lo más antiguo que ya esté publicado.
+
+Todo esto se ve y se cambia en **Ajustes → Espacio en disco**, donde también tienes
+«Limpiar lo publicado» y «Borrarlo todo ahora». Si prefieres guardarlo todo, hay un
+interruptor para cada cosa.
+
+> Para las estrategias que eligen los cortes escuchando los silencios se baja la pista
+> de **audio** (unos 100 MB en un directo de dos horas, frente a varios GB de vídeo) y
+> se borra en cuanto se han elegido los momentos.
+
+### Tu carpeta de marca
+
+En `data/branding` puedes dejar tus cosas **sin ordenarlas ni renombrarlas**: tu logo,
+capturas del juego, fondos, una foto tuya, tipografías, y un `.txt` contando de qué va
+tu canal. Kevil deduce qué es cada archivo por lo que es:
+
+| Lo que metes | Cómo lo entiende |
+|---|---|
+| PNG con transparencia, más o menos cuadrado | logo |
+| imagen apaisada | fondo de miniatura |
+| imagen vertical | fondo de Short |
+| `.ttf` / `.otf` | tipografía |
+| `.txt` / `.md` | notas de marca (contexto para la IA) |
+
+Si además creas subcarpetas con nombre (`zombis/`, `logos/`, `fondos/`), mandas tú.
+Cuando pidas una miniatura para un directo de zombis, ganará lo que tengas en `zombis/`.
+
+### Una sola miniatura, para un directo
+
+En **Estudio → 🎥 Miniatura de directo**. Para un directo que aún no has hecho no hay
+fotogramas de los que tirar, así que el fondo sale, por este orden: de **tu carpeta de
+marca** (eligiendo lo que mejor pegue con el tema), de la **IA** si tienes clave, o de un
+fondo montado con **tu color**. Escribes «ZOMBIS A LAS 7», dices que va de zombis, y
+sale una. Una, no tres.
 
 ---
 

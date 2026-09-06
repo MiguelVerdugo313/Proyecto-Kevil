@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import settings
-from app.services import ai, captions
+from app.services import ai, brandkit, branding, captions
 from app.services import media as media_service
 
 WIDTH, HEIGHT = 1280, 720
@@ -149,7 +149,7 @@ def _ass_for_style(
             f"-1,0,0,0,100,100,0,0,3,20,0,1,60,60,70,1",
         ]
         eventos = [
-            _dibujo(0, 0, 18, HEIGHT, acento),                       # barra lateral
+            _dibujo(0, 0, 18, HEIGHT, accent),                       # barra lateral
             f"Dialogue: 1,0:00:00.00,0:00:10.00,Big,,0,0,0,,"
             f"{{\\an1\\pos(64,{HEIGHT - 70})}}{lineas}",
         ]
@@ -160,7 +160,7 @@ def _ass_for_style(
             f"-1,0,0,0,100,100,0,0,1,0,0,5,50,50,0,1",
         ]
         eventos = [
-            _dibujo(0, 0, WIDTH, 168, acento),
+            _dibujo(0, 0, WIDTH, 168, accent),
             f"Dialogue: 1,0:00:00.00,0:00:10.00,Big,,0,0,0,,"
             f"{{\\an5\\pos({WIDTH // 2},84)}}{lineas}",
         ]
@@ -336,3 +336,99 @@ def generate(
             resultados.append({"error": f"No se ha podido generar la imagen con IA: {exc}"})
 
     return resultados
+
+
+# --------------------------------------------------------------------------
+# Una sola miniatura, para un directo que aún no existe
+# --------------------------------------------------------------------------
+def for_live(
+    *,
+    text: str,
+    out_dir: str | Path,
+    prefix: str = "directo",
+    topic: str = "",
+    accent: str = "",
+    use_ai_image: bool = True,
+    ai_prompt: str = "",
+) -> dict[str, Any]:
+    """Una miniatura y ya, para anunciar un directo antes de emitirlo.
+
+    Aquí no hay vídeo del que sacar fotogramas: el directo todavía no ha
+    pasado. Así que el fondo sale, por este orden, de:
+
+    1. **tu carpeta de marca** (``data/branding``), eligiendo lo que mejor pegue
+       con el tema —si vas a jugar a zombis y tienes ahí algo de zombis, gana—;
+    2. una imagen generada por IA, si tienes clave puesta;
+    3. un degradado con tu color de marca, que siempre se puede.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    destino = out_dir / f"{prefix}.jpg"
+    texto = (text or "EN DIRECTO").strip()
+    tema = topic or texto
+    color = accent or branding.current_theme().get("source_accent", "") or ACCENTS[0]
+
+    fondo = brandkit.pick_background(tema)
+    if fondo:
+        compose(
+            background=fondo, text=texto, output=destino,
+            style="banda", accent=color, from_video=False,
+        )
+        return {
+            "path": str(destino), "text": texto, "style": "banda",
+            "accent": color, "source": "marca", "background": Path(fondo).name,
+        }
+
+    if use_ai_image and ai.is_enabled():
+        contexto = brandkit.context_for_ai()
+        prompt = ai_prompt or (
+            f"Portada llamativa para un directo de videojuegos sobre {tema}. "
+            "Composición cinematográfica, mucho contraste, colores vivos, "
+            "espacio libre a la izquierda para poner texto grande. Sin texto ni "
+            "letras en la imagen."
+        )
+        if contexto:
+            prompt += f"\n\nContexto de la marca: {contexto[:500]}"
+        try:
+            imagen = ai.generate_image(prompt, width=WIDTH, height=HEIGHT)
+            temporal = settings.work_path / f"{prefix}-fondo.png"
+            temporal.parent.mkdir(parents=True, exist_ok=True)
+            temporal.write_bytes(imagen)
+            compose(
+                background=temporal, text=texto, output=destino,
+                style="banda", accent=color, from_video=False,
+            )
+            temporal.unlink(missing_ok=True)
+            return {
+                "path": str(destino), "text": texto, "style": "banda",
+                "accent": color, "source": "ia", "prompt": prompt[:300],
+            }
+        except Exception:
+            pass                     # si la IA falla, seguimos con el degradado
+
+    fondo_liso = _fondo_degradado(color, settings.work_path / f"{prefix}-liso.png")
+    compose(
+        background=fondo_liso, text=texto, output=destino,
+        style="centro", accent=color, from_video=False,
+    )
+    Path(fondo_liso).unlink(missing_ok=True)
+    return {
+        "path": str(destino), "text": texto, "style": "centro",
+        "accent": color, "source": "degradado",
+    }
+
+
+def _fondo_degradado(accent: str, destino: Path) -> Path:
+    """Un fondo sobrio con tu color, para cuando no hay ni foto ni IA."""
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    r, g, b = branding.from_hex(accent)
+    oscuro = f"0x{max(0, r // 5):02X}{max(0, g // 5):02X}{max(0, b // 5):02X}"
+    media_service.run_ffmpeg([
+        "-f", "lavfi",
+        "-i", f"color=c={oscuro}:s={WIDTH}x{HEIGHT}",
+        "-vf",
+        # una luz suave desde una esquina para que no parezca un cartón liso
+        "vignette=angle=PI/5,noise=alls=6:allf=t+u,eq=saturation=1.1",
+        "-frames:v", "1", str(destino.resolve()),
+    ])
+    return destino

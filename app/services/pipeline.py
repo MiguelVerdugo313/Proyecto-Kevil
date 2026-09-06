@@ -27,8 +27,8 @@ from app.models import (
     utcnow,
 )
 from app.services import (
-    events, metadata, notifications, renderer, segmenter, timing, tiktok,
-    transcript, youtube_api,
+    events, metadata, notifications, renderer, segmenter, storage, timing,
+    tiktok, transcript, youtube_api,
 )
 from app.services import media as media_service
 from app.services import youtube as youtube_service
@@ -58,6 +58,70 @@ def resolve_flow(
         raise RuntimeError("No hay ningún flujo configurado.")
     flow.steps = normalize_steps(flow.steps)
     return flow
+
+
+# --------------------------------------------------------------------------
+# Modo ligero: no bajar el vídeo entero si no hace falta
+# --------------------------------------------------------------------------
+# Estrategias de corte que necesitan oír el audio para decidir dónde cortar.
+ESTRATEGIAS_CON_AUDIO = {"smart", "silence"}
+
+
+def usa_modo_ligero(flow: Flow) -> bool:
+    """¿Se puede evitar bajar el vídeo entero para este flujo?
+
+    Con la estrategia «vídeo completo» (republicar un Short tal cual) no hay
+    nada que elegir: el tramo es todo el vídeo, así que da igual. En el resto
+    sí compensa: se leen los subtítulos, se eligen los momentos y sólo después
+    se bajan esos segundos.
+    """
+    if not settings.light_mode:
+        return False
+    estrategia = str(step_config(flow.steps, "segment").get("strategy", "smart"))
+    return estrategia != "completo"
+
+
+def necesita_audio(flow: Flow) -> bool:
+    """La estrategia elegida, ¿tiene que oír el vídeo o le basta el texto?"""
+    estrategia = str(step_config(flow.steps, "segment").get("strategy", "smart"))
+    return estrategia in ESTRATEGIAS_CON_AUDIO
+
+
+def _borrar_temporal(ctx: JobContext, ruta: str | None) -> None:
+    if not ruta:
+        return
+    try:
+        archivo = Path(ruta)
+        if archivo.is_file():
+            tamano = archivo.stat().st_size
+            archivo.unlink()
+            ctx.log(f"Borrado {archivo.name} ({tamano / 1024 / 1024:.1f} MB)")
+    except OSError:
+        pass
+
+
+def _aplazar_por_limite(
+    session: Session, ctx: JobContext, video: Video, flow: Flow, motivo: str
+) -> None:
+    """YouTube ha dicho «too many requests»: se vuelve a intentar más tarde."""
+    enqueue(
+        session,
+        "ingest",
+        {"video_id": video.id, "flow_id": flow.id},
+        priority=140,
+        run_at=utcnow() + timedelta(minutes=45),
+        message=f"Reintentar «{video.title[:50]}» (YouTube nos frenó)",
+    )
+    notifications.notify(
+        session,
+        "YouTube nos ha frenado un rato",
+        motivo,
+        kind="limite",
+        level="warn",
+        dedupe_hours=6,
+    )
+    events.log(session, motivo, level="warn", scope="video", data={"video_id": video.id})
+    ctx.progress(1.0, "Aplazado 45 minutos")
 
 
 def default_tiktok_account(session: Session) -> Account | None:
@@ -204,35 +268,74 @@ def job_ingest(session: Session, ctx: JobContext) -> None:
     video.status = VideoStatus.downloading.value
     video.error = ""
     session.commit()
-    ctx.log(f"Descargando {video.url}")
 
     def on_progress(ratio: float, label: str) -> None:
         ctx.progress(ratio * 0.7, label)
 
+    # ¿Modo ligero? Entonces aquí no se baja el vídeo: sólo los subtítulos (unos
+    # kilobytes) y, si el flujo necesita oír los silencios, la pista de audio.
+    # Los segundos de vídeo se bajan luego, uno a uno, sólo los que salen.
+    ligero = usa_modo_ligero(flow)
+    audio_temporal = ""
+
     try:
-        result = youtube_service.download_video(
-            video.url,
-            quality=str(ingest_config.get("quality", "1080")),
-            download_subtitles=bool(ingest_config.get("download_subtitles", True)),
-            subtitle_langs=list(ingest_config.get("subtitle_langs") or ["es", "en"]),
-            cookies_from_browser=ingest_config.get("cookies_from_browser", ""),
-            on_progress=on_progress,
-        )
+        if ligero:
+            ctx.log(f"Modo ligero: leyendo {video.url} sin bajar el vídeo")
+            ctx.progress(0.15, "Leyendo el vídeo…")
+            result = youtube_service.fetch_subtitles_only(
+                video.url,
+                subtitle_langs=list(ingest_config.get("subtitle_langs") or ["es", "en"]),
+                cookies_from_browser=ingest_config.get("cookies_from_browser", ""),
+            )
+            if necesita_audio(flow):
+                ctx.progress(0.3, "Bajando sólo el audio para elegir momentos…")
+                audio_temporal = youtube_service.download_audio_only(
+                    video.url,
+                    cookies_from_browser=ingest_config.get("cookies_from_browser", ""),
+                    on_progress=on_progress,
+                )
+        else:
+            ctx.log(f"Descargando {video.url}")
+            result = youtube_service.download_video(
+                video.url,
+                quality=str(ingest_config.get("quality", "1080")),
+                download_subtitles=bool(ingest_config.get("download_subtitles", True)),
+                subtitle_langs=list(ingest_config.get("subtitle_langs") or ["es", "en"]),
+                cookies_from_browser=ingest_config.get("cookies_from_browser", ""),
+                on_progress=on_progress,
+            )
+    except youtube_service.RateLimited as exc:
+        # YouTube ha dicho «espera»: no es un fallo del vídeo, se reintenta luego.
+        video.status = VideoStatus.queued.value
+        video.error = str(exc)[:1000]
+        _aplazar_por_limite(session, ctx, video, flow, str(exc))
+        return
     except Exception as exc:
         video.status = VideoStatus.error.value
-        video.error = str(exc)[:1000]
-        events.log(session, f"Error al descargar «{video.title}»: {exc}", level="error", scope="video")
+        video.error = youtube_service.traducir_error(exc)[:1000]
+        events.log(
+            session,
+            f"Error al descargar «{video.title}»: {video.error}",
+            level="error",
+            scope="video",
+        )
         raise
 
-    video.local_path = result["path"]
     info = result.get("info") or {}
+    video.local_path = result.get("path", "")        # vacío en modo ligero
     video.title = video.title or info.get("title", "")
     video.was_live = video.was_live or bool(info.get("was_live"))
-    ctx.progress(0.75, "Analizando el archivo…")
+    if info.get("duration_s"):
+        video.duration_s = float(info["duration_s"])
 
-    probe = media_service.probe(video.local_path)
-    video.probe = probe
-    video.duration_s = probe.get("duration") or video.duration_s
+    # Para analizar sirve el audio; si se bajó el vídeo entero, sirve el vídeo.
+    analizable = video.local_path or audio_temporal
+    if analizable:
+        ctx.progress(0.75, "Analizando el archivo…")
+        probe = media_service.probe(analizable)
+        if video.local_path:
+            video.probe = probe
+        video.duration_s = probe.get("duration") or video.duration_s
 
     # --- transcripción ---------------------------------------------------
     if step_enabled(flow.steps, "transcribe"):
@@ -241,7 +344,7 @@ def job_ingest(session: Session, ctx: JobContext) -> None:
         try:
             data = transcript.build_transcript(
                 engine=str(transcribe_config.get("engine", "youtube")),
-                media_path=video.local_path,
+                media_path=analizable,
                 subtitle_files=result.get("subtitles") or [],
                 language=str(transcribe_config.get("language", "es")),
                 whisper_model=str(transcribe_config.get("whisper_model", "small")),
@@ -255,16 +358,22 @@ def job_ingest(session: Session, ctx: JobContext) -> None:
     video.status = VideoStatus.ready.value
     ctx.progress(0.95, "Listo para cortar")
 
+    # Los subtítulos ya han cumplido. El audio se lo queda el paso siguiente,
+    # que aún lo necesita para oír los silencios, y lo borra al terminar.
+    if ligero:
+        for subtitulo in result.get("subtitles") or []:
+            _borrar_temporal(ctx, subtitulo)
+
     enqueue(
         session,
         "process",
-        {"video_id": video.id, "flow_id": flow.id},
+        {"video_id": video.id, "flow_id": flow.id, "audio_path": audio_temporal},
         priority=110,
         message=f"Cortar «{video.title[:60]}»",
     )
     events.log(
         session,
-        f"Descargado «{video.title[:70]}»",
+        f"Leído «{video.title[:70]}»" if ligero else f"Descargado «{video.title[:70]}»",
         level="success",
         scope="video",
         data={"video_id": video.id},
@@ -279,10 +388,19 @@ def job_process(session: Session, ctx: JobContext) -> None:
     video = session.get(Video, int(ctx.payload["video_id"]))
     if not video:
         raise RuntimeError("El vídeo ya no existe.")
-    if not video.local_path or not Path(video.local_path).exists():
-        raise RuntimeError("El vídeo original no está descargado.")
 
     flow = resolve_flow(session, ctx.payload.get("flow_id"), video)
+    # En modo ligero no hay vídeo en el disco: se analiza sobre el audio, que
+    # es lo único que se bajó, y se borra en cuanto se han elegido los momentos.
+    audio_temporal = str(ctx.payload.get("audio_path") or "")
+    analizable = video.local_path or audio_temporal
+    if not analizable or not Path(analizable).exists():
+        if not (video.transcript or {}).get("words") and not (video.transcript or {}).get("segments"):
+            raise RuntimeError(
+                "No hay ni vídeo ni transcripción con la que decidir dónde cortar."
+            )
+        analizable = ""          # sólo texto: suficiente para las estrategias de texto
+
     video.status = VideoStatus.processing.value
     session.commit()
 
@@ -293,7 +411,7 @@ def job_process(session: Session, ctx: JobContext) -> None:
 
     ctx.progress(0.1, "Buscando los mejores momentos…")
     candidates = segmenter.find_segments(
-        media_path=video.local_path,
+        media_path=analizable,
         duration=float(video.duration_s or 0),
         transcript=video.transcript or {},
         config=segment_config,
@@ -371,6 +489,10 @@ def job_process(session: Session, ctx: JobContext) -> None:
         )
 
     video.status = VideoStatus.done.value
+
+    # El audio ya ha cumplido su papel: los momentos están elegidos.
+    _borrar_temporal(ctx, audio_temporal)
+
     events.log(
         session,
         f"«{video.title[:60]}»: {total} clip(s) generados",
@@ -390,9 +512,6 @@ def job_render(session: Session, ctx: JobContext) -> None:
     if not clip:
         raise RuntimeError("El clip ya no existe.")
     video = clip.video
-    if not video.local_path or not Path(video.local_path).exists():
-        raise RuntimeError("Falta el vídeo original: vuelve a descargarlo.")
-
     flow = resolve_flow(session, clip.flow_id)
     reframe_config = dict(step_config(flow.steps, "reframe"))
     reframe_config.update((clip.render_config or {}).get("reframe") or {})
@@ -405,6 +524,48 @@ def job_render(session: Session, ctx: JobContext) -> None:
     clip.status = ClipStatus.rendering.value
     clip.error = ""
     session.commit()
+
+    # Sin original en el disco se baja **sólo este tramo**: unos segundos en
+    # lugar del vídeo entero. El archivo es temporal y se borra al terminar.
+    fuente = video.local_path if video.local_path and Path(video.local_path).exists() else ""
+    tramo_temporal = ""
+    desplazamiento = 0.0
+    if not fuente:
+        margen = 1.5      # un pelín de aire por si el corte cae entre keyframes
+        desde = max(0.0, clip.start_s - margen)
+        hasta = clip.end_s + margen
+        ctx.progress(0.05, f"Bajando {hasta - desde:.0f}s de vídeo…")
+        try:
+            tramo_temporal = youtube_service.download_sections(
+                video.url,
+                [(desde, hasta)],
+                quality=str(step_config(flow.steps, "ingest").get("quality", "1080")),
+                cookies_from_browser=step_config(flow.steps, "ingest").get(
+                    "cookies_from_browser", ""
+                ),
+                destination=settings.work_path,
+                on_progress=lambda ratio, etiqueta: ctx.progress(0.05 + ratio * 0.2, etiqueta),
+            )
+        except youtube_service.RateLimited as exc:
+            clip.status = ClipStatus.draft.value
+            clip.error = str(exc)[:1000]
+            enqueue(
+                session, "render", {"clip_id": clip.id}, priority=140,
+                run_at=utcnow() + timedelta(minutes=45),
+                message="Reintentar el clip (YouTube nos frenó)",
+            )
+            ctx.progress(1.0, "Aplazado 45 minutos")
+            return
+        except Exception as exc:
+            clip.status = ClipStatus.failed.value
+            clip.error = youtube_service.traducir_error(exc)[:1000]
+            raise RuntimeError(clip.error) from exc
+        fuente = tramo_temporal
+        desplazamiento = desde       # el tramo empieza en 0, no en clip.start_s
+        ctx.log(
+            f"Tramo descargado: {Path(fuente).stat().st_size / 1024 / 1024:.1f} MB "
+            f"en vez del vídeo entero"
+        )
 
     output = settings.clips_path / f"clip-{clip.id:05d}-{video.external_id}.mp4"
     ctx.log(f"Renderizando {clip.start_s:.1f}s → {clip.end_s:.1f}s")
@@ -420,9 +581,10 @@ def job_render(session: Session, ctx: JobContext) -> None:
     )
 
     result = renderer.render_clip(
-        source_path=video.local_path,
-        start=clip.start_s,
-        end=clip.end_s,
+        source_path=fuente,
+        # si la fuente es un tramo suelto, sus tiempos empiezan en cero
+        start=clip.start_s - desplazamiento,
+        end=clip.end_s - desplazamiento,
         output_path=output,
         reframe=reframe_config,
         audio=audio_config,
@@ -450,6 +612,9 @@ def job_render(session: Session, ctx: JobContext) -> None:
     clip.status = ClipStatus.rendered.value
     session.commit()
     ctx.progress(0.97, "Clip listo")
+
+    # El tramo descargado ya está montado dentro del clip: fuera del disco.
+    _borrar_temporal(ctx, tramo_temporal)
 
     mode = str(publish_config.get("mode", "review"))
     if mode in {"auto", "draft"} and schedule_config.get("auto_schedule", True):
@@ -613,6 +778,13 @@ def job_publish(session: Session, ctx: JobContext) -> None:
     post.error = ""
     clip.status = ClipStatus.published.value
     ctx.progress(1.0, "Publicado")
+
+    # Ya está publicado: el archivo no pinta nada en tu disco. Sólo se borra si
+    # no le queda ninguna publicación pendiente en otra plataforma.
+    session.flush()
+    liberado = storage.after_publish(session, clip)
+    if liberado:
+        ctx.log(f"Liberados {liberado / 1024 / 1024:.1f} MB del disco")
 
     events.log(
         session,

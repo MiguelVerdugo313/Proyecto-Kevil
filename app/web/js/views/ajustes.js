@@ -155,6 +155,96 @@ function paso(numero, titulo, cuerpo) {
   </div>`;
 }
 
+function editarDisco(valores, disco, reload) {
+  const barra = (etiqueta, mb) => `
+    <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line)">
+      <span class="muted small">${escapeHtml(etiqueta)}</span>
+      <b class="small">${mb} MB</b>
+    </div>`;
+
+  modal({
+    title: 'Espacio en disco',
+    body: `
+      <p class="muted small" style="line-height:1.7">
+        Kevil no está pensado para dejarte el disco lleno de vídeos. De cada
+        vídeo largo se bajan <b>sólo los segundos que van a salir en un clip</b>,
+        y en cuanto algo se publica, su archivo se borra.
+      </p>
+
+      <div class="bloque" style="margin-top:16px">
+        ${barra('Vídeos originales', disco.parts.originales ?? 0)}
+        ${barra('Clips montados', disco.parts.clips ?? 0)}
+        ${barra('Miniaturas', disco.parts.miniaturas ?? 0)}
+        ${barra('Temporales', disco.parts.temporales ?? 0)}
+        <div style="display:flex;justify-content:space-between;padding:11px 0 2px">
+          <b>Total ahora mismo</b>
+          <b style="color:var(--accent)">${disco.total_mb} MB</b>
+        </div>
+      </div>
+
+      <div class="form-grid" style="margin-top:18px">
+        <div class="field full">
+          <label class="switch">
+            <input type="checkbox" id="disco-ligero" ${valores.light_mode ? 'checked' : ''}>
+            <span class="track"></span>
+            <span class="switch-label">Bajar sólo los trozos que se usan</span>
+          </label>
+          <span class="help">Un directo de dos horas pasa de varios GB a unos pocos MB.</span>
+        </div>
+        <div class="field full">
+          <label class="switch">
+            <input type="checkbox" id="disco-clips" ${valores.keep_clips ? 'checked' : ''}>
+            <span class="track"></span>
+            <span class="switch-label">Guardar los clips después de publicarlos</span>
+          </label>
+        </div>
+        <div class="field full">
+          <label class="switch">
+            <input type="checkbox" id="disco-originales" ${valores.keep_originals ? 'checked' : ''}>
+            <span class="track"></span>
+            <span class="switch-label">Guardar los vídeos originales</span>
+          </label>
+        </div>
+        <div class="field">
+          <label>Tope de la carpeta (GB)</label>
+          <input type="number" id="disco-tope" min="0" max="500" step="0.5"
+            value="${valores.disk_budget_gb}">
+          <span class="help">Al pasarse, se borra lo más antiguo ya publicado. 0 = sin tope.</span>
+        </div>
+      </div>`,
+    actions: [
+      { label: 'Cerrar' },
+      { label: 'Borrarlo todo ahora', variant: 'danger', onClick: async () => {
+        const seguro = await confirmDialog(
+          'Borrar todos los vídeos',
+          'Se borran los originales y los clips del disco. El historial de lo que '
+          + 'has publicado se conserva; lo que desaparece son los archivos.',
+          'Sí, liberar espacio',
+        );
+        if (!seguro) return false;
+        const resultado = await api.post('/api/storage/purge');
+        toast(`Liberados ${resultado.freed_mb} MB`);
+        reload();
+      } },
+      { label: 'Limpiar lo publicado', onClick: async () => {
+        const resultado = await api.post('/api/storage/clean');
+        toast(resultado.freed_mb ? `Liberados ${resultado.freed_mb} MB` : 'Ya estaba limpio');
+        reload();
+      } },
+      { label: 'Guardar', variant: 'primary', onClick: async (root) => {
+        await api.put('/api/settings', {
+          light_mode: root.querySelector('#disco-ligero').checked,
+          keep_clips: root.querySelector('#disco-clips').checked,
+          keep_originals: root.querySelector('#disco-originales').checked,
+          disk_budget_gb: Number(root.querySelector('#disco-tope').value) || 0,
+        });
+        toast('Guardado');
+        reload();
+      } },
+    ],
+  });
+}
+
 function editarYouTube(valores, yt, reload) {
   // Ya conectado: nada que configurar, sólo el estado y el botón de rehacerlo.
   if (yt.connected) {
@@ -490,10 +580,11 @@ export default {
   subtitle: 'Lo esencial a la vista; el resto, cuando lo necesites',
 
   async render(root, ctx) {
-    const [config, status, jobs, ia, yt, tt, marca] = await Promise.all([
+    const [config, status, jobs, ia, yt, tt, marca, disco] = await Promise.all([
       api.settings(), api.status(), api.jobs('?limit=12'),
       api.get('/api/ai/status'), api.get('/api/youtube/config'),
       api.get('/api/tiktok/config'), api.get('/api/branding'),
+      api.get('/api/storage'),
     ]);
     const valores = config.settings;
     const fallidas = jobs.filter((job) => job.status === 'failed');
@@ -564,6 +655,17 @@ export default {
                 tono: tt.connected ? 'ok' : 'warn',
                 accion: 'tiktok',
                 boton: tt.connected ? 'Editar' : 'Conectar',
+              })}
+              ${fila({
+                nombre: 'Espacio en disco',
+                descripcion: disco.light_mode
+                  ? `Ocupa ${disco.total_mb} MB · se baja sólo lo que se usa y se borra al publicar`
+                  : `Ocupa ${disco.total_mb} MB · guardando los vídeos completos`,
+                estado: disco.over_budget
+                  ? 'pasado de tope'
+                  : (disco.light_mode ? 'sin rastro' : 'guardando'),
+                tono: disco.over_budget ? 'warn' : (disco.light_mode ? 'ok' : ''),
+                accion: 'disco',
               })}
               ${fila({
                 nombre: 'Colores',
@@ -638,6 +740,7 @@ export default {
 
     const abrir = {
       ia: () => editarIA(valores, ia, ctx.reload),
+      disco: () => editarDisco(valores, disco, ctx.reload),
       youtube: () => editarYouTube(valores, yt, ctx.reload),
       tiktok: () => editarTikTok(valores, tt, ctx.reload),
       colores: () => editarColores(marca, ctx.reload),

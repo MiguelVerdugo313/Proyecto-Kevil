@@ -314,6 +314,9 @@ class Job(Base):
     log: Mapped[str] = mapped_column(Text, default="")
     error: Mapped[str] = mapped_column(Text, default="")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
+    # Un trabajo puede pedir esperar: es como se reintenta cuando YouTube nos
+    # frena («too many requests») sin machacar con reintentos inmediatos.
+    run_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

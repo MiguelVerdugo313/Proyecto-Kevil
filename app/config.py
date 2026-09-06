@@ -78,8 +78,19 @@ class Settings(BaseSettings):
     target_uploads_per_week: float = 2.0
     notifications_desktop: bool = True
 
+    # --- Espacio en disco -------------------------------------------------
+    # Kevil no está pensado para dejarte el disco lleno de vídeos: por defecto
+    # baja sólo los trozos que va a usar y borra todo en cuanto lo publica.
+    light_mode: bool = True           # descargar sólo los tramos de cada clip
+    keep_originals: bool = False      # guardar el vídeo original al terminar
+    keep_clips: bool = False          # guardar el .mp4 del clip tras publicarlo
+    disk_budget_gb: float = 3.0       # tope de la carpeta de medios (0 = sin tope)
+
     # Modo simulación: procesa y programa todo pero no publica de verdad.
     dry_run: bool = False
+
+    # --- Ventana de la aplicación ----------------------------------------
+    window_mode: str = "app"          # «app» = ventana propia, «navegador»
 
     # --- Rutas derivadas -------------------------------------------------
     @property
@@ -122,6 +133,16 @@ class Settings(BaseSettings):
         return self.data_path / "fonts"
 
     @property
+    def branding_path(self) -> Path:
+        """Tu marca: logos, fondos, fotos y tipografías que quieras que use.
+
+        Es una carpeta normal: metes ahí tus archivos y Kevil los reconoce solo
+        por lo que son (un PNG con transparencia es un logo, una imagen ancha es
+        un fondo, un .ttf es una tipografía…).
+        """
+        return self.data_path / "branding"
+
+    @property
     def redirect_base(self) -> str:
         return f"http://{self.host}:{self.port}"
 
@@ -135,6 +156,7 @@ class Settings(BaseSettings):
             self.work_path,
             self.logs_path,
             self.fonts_path,
+            self.branding_path,
         ):
             path.mkdir(parents=True, exist_ok=True)
 

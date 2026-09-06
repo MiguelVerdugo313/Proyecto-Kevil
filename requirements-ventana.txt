@@ -1,0 +1,9 @@
+# Ventana de aplicación de escritorio (opcional).
+#
+# Va aparte a propósito: si esto no se pudiera instalar en tu equipo, Kevil
+# tiene que seguir arrancando igual. run.py lo intenta instalar solo y, si no
+# puede, abre la interfaz en el navegador sin decir ni pío.
+#
+# No descarga ningún navegador: usa el motor que ya trae el sistema
+# (WebView2 en Windows, WebKit en macOS, GTK o Qt en Linux).
+pywebview==5.3.2
