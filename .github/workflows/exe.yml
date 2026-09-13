@@ -61,19 +61,38 @@ jobs:
         run: |
           $exe = "dist/Kevil Studio.exe"
           if (-not (Test-Path $exe)) { throw "No se ha construido el ejecutable" }
+
           $env:KEVIL_PORT = "8899"
           $env:KEVIL_WINDOW_MODE = "navegador"
-          $proceso = Start-Process -FilePath $exe -PassThru
+          $env:KEVIL_DATA_DIR = "$PWD/datos-de-prueba"
+
+          # Se captura la salida: si no arranca, hay que poder ver por que
+          $proceso = Start-Process -FilePath $exe -PassThru `
+            -RedirectStandardOutput salida.txt -RedirectStandardError errores.txt
+
           $vivo = $false
           foreach ($i in 1..40) {
             Start-Sleep -Seconds 3
+            if ($proceso.HasExited) { break }
             try {
               $r = Invoke-WebRequest "http://127.0.0.1:8899/api/status" -UseBasicParsing -TimeoutSec 5
               if ($r.StatusCode -eq 200) { $vivo = $true; break }
             } catch { }
           }
           Stop-Process -Id $proceso.Id -Force -ErrorAction SilentlyContinue
-          if (-not $vivo) { throw "El ejecutable no ha llegado a responder" }
+
+          if (-not $vivo) {
+            Write-Host "--- salida ---"
+            if (Test-Path salida.txt) { Get-Content salida.txt -Tail 60 }
+            Write-Host "--- errores ---"
+            if (Test-Path errores.txt) { Get-Content errores.txt -Tail 60 }
+            Write-Host "--- registro de arranque ---"
+            Get-ChildItem -Recurse -Filter "error-al-arrancar.txt" -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host $_.FullName; Get-Content $_.FullName -Tail 60 }
+            Get-ChildItem -Recurse -Filter "kevil.log" -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host $_.FullName; Get-Content $_.FullName -Tail 60 }
+            throw "El ejecutable no ha llegado a responder"
+          }
           Write-Host "El ejecutable arranca y responde."
 
       - uses: actions/upload-artifact@v4
