@@ -194,3 +194,20 @@ def test_el_diagnostico_dice_con_que_se_puede_abrir():
     assert salida.returncode == 0
     texto = salida.stdout
     assert "Modo app:" in texto and "Nativa:" in texto and "ffmpeg:" in texto
+
+
+def test_la_consola_de_windows_no_tumba_el_arranque():
+    """En Windows la salida es cp1252 cuando no va a una consola de verdad.
+
+    Ahí no caben los bloques del banner ni el signo de aviso, y sin protección
+    Kevil se caía con UnicodeEncodeError antes siquiera de arrancar.
+    """
+    raiz = Path(__file__).resolve().parent.parent
+    entorno = dict(os.environ, PYTHONIOENCODING="cp1252")
+    salida = subprocess.run(
+        [sys.executable, str(raiz / "run.py"), "--diagnostico"],
+        capture_output=True, text=True, timeout=90, cwd=str(raiz), env=entorno,
+    )
+    assert salida.returncode == 0, salida.stderr[-800:]
+    assert "UnicodeEncodeError" not in salida.stderr
+    assert "KEVIL STUDIO" in salida.stdout

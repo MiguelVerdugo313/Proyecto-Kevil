@@ -46,6 +46,31 @@ GRIS = "\033[38;5;245m"
 FIN = "\033[0m"
 
 
+def preparar_salida() -> None:
+    """Que escribir en pantalla no reviente en Windows.
+
+    Cuando la salida no va a una consola sino a un archivo o a otro programa,
+    Windows usa cp1252, donde no caben ni los bloques del banner ni el signo de
+    aviso. Sin esto, Kevil se cae con un UnicodeEncodeError antes de arrancar.
+    """
+    for flujo in (sys.stdout, sys.stderr):
+        try:
+            flujo.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
+def escribir(texto: str = "") -> None:
+    """print(), pero si la consola no sabe pintar algún carácter no se muere."""
+    try:
+        print(texto)
+    except UnicodeEncodeError:
+        codificacion = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(texto.encode(codificacion, errors="replace").decode(codificacion))
+    except (AttributeError, ValueError):
+        pass                     # sin consola (pythonw): no hay nada que decir
+
+
 def color(text: str, tone: str) -> str:
     if os.name == "nt" and not os.environ.get("WT_SESSION"):
         return text
@@ -53,10 +78,10 @@ def color(text: str, tone: str) -> str:
 
 
 def banner() -> None:
-    print()
-    print(color("  ██   KEVIL STUDIO", AZUL))
-    print(color("       De YouTube a TikTok, en tu ordenador", GRIS))
-    print()
+    escribir()
+    escribir(color("  ##   KEVIL STUDIO", AZUL))
+    escribir(color("       De YouTube a TikTok, en tu ordenador", GRIS))
+    escribir()
 
 
 def venv_python() -> Path:
@@ -74,10 +99,10 @@ def in_target_venv() -> bool:
 
 def create_venv(force: bool = False) -> None:
     if force and VENV_DIR.exists():
-        print(color("· Rehaciendo el entorno virtual…", GRIS))
+        escribir(color("· Rehaciendo el entorno virtual…", GRIS))
         shutil.rmtree(VENV_DIR, ignore_errors=True)
     if not venv_python().exists():
-        print(color("· Creando el entorno virtual (.venv)…", GRIS))
+        escribir(color("· Creando el entorno virtual (.venv)…", GRIS))
         venv.EnvBuilder(with_pip=True, upgrade_deps=False).create(VENV_DIR)
 
 
@@ -95,7 +120,7 @@ def requirements_changed() -> bool:
 def install_requirements() -> None:
     if not requirements_changed():
         return
-    print(color("· Instalando dependencias (sólo la primera vez)…", GRIS))
+    escribir(color("· Instalando dependencias (sólo la primera vez)…", GRIS))
     result = subprocess.run(
         [
             str(venv_python()), "-m", "pip", "install", "--upgrade", "--quiet",
@@ -103,12 +128,12 @@ def install_requirements() -> None:
         ]
     )
     if result.returncode != 0:
-        print(color("  No se han podido instalar las dependencias.", ROJO))
-        print(color("  Prueba a ejecutarlo a mano:", GRIS))
-        print(f"    {venv_python()} -m pip install -r {REQUIREMENTS}")
+        escribir(color("  No se han podido instalar las dependencias.", ROJO))
+        escribir(color("  Prueba a ejecutarlo a mano:", GRIS))
+        escribir(f"    {venv_python()} -m pip install -r {REQUIREMENTS}")
         sys.exit(1)
     STAMP.write_text(REQUIREMENTS.read_text(encoding="utf-8"), encoding="utf-8")
-    print(color("  Dependencias listas.", VERDE))
+    escribir(color("  Dependencias listas.", VERDE))
 
 
 def install_window_support() -> None:
@@ -126,7 +151,7 @@ def install_window_support() -> None:
         WINDOW_STAMP.write_text("ok", encoding="utf-8")
         return
 
-    print(color("· Preparando la ventana de la aplicación…", GRIS))
+    escribir(color("· Preparando la ventana de la aplicación…", GRIS))
     resultado = subprocess.run(
         [str(venv_python()), "-m", "pip", "install", "--quiet", "-r", str(WINDOW_REQS)],
         capture_output=True,
@@ -134,7 +159,7 @@ def install_window_support() -> None:
     # Se marca en cualquier caso: si no se pudo, no hay que reintentarlo cada vez.
     WINDOW_STAMP.write_text("ok" if resultado.returncode == 0 else "no", encoding="utf-8")
     if resultado.returncode != 0:
-        print(color("  Sin ventana propia en este equipo: se usará el navegador.", GRIS))
+        escribir(color("  Sin ventana propia en este equipo: se usará el navegador.", GRIS))
 
 
 def crear_acceso_directo() -> None:
@@ -153,24 +178,24 @@ def crear_acceso_directo() -> None:
     except Exception:
         return
     for ruta in creados:
-        print(color(f"· Acceso directo creado: {ruta.name}", GRIS))
+        escribir(color(f"· Acceso directo creado: {ruta.name}", GRIS))
 
 
 def check_ffmpeg() -> bool:
     if shutil.which("ffmpeg") and shutil.which("ffprobe"):
         return True
-    print()
-    print(color("  ⚠  No se encuentra ffmpeg (hace falta para cortar y montar vídeo).", ROJO))
+    escribir()
+    escribir(color("  ⚠  No se encuentra ffmpeg (hace falta para cortar y montar vídeo).", ROJO))
     system = platform.system()
     if system == "Darwin":
-        print(color("     macOS:    brew install ffmpeg", GRIS))
+        escribir(color("     macOS:    brew install ffmpeg", GRIS))
     elif system == "Windows":
-        print(color("     Windows:  winget install Gyan.FFmpeg", GRIS))
-        print(color("               (o descárgalo de https://ffmpeg.org/download.html)", GRIS))
+        escribir(color("     Windows:  winget install Gyan.FFmpeg", GRIS))
+        escribir(color("               (o descárgalo de https://ffmpeg.org/download.html)", GRIS))
     else:
-        print(color("     Linux:    sudo apt install ffmpeg", GRIS))
-    print(color("     La aplicación arrancará igualmente, pero no podrá renderizar.", GRIS))
-    print()
+        escribir(color("     Linux:    sudo apt install ffmpeg", GRIS))
+    escribir(color("     La aplicación arrancará igualmente, pero no podrá renderizar.", GRIS))
+    escribir()
     return False
 
 
@@ -202,15 +227,16 @@ def main() -> None:
     parser.add_argument("--diagnostico", action="store_true",
                         help="Decir qué se puede usar para abrir la ventana y salir")
     args = parser.parse_args()
+    preparar_salida()
 
     if args.diagnostico:
         sys.path.insert(0, str(BASE_DIR))
         import ventana as ventana_mod
 
         banner()
-        print(color(f"  Sistema:  {platform.system()} · Python {sys.version.split()[0]}", GRIS))
+        escribir(color(f"  Sistema:  {platform.system()} · Python {sys.version.split()[0]}", GRIS))
         navegador = ventana_mod.buscar_navegador()
-        print(color(f"  Modo app: {navegador or 'no encontrado (ni Edge ni Chrome)'}", GRIS))
+        escribir(color(f"  Modo app: {navegador or 'no encontrado (ni Edge ni Chrome)'}", GRIS))
         try:
             import importlib
 
@@ -218,9 +244,9 @@ def main() -> None:
             nativa = "disponible"
         except Exception as exc:
             nativa = f"no disponible ({type(exc).__name__})"
-        print(color(f"  Nativa:   {nativa}", GRIS))
-        print(color(f"  ffmpeg:   {shutil.which('ffmpeg') or 'no encontrado'}", GRIS))
-        print()
+        escribir(color(f"  Nativa:   {nativa}", GRIS))
+        escribir(color(f"  ffmpeg:   {shutil.which('ffmpeg') or 'no encontrado'}", GRIS))
+        escribir()
         return
 
     banner()
@@ -264,21 +290,21 @@ def main() -> None:
     # se hace lo de siempre: servidor en primer plano.
     if silencioso or args.recargar:
         if not silencioso:
-            print(color(f"  Abriendo {url}", VERDE))
+            escribir(color(f"  Abriendo {url}", VERDE))
             open_browser_later(url)
         else:
-            print(color(f"  Servidor en {url}", VERDE))
-        print(color("  (Ctrl+C para parar)", GRIS))
-        print()
+            escribir(color(f"  Servidor en {url}", VERDE))
+        escribir(color("  (Ctrl+C para parar)", GRIS))
+        escribir()
         servidor.run()
         return
 
     # Ventana propia: el servidor se va a un hilo de fondo y la ventana manda.
     import ventana as ventana_mod  # noqa: E402
 
-    print(color("  Abriendo Kevil Studio…", VERDE))
-    print(color("  (cierra la ventana para salir)", GRIS))
-    print()
+    escribir(color("  Abriendo Kevil Studio…", VERDE))
+    escribir(color("  (cierra la ventana para salir)", GRIS))
+    escribir()
 
     hilo = threading.Thread(target=servidor.run, name="kevil-server", daemon=True)
     hilo.start()
@@ -288,9 +314,9 @@ def main() -> None:
     def al_abrir(modo: str, detalle: str) -> None:
         nonlocal consola_oculta
         if modo == "app":
-            print(color(f"  Ventana de aplicación ({Path(detalle).name})", GRIS))
+            escribir(color(f"  Ventana de aplicación ({Path(detalle).name})", GRIS))
         elif modo == "navegador":
-            print(color(f"  Kevil está en {url} · Ctrl+C para parar", GRIS))
+            escribir(color(f"  Kevil está en {url} · Ctrl+C para parar", GRIS))
         if modo != "navegador":
             # un programa no enseña una consola negra
             consola_oculta = ventana_mod.ocultar_consola()
@@ -303,7 +329,7 @@ def main() -> None:
     )
 
     if modo == "sin-servidor":
-        print(color("  El servidor no ha llegado a arrancar. Mira el error de arriba.", ROJO))
+        escribir(color("  El servidor no ha llegado a arrancar. Mira el error de arriba.", ROJO))
     elif modo == "navegador":
         # no hay ventana que esperar: nos quedamos hasta que pares tú
         try:
@@ -322,5 +348,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print()
-        print(color("  Hasta luego.", GRIS))
+        escribir()
+        escribir(color("  Hasta luego.", GRIS))
