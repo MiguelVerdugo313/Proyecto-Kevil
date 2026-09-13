@@ -14,7 +14,10 @@ aplicación sigue funcionando de principio a fin sin publicar nada de verdad.
 
 from __future__ import annotations
 
+import hashlib
 import math
+import secrets
+import string
 import time
 import uuid
 from pathlib import Path
@@ -57,22 +60,50 @@ def redirect_uri() -> str:
 # --------------------------------------------------------------------------
 # OAuth
 # --------------------------------------------------------------------------
+# TikTok exige PKCE en las aplicaciones de escritorio. Sin esto, autorizar la
+# cuenta falla aunque la app esté bien dada de alta.
+#
+# Ojo con un detalle que se sale del estándar: el reto se calcula como el SHA-256
+# del verificador **en hexadecimal**, no en base64url como en el resto de sitios.
+_verificadores: dict[str, str] = {}
+
+
+def nuevo_verificador(state: str) -> str:
+    """Cadena aleatoria que demuestra, al canjear el código, que somos los mismos."""
+    verificador = "".join(
+        secrets.choice(string.ascii_letters + string.digits + "-._~") for _ in range(64)
+    )
+    _verificadores[state] = verificador
+    # no dejamos que la memoria crezca sin fin si alguien empieza y no termina
+    if len(_verificadores) > 20:
+        for clave in list(_verificadores)[:-10]:
+            _verificadores.pop(clave, None)
+    return verificador
+
+
+def reto_de(verificador: str) -> str:
+    return hashlib.sha256(verificador.encode("utf-8")).hexdigest()
+
+
 def build_auth_url(state: str) -> str:
     if not is_configured():
         raise TikTokError(
             "Faltan las credenciales de TikTok. Añádelas en Ajustes → TikTok."
         )
+    verificador = nuevo_verificador(state)
     params = {
         "client_key": settings.tiktok_client_key,
         "scope": ",".join(SCOPES),
         "response_type": "code",
         "redirect_uri": redirect_uri(),
         "state": state,
+        "code_challenge": reto_de(verificador),
+        "code_challenge_method": "S256",
     }
     return f"{AUTH_URL}?{urlencode(params)}"
 
 
-def exchange_code(code: str) -> dict[str, Any]:
+def exchange_code(code: str, state: str = "") -> dict[str, Any]:
     data = {
         "client_key": settings.tiktok_client_key,
         "client_secret": settings.tiktok_client_secret,
@@ -80,6 +111,9 @@ def exchange_code(code: str) -> dict[str, Any]:
         "grant_type": "authorization_code",
         "redirect_uri": redirect_uri(),
     }
+    verificador = _verificadores.pop(state, "")
+    if verificador:
+        data["code_verifier"] = verificador
     with httpx.Client(timeout=TIMEOUT) as client:
         response = client.post(
             TOKEN_URL,

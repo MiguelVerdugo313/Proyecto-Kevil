@@ -369,3 +369,15 @@ def test_el_piloto_automatico_no_se_enciende_a_medias(client):
 
     # y sigue apagado, no a medio encender
     assert client.get("/api/autopilot").json()["enabled"] is False
+
+
+def test_pegar_una_direccion_donde_van_las_claves_avisa(client):
+    """Es fácil confundir la URL de retorno con las claves: hay que decirlo."""
+    confusion = client.post(
+        "/api/credentials/tiktok",
+        json={"text": "http://127.0.0.1:8756/api/oauth/tiktok/callback\nwn1p6HPIKykY1IgN"},
+    )
+    assert confusion.status_code == 400
+    detalle = confusion.json()["detail"]
+    assert "no una dirección web" in detalle
+    assert "Redirect URI" in detalle          # y dice dónde va de verdad

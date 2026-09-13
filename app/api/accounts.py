@@ -220,7 +220,8 @@ def tiktok_oauth_callback(
     _oauth_states.pop(state, None)
 
     try:
-        credentials = tiktok.exchange_code(code)
+        # el state identifica el verificador de PKCE de esta autorización
+        credentials = tiktok.exchange_code(code, state)
         user = tiktok.fetch_user_info(credentials)
     except Exception as exc:
         return HTMLResponse(page("Error al conectar", str(exc), False), status_code=400)

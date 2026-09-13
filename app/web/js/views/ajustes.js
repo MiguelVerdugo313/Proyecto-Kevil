@@ -397,15 +397,23 @@ function editarTikTok(valores, tt, reload) {
       </p>
 
       <div class="guia">
-        ${paso(1, 'Crea la aplicación',
+        ${paso(1, 'Crea la aplicación como <b>Desktop</b>',
           `Entra en <a href="https://developers.tiktok.com/apps" target="_blank" rel="noreferrer">developers.tiktok.com/apps</a>,
-           inicia sesión con tu cuenta de TikTok y pulsa <b>Connect an app</b>.`)}
-        ${paso(2, 'Pide los productos y pega la URL de retorno',
-          `Añade <b>Login Kit</b> y <b>Content Posting API</b>. En «Redirect URI»
-           pega esta dirección exacta:`)}
-        ${campoCopiable('URL de retorno', tt.redirect_uri, 'tt-redirect')}
-        ${paso(3, 'Copia las dos claves y pégalas aquí',
+           inicia sesión y pulsa <b>Connect an app</b>.
+           <br><br>En <b>Platforms</b> marca <b>Desktop</b> y <u>no</u> Web. Es
+           importante: como «Web», TikTok exige que la dirección de retorno empiece
+           por <span class="mono">https</span> y no acepta la de tu ordenador.`)}
+        ${paso(2, 'Rellena los datos de la app',
+          `En <b>Web/Desktop URL</b> va la <b>web de tu aplicación</b>, no la
+           dirección de retorno. Si no tienes una, sirve la de tu repositorio:`)}
+        ${campoCopiable('Web de la aplicación', 'https://github.com/MiguelVerdugo313/Proyecto-Kevil', 'tt-web')}
+        ${paso(3, 'Añade los productos y la dirección de retorno',
+          `Añade <b>Login Kit</b> y <b>Content Posting API</b>. Dentro de Login Kit
+           hay un campo <b>Redirect URI</b> —distinto del anterior— y ahí sí va esto:`)}
+        ${campoCopiable('Redirect URI', tt.redirect_uri, 'tt-redirect')}
+        ${paso(4, 'Copia las dos claves y pégalas aquí',
           `En la pantalla de tu app verás <b>Client key</b> y <b>Client secret</b>.
+           Son dos cadenas de letras y números; <u>no</u> son direcciones web.
            Pégalas abajo, una en cada línea.`)}
       </div>
 
@@ -413,6 +421,7 @@ function editarTikTok(valores, tt, reload) {
         <label>Pega aquí las dos claves</label>
         <textarea id="tt-pegado" rows="3" class="mono"
           placeholder="Client key: awxxxxxxxxxxxx&#10;Client secret: xxxxxxxxxxxxxxxx"></textarea>
+        <span class="help">Sólo las dos claves. Aquí no va ninguna dirección web.</span>
       </div>
 
       <p class="muted tiny" style="margin-top:12px">

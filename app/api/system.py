@@ -371,6 +371,17 @@ def paste_tiktok_credentials(body: PastedCredentials, db: Session = Depends(get_
     if not texto:
         raise HTTPException(400, "Pega aquí la client key y el client secret.")
 
+    # Es fácil confundirse y pegar aquí la dirección de retorno: sin este aviso
+    # se guardaría como si fuera una clave y el fallo saldría mucho después.
+    if "http://" in texto or "https://" in texto:
+        raise HTTPException(
+            400,
+            "Aquí van las dos claves, no una dirección web. La «Client key» y el "
+            "«Client secret» son cadenas de letras y números que salen en la "
+            "pantalla de tu app de TikTok. La dirección de retorno va en TikTok, "
+            "en el campo «Redirect URI» de Login Kit.",
+        )
+
     clave = _buscar_etiqueta(texto, ("client key", "client_key", "clientkey", "key"))
     secreto = _buscar_etiqueta(
         texto, ("client secret", "client_secret", "clientsecret", "secret")
