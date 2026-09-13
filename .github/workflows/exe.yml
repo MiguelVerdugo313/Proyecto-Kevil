@@ -25,6 +25,9 @@ jobs:
   windows:
     runs-on: windows-latest
     timeout-minutes: 40
+    # hace falta para poder dejar el .exe colgado en la release
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
