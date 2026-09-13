@@ -274,9 +274,10 @@ function editarYouTube(valores, yt, reload) {
           vuelves aquí solo y el canal queda conectado.
         </p>
         <p class="muted tiny" style="margin-top:14px">
-          Si Google te enseña un aviso de «aplicación no verificada», es normal:
-          la aplicación es tuya y se ejecuta en tu ordenador. Pulsa
-          «Configuración avanzada» → «Ir a Kevil Studio».
+          Google te enseñará un aviso de «aplicación no verificada». Es normal y no es
+          un fallo: ese aviso sale en toda aplicación que no ha pasado la revisión de
+          Google, y una que corre en tu ordenador y sólo la usas tú no la necesita.
+          Pulsa «Configuración avanzada» → «Ir a Kevil Studio».
         </p>`,
       actions: [
         { label: 'Cancelar' },
@@ -297,32 +298,32 @@ function editarYouTube(valores, yt, reload) {
         pasar tus Shorts a TikTok ya funciona sin esto.
       </p>
       <p class="muted small" style="line-height:1.7;margin-top:10px">
-        Google exige que cada programa se registre con ellos una vez. Son
-        <b>tres pasos y cinco minutos</b>, y no hay que volver a hacerlo nunca más.
+        El botón de conectar es <b>el inicio de sesión de Google de verdad</b>: se abre
+        <span class="mono">accounts.google.com</span>, eliges tu cuenta y ya. Lo único
+        es que Google pide que cada programa se dé de alta con ellos una vez, y como
+        Kevil corre en tu ordenador, ese programa es el tuyo. <b>Dos pasos.</b>
       </p>
 
       <div class="guia">
-        ${paso(1, 'Crea el proyecto y activa la API',
+        ${paso(1, 'Activa la API de YouTube',
           `Abre <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">crear proyecto</a>,
            ponle el nombre que quieras y créalo. Después entra en
            <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noreferrer">YouTube Data API v3</a>
            y pulsa <b>Habilitar</b>.`)}
-        ${paso(2, 'Crea las credenciales',
+        ${paso(2, 'Crea la credencial y pega el archivo',
           `En <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Credenciales</a>:
-           <b>Crear credenciales → ID de cliente de OAuth</b>, tipo
-           <b>Aplicación web</b>. En «URI de redireccionamiento autorizados»
-           pega esta dirección:`)}
-        ${campoCopiable('URL de retorno', yt.redirect_uri, 'yt-redirect')}
-        ${paso(3, 'Descarga el archivo y pégalo aquí',
-          `Al crearla, Google te ofrece descargar un archivo
-           <span class="mono">client_secret_….json</span>. Ábrelo con el Bloc de notas,
-           copia <b>todo</b> y pégalo abajo. Yo saco de ahí lo que hace falta.`)}
+           <b>Crear credenciales → ID de cliente de OAuth</b> y elige el tipo
+           <b>Aplicación de escritorio</b>.
+           <br><br>Con ese tipo <b>no hay que copiar ninguna dirección</b>: Google acepta
+           el retorno a tu propio ordenador sin registrarlo. Al crearla te ofrece
+           descargar un <span class="mono">client_secret_….json</span>: ábrelo con el
+           Bloc de notas, copia <b>todo</b> y pégalo abajo.`)}
       </div>
 
       <div class="field full" style="margin-top:6px">
         <label>Pega aquí el archivo de Google</label>
         <textarea id="yt-json" rows="5" class="mono"
-          placeholder='{"web":{"client_id":"…","client_secret":"…"}}'></textarea>
+          placeholder='{"installed":{"client_id":"…","client_secret":"…"}}'></textarea>
       </div>
 
       <details style="margin-top:12px">
