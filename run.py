@@ -37,6 +37,7 @@ REQUIREMENTS = BASE_DIR / "requirements.txt"
 WINDOW_REQS = BASE_DIR / "requirements-ventana.txt"
 STAMP = VENV_DIR / ".dependencias-instaladas"
 WINDOW_STAMP = VENV_DIR / ".ventana-comprobada"
+SHORTCUT_STAMP = VENV_DIR / ".acceso-directo-creado"
 
 AZUL = "\033[38;5;81m"
 VERDE = "\033[38;5;79m"
@@ -136,6 +137,25 @@ def install_window_support() -> None:
         print(color("  Sin ventana propia en este equipo: se usará el navegador.", GRIS))
 
 
+def crear_acceso_directo() -> None:
+    """La primera vez, deja Kevil en el escritorio y en el menú Inicio.
+
+    Se hace una sola vez: si luego lo borras, no vuelve a aparecer solo.
+    """
+    if SHORTCUT_STAMP.exists():
+        return
+    SHORTCUT_STAMP.write_text("hecho", encoding="utf-8")
+    try:
+        sys.path.insert(0, str(BASE_DIR))
+        import acceso_directo
+
+        creados = acceso_directo.crear()
+    except Exception:
+        return
+    for ruta in creados:
+        print(color(f"· Acceso directo creado: {ruta.name}", GRIS))
+
+
 def check_ffmpeg() -> bool:
     if shutil.which("ffmpeg") and shutil.which("ffprobe"):
         return True
@@ -167,62 +187,6 @@ def open_browser_later(url: str, delay: float = 2.0) -> None:
     threading.Thread(target=worker, daemon=True).start()
 
 
-def esperar_al_servidor(url: str, intentos: int = 100) -> bool:
-    """Espera a que el servidor conteste antes de enseñar la ventana."""
-    import urllib.error
-    import urllib.request
-
-    for _ in range(intentos):
-        try:
-            with urllib.request.urlopen(f"{url}/api/status", timeout=1):
-                return True
-        except (urllib.error.URLError, OSError):
-            time.sleep(0.2)
-    return False
-
-
-def abrir_ventana(url: str) -> bool:
-    """Abre Kevil en su propia ventana, como cualquier otro programa.
-
-    Usa el motor web que ya trae el sistema (WebView2 en Windows, WebKit en
-    macOS, GTK en Linux): no instala ningún navegador ni pesa cientos de megas.
-    Si en este equipo no hay forma de abrirla, se avisa y se sigue con el
-    navegador de siempre, que funciona igual.
-    """
-    try:
-        import logging
-
-        # pywebview escupe un traceback enorme si el equipo no tiene con qué
-        # dibujar la ventana. No es un fallo que el usuario deba leer: abajo se
-        # cae al navegador y se sigue.
-        logging.getLogger("pywebview").setLevel(logging.CRITICAL)
-        import webview
-    except Exception:
-        print(color("  · Sin ventana propia (falta pywebview): abro el navegador.", GRIS))
-        return False
-
-    if not esperar_al_servidor(url):
-        print(color("  · El servidor ha tardado demasiado en arrancar.", ROJO))
-        return False
-
-    try:
-        webview.create_window(
-            "Kevil Studio",
-            url,
-            width=1380,
-            height=920,
-            min_size=(1024, 680),
-            background_color="#000000",
-            text_select=True,
-        )
-        webview.start()          # bloquea hasta que cierras la ventana
-        return True
-    except Exception as exc:
-        print(color(f"  · No se ha podido abrir la ventana ({exc}).", GRIS))
-        print(color("    Abro el navegador en su lugar.", GRIS))
-        return False
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Arranca Kevil Studio")
     parser.add_argument("--puerto", type=int, default=None, help="Puerto del servidor")
@@ -235,7 +199,29 @@ def main() -> None:
                         help=argparse.SUPPRESS)          # nombre antiguo
     parser.add_argument("--reinstalar", action="store_true", help="Rehacer el entorno virtual")
     parser.add_argument("--recargar", action="store_true", help="Recarga automática (desarrollo)")
+    parser.add_argument("--diagnostico", action="store_true",
+                        help="Decir qué se puede usar para abrir la ventana y salir")
     args = parser.parse_args()
+
+    if args.diagnostico:
+        sys.path.insert(0, str(BASE_DIR))
+        import ventana as ventana_mod
+
+        banner()
+        print(color(f"  Sistema:  {platform.system()} · Python {sys.version.split()[0]}", GRIS))
+        navegador = ventana_mod.buscar_navegador()
+        print(color(f"  Modo app: {navegador or 'no encontrado (ni Edge ni Chrome)'}", GRIS))
+        try:
+            import importlib
+
+            importlib.import_module("webview")
+            nativa = "disponible"
+        except Exception as exc:
+            nativa = f"no disponible ({type(exc).__name__})"
+        print(color(f"  Nativa:   {nativa}", GRIS))
+        print(color(f"  ffmpeg:   {shutil.which('ffmpeg') or 'no encontrado'}", GRIS))
+        print()
+        return
 
     banner()
 
@@ -244,6 +230,7 @@ def main() -> None:
         install_requirements()
         if not (args.sin_ventana or args.sin_navegador or args.navegador):
             install_window_support()
+            crear_acceso_directo()
         # se relanza a sí mismo dentro del entorno virtual
         os.execv(str(venv_python()), [str(venv_python()), str(Path(__file__).resolve()), *sys.argv[1:]])
 
@@ -287,6 +274,8 @@ def main() -> None:
         return
 
     # Ventana propia: el servidor se va a un hilo de fondo y la ventana manda.
+    import ventana as ventana_mod  # noqa: E402
+
     print(color("  Abriendo Kevil Studio…", VERDE))
     print(color("  (cierra la ventana para salir)", GRIS))
     print()
@@ -294,17 +283,37 @@ def main() -> None:
     hilo = threading.Thread(target=servidor.run, name="kevil-server", daemon=True)
     hilo.start()
 
-    if not en_navegador and abrir_ventana(url):
-        pass                                  # se ha cerrado la ventana: salimos
-    else:
-        open_browser_later(url, delay=0.5)
-        print(color(f"  Kevil está en {url} · Ctrl+C para parar", GRIS))
+    consola_oculta = False
+
+    def al_abrir(modo: str, detalle: str) -> None:
+        nonlocal consola_oculta
+        if modo == "app":
+            print(color(f"  Ventana de aplicación ({Path(detalle).name})", GRIS))
+        elif modo == "navegador":
+            print(color(f"  Kevil está en {url} · Ctrl+C para parar", GRIS))
+        if modo != "navegador":
+            # un programa no enseña una consola negra
+            consola_oculta = ventana_mod.ocultar_consola()
+
+    modo = ventana_mod.abrir(
+        url,
+        perfil=settings.data_path / "ventana",
+        preferencia="navegador" if en_navegador else "auto",
+        al_abrir=al_abrir,
+    )
+
+    if modo == "sin-servidor":
+        print(color("  El servidor no ha llegado a arrancar. Mira el error de arriba.", ROJO))
+    elif modo == "navegador":
+        # no hay ventana que esperar: nos quedamos hasta que pares tú
         try:
             while hilo.is_alive():
                 time.sleep(0.5)
         except KeyboardInterrupt:
             pass
 
+    if consola_oculta:
+        ventana_mod.mostrar_consola()
     servidor.should_exit = True
     hilo.join(timeout=8)
 

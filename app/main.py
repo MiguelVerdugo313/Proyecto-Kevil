@@ -73,3 +73,12 @@ if WEB_DIR.exists():
     @app.get("/favicon.svg", include_in_schema=False)
     def favicon():
         return FileResponse(WEB_DIR / "favicon.svg")
+
+    @app.get("/favicon.png", include_in_schema=False)
+    def favicon_png():
+        # Es el que acaba en la barra de tareas cuando Kevil se abre como app
+        return FileResponse(WEB_DIR / "favicon.png")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon_ico():
+        return FileResponse(WEB_DIR / "img" / "kevil.ico")

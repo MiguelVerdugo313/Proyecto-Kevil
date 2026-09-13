@@ -101,20 +101,43 @@ python run.py
 En Windows es más cómodo hacer **doble clic en `run.bat`**; en macOS y Linux, `./run.sh`.
 
 La primera vez crea un entorno virtual (`.venv`), instala las dependencias, comprueba
-ffmpeg y abre **la ventana de Kevil**. Las siguientes veces arranca en unos segundos.
+ffmpeg, **deja un acceso directo en el escritorio** y abre la ventana de Kevil. A partir
+de ahí abres Kevil desde el escritorio o el menú Inicio, como cualquier otro programa, y
+te olvidas de esta carpeta.
 
-La ventana usa el motor web que ya trae tu sistema (WebView2 en Windows, WebKit en
-macOS, GTK en Linux): no descarga ningún navegador ni pesa cientos de megas. Si en tu
-equipo no se pudiera abrir, Kevil te lo dice y sigue funcionando en el navegador.
+### Es una aplicación, no una pestaña
+
+La ventana de Kevil **no tiene barra de direcciones, ni pestañas, ni marcadores**, y
+tiene su propio icono en la barra de tareas. Se consigue de una de estas formas, y se
+prueban en este orden:
+
+1. **Ventana nativa** del sistema (WebView2 en Windows, WebKit en macOS, GTK en Linux),
+   si se pudo instalar el complemento.
+2. **Modo aplicación de Edge o Chrome**: la misma ventana limpia, con un perfil propio
+   para que no se mezcle con tus pestañas. Edge viene con Windows, así que **esto
+   funciona siempre**.
+3. El navegador de siempre, sólo si no hay ninguna de las dos anteriores.
+
+En Windows, la consola negra se esconde sola en cuanto la ventana está en pantalla, y
+vuelve a aparecer si algo falla para que puedas leerlo.
+
+¿Quieres saber qué va a usar tu equipo? `python run.py --diagnostico`.
 
 Opciones útiles:
 
 ```bash
-python run.py --navegador       # abrirlo en el navegador en vez de en su ventana
+python run.py --diagnostico     # decir con qué se puede abrir la ventana aquí
+python run.py --navegador       # abrirlo en el navegador, si lo prefieres
 python run.py --sin-ventana     # sólo el servidor, no abrir nada
 python run.py --puerto 9000     # otro puerto
 python run.py --reinstalar      # rehacer el entorno virtual
+
+python acceso_directo.py            # volver a crear el acceso directo
+python acceso_directo.py --quitar   # quitarlo
 ```
+
+Si tienes Edge o Chrome en una ruta rara, dísela con la variable
+`KEVIL_BROWSER=C:\ruta\a\msedge.exe`.
 
 ---
 
