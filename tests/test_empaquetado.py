@@ -53,7 +53,9 @@ def test_si_no_se_puede_escribir_al_lado_se_usa_tu_carpeta(monkeypatch, tmp_path
 
     casa = tmp_path / "casa"
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: casa))
-    monkeypatch.setenv("XDG_DATA_HOME", str(casa / "datos"))
+    # cada sistema guarda los datos de usuario en un sitio distinto
+    monkeypatch.setenv("XDG_DATA_HOME", str(casa / "datos"))     # Linux
+    monkeypatch.setenv("LOCALAPPDATA", str(casa / "AppData"))    # Windows
 
     datos = rutas.carpeta_de_datos()
     assert str(casa) in str(datos)
