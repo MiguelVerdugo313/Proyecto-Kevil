@@ -88,8 +88,12 @@ En **Estudio** arrastras el vídeo y obtienes, en un par de minutos:
 
 ## ⬇️ [**Descargar Kevil Studio**](../../releases/latest)
 
-Baja **`Kevil-Studio-Windows.zip`**, descomprímelo y abre `Kevil Studio.exe` de dentro.
-No necesitas Python, ni ffmpeg, ni instalar nada.
+Baja **`Kevil-Studio-Windows.zip`** y descomprímelo: sale una carpeta **Kevil Studio**
+y dentro, arriba del todo, `Kevil Studio.exe`. Doble clic y ya. No necesitas Python, ni
+ffmpeg, ni instalar nada.
+
+> La carpeta `_internal` que verás al lado son las tripas del programa: no la toques ni
+> saques el `.exe` de ahí, porque la necesita para arrancar.
 
 > **Ojo, no te confundas**: el botón verde **Code → Download ZIP** de arriba te da el
 > **código fuente**, no el programa. Si al descomprimirlo ves `run.bat` y carpetas, es

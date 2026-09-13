@@ -83,10 +83,21 @@ jobs:
       - name: Empaquetar la carpeta en un zip
         shell: pwsh
         run: |
-          Compress-Archive -Path "dist/Kevil Studio/*" `
+          # Se mete la carpeta entera, no su contenido: al descomprimir tiene que
+          # salir UNA carpeta con todo dentro, no noventa archivos sueltos encima
+          # del escritorio.
+          Compress-Archive -Path "dist/Kevil Studio" `
             -DestinationPath "dist/Kevil-Studio-Windows.zip" -CompressionLevel Optimal
+
+          # Y el ejecutable tiene que quedar en la raiz de esa carpeta, porque es
+          # lo que la gente busca al abrirla.
+          $zip = [System.IO.Compression.ZipFile]::OpenRead("$PWD/dist/Kevil-Studio-Windows.zip")
+          $raiz = $zip.Entries | Where-Object { $_.FullName -eq "Kevil Studio/Kevil Studio.exe" }
+          $zip.Dispose()
+          if (-not $raiz) { throw "El .exe no esta donde deberia dentro del zip" }
+
           $mb = [math]::Round((Get-Item "dist/Kevil-Studio-Windows.zip").Length / 1MB)
-          Write-Host "El zip pesa $mb MB"
+          Write-Host "El zip pesa $mb MB y el .exe esta en la raiz de la carpeta"
 
       - name: Construir (un solo archivo)
         run: python construir.py ${{ (inputs.con_ffmpeg != false) && '--con-ffmpeg' || '' }}
@@ -164,8 +175,13 @@ jobs:
 
             ### ⬇️ Kevil-Studio-Windows.zip  ← **usa este**
 
-            Descomprímelo donde quieras y abre `Kevil Studio.exe` de dentro.
-            No necesitas instalar nada: lleva ffmpeg incluido.
+            Descomprímelo y sale una carpeta **Kevil Studio**. Dentro, arriba del
+            todo, está `Kevil Studio.exe`: doble clic y ya.
+
+            La carpeta `_internal` que hay al lado son las tripas del programa.
+            No la toques y no saques el `.exe` de ahí, que la necesita.
+
+            No hace falta instalar nada: lleva ffmpeg incluido.
 
             ### Kevil Studio.exe (un solo archivo)
 
