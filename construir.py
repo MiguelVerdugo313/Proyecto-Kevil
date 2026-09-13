@@ -16,6 +16,7 @@ deja el ``.exe`` para descargar (ver ``.github/workflows/exe.yml``).
 from __future__ import annotations
 
 import argparse
+import os
 import platform
 import shutil
 import subprocess
@@ -74,14 +75,41 @@ def comprobar_pyinstaller() -> bool:
     return resultado.returncode == 0
 
 
+# Un ffmpeg de verdad pesa decenas de megas. Si lo que encontramos pesa menos
+# que esto no es ffmpeg, es un lanzador que apunta a otro sitio (los que pone
+# Chocolatey, por ejemplo), y metido en el paquete no serviría de nada.
+MINIMO_FFMPEG = 5 * 1024 * 1024
+
+
+def _buscar_binario(nombre: str) -> str:
+    """Dónde está ffmpeg de verdad, no un atajo que apunte a él."""
+    sufijo = ".exe" if platform.system() == "Windows" else ""
+
+    # 1) donde lo hayamos dejado a propósito
+    carpeta = (os.environ.get("KEVIL_FFMPEG_DIR") or "").strip()
+    if carpeta:
+        candidato = Path(carpeta) / f"{nombre}{sufijo}"
+        if candidato.is_file():
+            return str(candidato)
+
+    # 2) el del sistema, si es el binario y no un lanzador
+    encontrado = shutil.which(nombre)
+    if encontrado and Path(encontrado).stat().st_size >= MINIMO_FFMPEG:
+        return encontrado
+    return ""
+
+
 def copiar_ffmpeg(destino: Path) -> list[Path]:
-    """Copia el ffmpeg del sistema para meterlo dentro del paquete."""
+    """Copia ffmpeg y ffprobe para meterlos dentro del paquete."""
     destino.mkdir(parents=True, exist_ok=True)
     copiados: list[Path] = []
     for nombre in ("ffmpeg", "ffprobe"):
-        origen = shutil.which(nombre)
+        origen = _buscar_binario(nombre)
         if not origen:
-            print(f"  ⚠  No se encuentra {nombre} en el PATH: no se incluirá.")
+            print(
+                f"  !  No se encuentra un {nombre} de verdad: no se incluirá. "
+                "Indica dónde está con KEVIL_FFMPEG_DIR."
+            )
             continue
         final = destino / Path(origen).name
         shutil.copy2(origen, final)

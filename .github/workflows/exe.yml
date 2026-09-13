@@ -46,7 +46,19 @@ jobs:
 
       - name: Traer ffmpeg
         if: ${{ inputs.con_ffmpeg != false }}
-        run: choco install ffmpeg -y --no-progress
+        shell: pwsh
+        run: |
+          # El paquete de Chocolatey deja un lanzador de unos pocos KB que
+          # apunta al binario real. Metido en el .exe no sirve de nada, asi que
+          # se baja la version estatica directamente.
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+          Invoke-WebRequest $url -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-descargado
+          $bin = (Get-ChildItem -Recurse -Filter "ffmpeg.exe" ffmpeg-descargado |
+                  Select-Object -First 1).Directory.FullName
+          if (-not $bin) { throw "No se ha encontrado ffmpeg.exe en el paquete" }
+          "KEVIL_FFMPEG_DIR=$bin" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          Write-Host "ffmpeg en $bin"
 
       - name: Comprobar que las pruebas pasan
         run: |
@@ -55,6 +67,19 @@ jobs:
 
       - name: Construir
         run: python construir.py ${{ (inputs.con_ffmpeg != false) && '--con-ffmpeg' || '' }}
+
+      - name: Comprobar que ffmpeg ha entrado de verdad
+        if: ${{ inputs.con_ffmpeg != false }}
+        shell: pwsh
+        run: |
+          # Sin ffmpeg dentro, el .exe no puede cortar ni montar nada. Si no ha
+          # entrado, mejor fallar aqui que entregar algo que no sirve.
+          $exe = Get-Item "dist/Kevil Studio.exe"
+          $mb = [math]::Round($exe.Length / 1MB)
+          Write-Host "El ejecutable pesa $mb MB"
+          if ($mb -lt 90) {
+            throw "Pesa $mb MB: ffmpeg no ha entrado en el paquete"
+          }
 
       - name: Comprobar que el ejecutable arranca
         shell: pwsh

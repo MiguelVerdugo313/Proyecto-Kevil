@@ -119,3 +119,35 @@ def test_el_flujo_de_github_construye_en_windows():
     assert any("Construir" in n for n in nombres)
     # y no se publica sin comprobar que arranca
     assert any("arranca" in n for n in nombres)
+
+
+def test_no_se_empaqueta_un_ffmpeg_de_mentira(tmp_path, monkeypatch):
+    """Chocolatey instala un lanzador de pocos KB que apunta al binario real.
+
+    Metido en el .exe no sirve de nada: hay que quedarse con el de verdad o con
+    ninguno, pero no con el atajo.
+    """
+    import construir
+
+    falso = tmp_path / "atajo"
+    falso.mkdir()
+    sufijo = ".exe" if sys.platform == "win32" else ""
+    lanzador = falso / f"ffmpeg{sufijo}"
+    lanzador.write_bytes(b"0" * 60_000)                 # un atajo, 60 KB
+
+    monkeypatch.delenv("KEVIL_FFMPEG_DIR", raising=False)
+    monkeypatch.setattr(construir.shutil, "which", lambda n: str(lanzador))
+    assert construir._buscar_binario("ffmpeg") == ""     # se descarta
+
+    # el de verdad sí vale
+    bueno = tmp_path / "bueno"
+    bueno.mkdir()
+    real = bueno / f"ffmpeg{sufijo}"
+    real.write_bytes(b"0" * (construir.MINIMO_FFMPEG + 1))
+    monkeypatch.setattr(construir.shutil, "which", lambda n: str(real))
+    assert construir._buscar_binario("ffmpeg") == str(real)
+
+    # y se puede decir dónde está a mano
+    monkeypatch.setenv("KEVIL_FFMPEG_DIR", str(bueno))
+    monkeypatch.setattr(construir.shutil, "which", lambda n: None)
+    assert construir._buscar_binario("ffmpeg") == str(real)
