@@ -84,6 +84,36 @@ En **Estudio** arrastras el vídeo y obtienes, en un par de minutos:
 
 ## Instalación
 
+### La forma fácil: el `.exe` (Windows)
+
+Si sólo quieres usarlo, no necesitas Python ni nada: **descarga `Kevil Studio.exe`,
+doble clic y ya**.
+
+* Si hay una [release](../../releases), el `.exe` está ahí.
+* Si no, lo construyes desde el propio GitHub sin instalar nada en tu equipo:
+  pestaña **Actions → «Construir el .exe» → Run workflow**. Cuando termine (unos
+  cinco minutos) bájalo de **Artifacts**.
+
+Ese ejecutable **lleva ffmpeg dentro**, así que no hay que instalar nada aparte.
+Guarda tus datos en una carpeta `data` junto al propio `.exe`: para llevártelo a
+otro equipo, copia los dos.
+
+> **¿Por qué no está el `.exe` en el repositorio?** Porque PyInstaller no sabe
+> construir un ejecutable de Windows desde Linux ni desde macOS: tiene que
+> hacerse en Windows. Por eso el flujo de Actions usa una máquina con Windows.
+> Antes de dejarte el archivo comprueba que las pruebas pasan **y** que el
+> ejecutable arranca y responde.
+
+Para construirlo tú mismo, en tu Windows:
+
+```bash
+python construir.py                # Kevil Studio.exe, un solo archivo
+python construir.py --con-ffmpeg   # con ffmpeg dentro, no necesita nada
+python construir.py --carpeta      # una carpeta en vez de un archivo: arranca antes
+```
+
+### Desde el código
+
 Necesitas dos cosas: **Python 3.10 o superior** y **ffmpeg**.
 
 | Sistema | Instalar ffmpeg |

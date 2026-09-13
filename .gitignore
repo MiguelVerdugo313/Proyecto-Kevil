@@ -14,3 +14,8 @@ __pycache__/
 .DS_Store
 Thumbs.db
 *.log
+
+# Empaquetado (el .exe se construye, no se guarda en el repositorio)
+build/
+dist/
+*.spec

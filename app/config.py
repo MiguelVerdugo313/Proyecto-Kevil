@@ -14,7 +14,11 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+from app.rutas import carpeta_de_datos, carpeta_del_programa, ffmpeg_incluido
+
+# Con el código suelto es la carpeta del proyecto; dentro del .exe, la carpeta
+# donde está el ejecutable (ver app/rutas.py).
+BASE_DIR = carpeta_del_programa()
 
 
 class Settings(BaseSettings):
@@ -31,11 +35,13 @@ class Settings(BaseSettings):
     open_browser: bool = True
 
     # --- Almacenamiento -------------------------------------------------
-    data_dir: str = str(BASE_DIR / "data")
+    # Junto al programa; si ahí no se puede escribir, en tu carpeta de usuario.
+    data_dir: str = str(carpeta_de_datos())
 
     # --- Binarios externos ----------------------------------------------
-    ffmpeg_path: str = "ffmpeg"
-    ffprobe_path: str = "ffprobe"
+    # Si el paquete trae su propio ffmpeg se usa ese; si no, el del sistema.
+    ffmpeg_path: str = ffmpeg_incluido("ffmpeg") or "ffmpeg"
+    ffprobe_path: str = ffmpeg_incluido("ffprobe") or "ffprobe"
 
     # --- Motor de trabajos ----------------------------------------------
     workers: int = 2

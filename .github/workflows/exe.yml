@@ -1,0 +1,86 @@
+# Construye «Kevil Studio.exe» en una máquina con Windows.
+#
+# PyInstaller no sabe hacer un ejecutable de Windows desde Linux ni desde
+# macOS: tiene que construirse en el mismo sistema. Este flujo lo hace por ti
+# en un Windows de GitHub, así que no necesitas montar nada en tu equipo.
+#
+# Cómo usarlo:
+#   1. En GitHub, pestaña «Actions» → «Construir el .exe» → «Run workflow».
+#   2. Cuando termine (unos 5 minutos), baja el .zip de «Artifacts».
+#   3. Dentro está «Kevil Studio.exe». Doble clic y listo.
+
+name: Construir el .exe
+
+on:
+  workflow_dispatch:
+    inputs:
+      con_ffmpeg:
+        description: "Incluir ffmpeg dentro (el .exe no necesita instalar nada)"
+        type: boolean
+        default: true
+  push:
+    tags: ["v*"]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-ventana.txt
+          pip install "pyinstaller>=6.3"
+
+      - name: Traer ffmpeg
+        if: ${{ inputs.con_ffmpeg != false }}
+        run: choco install ffmpeg -y --no-progress
+
+      - name: Comprobar que las pruebas pasan
+        run: |
+          pip install pytest
+          python -m pytest tests -q
+
+      - name: Construir
+        run: python construir.py ${{ (inputs.con_ffmpeg != false) && '--con-ffmpeg' || '' }}
+
+      - name: Comprobar que el ejecutable arranca
+        shell: pwsh
+        run: |
+          $exe = "dist/Kevil Studio.exe"
+          if (-not (Test-Path $exe)) { throw "No se ha construido el ejecutable" }
+          $env:KEVIL_PORT = "8899"
+          $env:KEVIL_WINDOW_MODE = "navegador"
+          $proceso = Start-Process -FilePath $exe -PassThru
+          $vivo = $false
+          foreach ($i in 1..40) {
+            Start-Sleep -Seconds 3
+            try {
+              $r = Invoke-WebRequest "http://127.0.0.1:8899/api/status" -UseBasicParsing -TimeoutSec 5
+              if ($r.StatusCode -eq 200) { $vivo = $true; break }
+            } catch { }
+          }
+          Stop-Process -Id $proceso.Id -Force -ErrorAction SilentlyContinue
+          if (-not $vivo) { throw "El ejecutable no ha llegado a responder" }
+          Write-Host "El ejecutable arranca y responde."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kevil-Studio-Windows
+          path: dist/Kevil Studio.exe
+          retention-days: 30
+
+      - name: Publicarlo en la release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Kevil Studio.exe

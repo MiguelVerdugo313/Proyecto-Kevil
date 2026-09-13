@@ -17,10 +17,14 @@ from app import bootstrap
 from app.api import ROUTERS
 from app.config import settings
 from app.db import init_db, session_scope
+from app.rutas import raiz_recursos
 from app.services import events, pipeline, scheduler, studio  # noqa: F401  (registran trabajos)
 from app.services.queue import runner
 
-WEB_DIR = Path(__file__).resolve().parent / "web"
+# Dentro del .exe la interfaz vive en la carpeta que descomprime PyInstaller
+WEB_DIR = raiz_recursos() / "app" / "web"
+if not WEB_DIR.is_dir():
+    WEB_DIR = Path(__file__).resolve().parent / "web"
 
 
 @contextlib.asynccontextmanager
