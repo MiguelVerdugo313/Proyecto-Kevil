@@ -1,0 +1,21 @@
+# Entorno y datos locales
+.venv/
+data/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log
+
+# Empaquetado (el .exe se construye, no se guarda en el repositorio)
+build/
+dist/
+*.spec
