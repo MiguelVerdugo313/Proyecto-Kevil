@@ -1,7 +1,52 @@
 // Panel: el resumen de todo lo que está pasando.
 
 import { api } from '../lib/api.js';
-import { emptyState, escapeHtml, fmt, jobPill } from '../lib/ui.js';
+import { emptyState, escapeHtml, fmt, jobPill, toast, toastError } from '../lib/ui.js';
+
+/* --------------------------------------------------------- piloto automático */
+function pilotoHtml(piloto) {
+  const listo = piloto.ready;
+  const encendido = piloto.enabled;
+
+  const requisitos = piloto.requirements.map((r) => `
+    <div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0">
+      <span style="color:${r.cumplido ? 'var(--green)' : 'var(--muted-2)'};flex:none">
+        ${r.cumplido ? '✓' : '○'}</span>
+      <div class="grow" style="min-width:0">
+        <div class="small">${escapeHtml(r.titulo)}</div>
+        <div class="muted tiny" style="margin-top:2px">${escapeHtml(r.detalle)}</div>
+      </div>
+      ${r.cumplido ? '' : `<a class="btn sm" href="${escapeHtml(r.accion)}">Ir</a>`}
+    </div>`).join('');
+
+  return `<div class="card piloto ${encendido ? 'on' : ''}">
+    <div class="card-head">
+      <div>
+        <h3>Piloto automático ${encendido ? '<span class="pill ok">en marcha</span>' : ''}</h3>
+        <p class="muted small" style="margin-top:4px">
+          ${encendido
+            ? `Kevil corta, programa y publica solo. Vigilando ${piloto.sources_watched} canal(es).`
+            : 'Que Kevil lo haga todo sin pedirte permiso: corta, programa y publica.'}
+        </p>
+      </div>
+      <label class="switch" title="${listo ? '' : 'Antes hay que conectar lo de abajo'}">
+        <input type="checkbox" id="piloto" ${encendido ? 'checked' : ''} ${listo ? '' : 'disabled'}>
+        <span class="track"></span>
+      </label>
+    </div>
+
+    ${encendido ? `
+      <div class="muted small" style="line-height:1.8">
+        Los vídeos nuevos de tus canales entran solos, se cortan, se programan en tu mejor
+        hora y se publican. Tú no tienes que aprobar nada.
+        <br>Apágalo cuando quieras y Kevil volverá a pedirte el visto bueno antes de publicar.
+      </div>`
+    : `<div style="margin-top:4px">${requisitos}</div>
+       ${listo ? `<p class="muted tiny" style="margin-top:12px">
+         Al encenderlo, los ${piloto.flows_total} flujos pasan a publicar sin preguntar.
+       </p>` : ''}`}
+  </div>`;
+}
 
 function statCard(label, value, hint, warn = false) {
   return `<div class="stat ${warn ? 'warn' : ''}">
@@ -60,8 +105,10 @@ export default {
     },
   ],
 
-  async render(root) {
-    const data = await api.dashboard();
+  async render(root, ctx) {
+    const [data, piloto] = await Promise.all([
+      api.dashboard(), api.get('/api/autopilot'),
+    ]);
     const counters = data.counters;
 
     const noAccounts = data.accounts.length === 0 && counters.channels === 0;
@@ -84,6 +131,8 @@ export default {
         </div>
         <div style="margin-top:18px"><a class="btn primary" href="#cuentas">Empezar por las cuentas</a></div>
       </div>` : ''}
+
+      ${pilotoHtml(piloto)}
 
       <div class="grid cols-4">
         ${statCard('Clips por revisar', counters.clips_ready, `${counters.clips} generados en total`)}
@@ -170,6 +219,25 @@ export default {
     root.querySelectorAll('[data-clip]').forEach((node) => {
       node.onclick = () => { location.hash = '#clips'; };
     });
+
+    const interruptor = root.querySelector('#piloto');
+    if (interruptor) {
+      interruptor.onchange = async () => {
+        const encender = interruptor.checked;
+        interruptor.disabled = true;
+        try {
+          await api.post('/api/autopilot', { enabled: encender });
+          toast(encender
+            ? 'Piloto automático en marcha: Kevil publica solo'
+            : 'Apagado: Kevil volverá a pedirte el visto bueno');
+          ctx.reload();
+        } catch (error) {
+          interruptor.checked = !encender;
+          interruptor.disabled = false;
+          toastError(error);
+        }
+      };
+    }
   },
 
   async onRefresh(root) {

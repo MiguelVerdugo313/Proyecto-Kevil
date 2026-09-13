@@ -355,3 +355,17 @@ def test_pegar_las_claves_de_tiktok(client):
     ).status_code == 400
 
     client.put("/api/settings", json={"tiktok_client_key": "", "tiktok_client_secret": ""})
+
+
+def test_el_piloto_automatico_no_se_enciende_a_medias(client):
+    """Sin canal ni destino no se puede publicar solo: hay que decirlo."""
+    estado = client.get("/api/autopilot").json()
+    assert estado["enabled"] is False
+    assert estado["missing"]
+
+    fallo = client.post("/api/autopilot", json={"enabled": True})
+    assert fallo.status_code == 400
+    assert "le falta" in fallo.json()["detail"]
+
+    # y sigue apagado, no a medio encender
+    assert client.get("/api/autopilot").json()["enabled"] is False
