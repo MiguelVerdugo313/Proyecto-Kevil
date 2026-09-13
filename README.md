@@ -86,17 +86,20 @@ En **Estudio** arrastras el vídeo y obtienes, en un par de minutos:
 
 ### La forma fácil: el `.exe` (Windows)
 
-Si sólo quieres usarlo, no necesitas Python ni nada: **descarga `Kevil Studio.exe`,
-doble clic y ya**.
+## ⬇️ [**Descargar Kevil Studio.exe**](../../releases/latest)
 
-* Si hay una [release](../../releases), el `.exe` está ahí.
-* Si no, lo construyes desde el propio GitHub sin instalar nada en tu equipo:
-  pestaña **Actions → «Construir el .exe» → Run workflow**. Cuando termine (unos
-  cinco minutos) bájalo de **Artifacts**.
+Doble clic y ya. No necesitas Python, ni ffmpeg, ni instalar nada.
+
+> **Ojo, no te confundas**: el botón verde **Code → Download ZIP** de arriba te da el
+> **código fuente**, no el programa. Si al descomprimirlo ves `run.bat` y carpetas, es
+> que has bajado el código. El programa está en **[Releases](../../releases/latest)**.
 
 Ese ejecutable **lleva ffmpeg dentro**, así que no hay que instalar nada aparte.
 Guarda tus datos en una carpeta `data` junto al propio `.exe`: para llevártelo a
 otro equipo, copia los dos.
+
+¿Quieres una versión recién construida? Pestaña **Actions → «Construir el .exe» →
+Run workflow**; al terminar la deja también en Releases.
 
 > **¿Por qué no está el `.exe` en el repositorio?** Porque PyInstaller no sabe
 > construir un ejecutable de Windows desde Linux ni desde macOS: tiene que

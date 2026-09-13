@@ -18,6 +18,14 @@ on:
         description: "Incluir ffmpeg dentro (el .exe no necesita instalar nada)"
         type: boolean
         default: true
+      publicar:
+        description: "Dejarlo en Releases, para poder descargarlo con un clic"
+        type: boolean
+        default: true
+      version:
+        description: "Nombre de la version (por ejemplo v1.0.0)"
+        type: string
+        default: "v1.0.0"
   push:
     tags: ["v*"]
 
@@ -126,8 +134,23 @@ jobs:
           path: dist/Kevil Studio.exe
           retention-days: 30
 
-      - name: Publicarlo en la release
-        if: startsWith(github.ref, 'refs/tags/v')
+      # La pagina de Releases es la unica que da un enlace de descarga directo y
+      # permanente. Los artefactos de Actions caducan y estan escondidos.
+      - name: Dejarlo en Releases
+        if: ${{ inputs.publicar != false || startsWith(github.ref, 'refs/tags/v') }}
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.version || github.ref_name }}
+          name: Kevil Studio ${{ inputs.version || github.ref_name }}
+          body: |
+            ## Descarga
+
+            **[Kevil Studio.exe](../../releases/latest/download/Kevil.Studio.exe)** — descarga, doble clic y ya.
+
+            No necesitas instalar nada: lleva ffmpeg dentro. Tus datos se guardan en
+            una carpeta `data` junto al propio `.exe`.
+
+            Antes de publicarse ha pasado las pruebas en Windows y se ha comprobado
+            que el ejecutable arranca y responde.
           files: dist/Kevil Studio.exe
+          fail_on_unmatched_files: true
