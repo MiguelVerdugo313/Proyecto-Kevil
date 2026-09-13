@@ -316,12 +316,13 @@ function editarYouTube(valores, yt, reload) {
            <b>Aplicación de escritorio</b>.
            <br><br>Con ese tipo <b>no hay que copiar ninguna dirección</b>: Google acepta
            el retorno a tu propio ordenador sin registrarlo. Al crearla te ofrece
-           descargar un <span class="mono">client_secret_….json</span>: ábrelo con el
-           Bloc de notas, copia <b>todo</b> y pégalo abajo.`)}
+           descargar un <span class="mono">client_secret_….json</span>:
+           <b>descárgalo y ya está</b>, no hace falta ni abrirlo. Pulsa abajo
+           «Buscar el archivo» y Kevil lo coge de tu carpeta de Descargas.`)}
       </div>
 
       <div class="field full" style="margin-top:6px">
-        <label>Pega aquí el archivo de Google</label>
+        <label>O pega aquí el archivo de Google</label>
         <textarea id="yt-json" rows="5" class="mono"
           placeholder='{"installed":{"client_id":"…","client_secret":"…"}}'></textarea>
       </div>
@@ -341,6 +342,13 @@ function editarYouTube(valores, yt, reload) {
     onOpen: activarCopiar,
     actions: [
       { label: 'Cancelar' },
+      { label: 'Buscar el archivo', onClick: async () => {
+        // Lo normal es que siga en Descargas tal cual lo dejó Google.
+        const r = await api.post('/api/credentials/youtube/buscar', {});
+        toast(`Encontrado: ${r.file} · abriendo Google…`);
+        setTimeout(() => { window.location.href = '/api/oauth/youtube/start'; }, 900);
+        return true;
+      } },
       { label: 'Guardar y conectar', variant: 'primary', onClick: async (root) => {
         const pegado = root.querySelector('#yt-json').value.trim();
         if (pegado) {
