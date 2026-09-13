@@ -1,8 +1,14 @@
 """Empaqueta Kevil Studio en un ejecutable.
 
+    python construir.py --carpeta    # una carpeta (recomendado, ver abajo)
     python construir.py              # un solo archivo (Kevil Studio.exe)
-    python construir.py --carpeta    # una carpeta (arranca más rápido)
     python construir.py --con-ffmpeg # meter ffmpeg dentro: no instalas nada
+
+**Sobre los antivirus**: un ejecutable de un solo archivo se descomprime solo en
+una carpeta temporal al arrancar, que es exactamente lo que hace el malware para
+esconderse. Windows Defender lo marca a menudo aunque no tenga nada. La versión
+en carpeta no hace eso y da muchos menos problemas, por eso es la que se publica
+como descarga principal.
 
 El resultado queda en ``dist/``.
 
@@ -132,6 +138,10 @@ def construir(un_archivo: bool = True, con_ffmpeg: bool = False) -> Path | None:
         # sin consola: es una aplicación, no un script
         "--windowed" if platform.system() != "Linux" else "--console",
         "--onefile" if un_archivo else "--onedir",
+        # UPX comprime el ejecutable, y los antivirus tratan lo comprimido como
+        # sospechoso porque es lo que hace el malware para esconderse. Pesa algo
+        # más sin él, pero da muchos menos disgustos.
+        "--noupx",
         # la interfaz (HTML, CSS, JS e iconos) va dentro del ejecutable
         "--add-data", f"{BASE_DIR / 'app' / 'web'}{sep}app/web",
     ]

@@ -86,13 +86,33 @@ En **Estudio** arrastras el vídeo y obtienes, en un par de minutos:
 
 ### La forma fácil: el `.exe` (Windows)
 
-## ⬇️ [**Descargar Kevil Studio.exe**](../../releases/latest)
+## ⬇️ [**Descargar Kevil Studio**](../../releases/latest)
 
-Doble clic y ya. No necesitas Python, ni ffmpeg, ni instalar nada.
+Baja **`Kevil-Studio-Windows.zip`**, descomprímelo y abre `Kevil Studio.exe` de dentro.
+No necesitas Python, ni ffmpeg, ni instalar nada.
 
 > **Ojo, no te confundas**: el botón verde **Code → Download ZIP** de arriba te da el
 > **código fuente**, no el programa. Si al descomprimirlo ves `run.bat` y carpetas, es
 > que has bajado el código. El programa está en **[Releases](../../releases/latest)**.
+
+### Si Windows dice que es un virus
+
+No lo es, pero el aviso es real y conviene entenderlo. Un ejecutable hecho con
+PyInstaller **en un solo archivo** se descomprime a sí mismo en una carpeta temporal al
+arrancar, que es justo lo que hace el malware para esconderse; si además no está
+**firmado digitalmente** (la firma cuesta varios cientos de euros al año), Defender lo
+marca por parecido, no porque haya encontrado nada.
+
+Por eso la descarga principal es el **`.zip`**: esa versión no se descomprime sola y
+apenas da falsos positivos.
+
+Si quieres comprobarlo por tu cuenta:
+
+* cada release publica el **SHA-256** del archivo, así sabes que es el mismo que
+  construyó GitHub y que nadie lo ha tocado por el camino;
+* puedes subirlo a [VirusTotal](https://www.virustotal.com) y ver qué dice cada motor;
+* y el código que se empaqueta está entero en este repositorio, con el
+  [flujo de construcción](.github/workflows/exe.yml) a la vista.
 
 Ese ejecutable **lleva ffmpeg dentro**, así que no hay que instalar nada aparte.
 Guarda tus datos en una carpeta `data` junto al propio `.exe`: para llevártelo a

@@ -73,7 +73,22 @@ jobs:
           pip install pytest
           python -m pytest tests -q
 
-      - name: Construir
+      # Dos formatos a proposito. El de un solo archivo se descomprime solo en
+      # una carpeta temporal al arrancar, que es lo mismo que hace el malware
+      # para esconderse, y Windows Defender lo marca a menudo sin motivo. El de
+      # carpeta no hace eso y apenas da falsos positivos: es el recomendado.
+      - name: Construir (carpeta, el recomendado)
+        run: python construir.py --carpeta ${{ (inputs.con_ffmpeg != false) && '--con-ffmpeg' || '' }}
+
+      - name: Empaquetar la carpeta en un zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist/Kevil Studio/*" `
+            -DestinationPath "dist/Kevil-Studio-Windows.zip" -CompressionLevel Optimal
+          $mb = [math]::Round((Get-Item "dist/Kevil-Studio-Windows.zip").Length / 1MB)
+          Write-Host "El zip pesa $mb MB"
+
+      - name: Construir (un solo archivo)
         run: python construir.py ${{ (inputs.con_ffmpeg != false) && '--con-ffmpeg' || '' }}
 
       - name: Comprobar que ffmpeg ha entrado de verdad
@@ -131,7 +146,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Kevil-Studio-Windows
-          path: dist/Kevil Studio.exe
+          path: |
+            dist/Kevil-Studio-Windows.zip
+            dist/Kevil Studio.exe
           retention-days: 30
 
       # La pagina de Releases es la unica que da un enlace de descarga directo y
@@ -145,12 +162,27 @@ jobs:
           body: |
             ## Descarga
 
-            **[Kevil Studio.exe](../../releases/latest/download/Kevil.Studio.exe)** — descarga, doble clic y ya.
+            ### ⬇️ Kevil-Studio-Windows.zip  ← **usa este**
 
-            No necesitas instalar nada: lleva ffmpeg dentro. Tus datos se guardan en
-            una carpeta `data` junto al propio `.exe`.
+            Descomprímelo donde quieras y abre `Kevil Studio.exe` de dentro.
+            No necesitas instalar nada: lleva ffmpeg incluido.
+
+            ### Kevil Studio.exe (un solo archivo)
+
+            Lo mismo en un único archivo, más cómodo de mover.
+            **Windows Defender suele marcarlo como virus sin serlo**: un ejecutable
+            que se descomprime solo al arrancar se parece a lo que hace el malware,
+            y al no estar firmado digitalmente salta la alarma. Si te pasa, usa el
+            `.zip` de arriba, que no tiene ese problema.
+
+            ---
+
+            Tus datos se guardan en una carpeta `data` junto al programa, así que
+            déjalo en una carpeta suya y no en Descargas.
 
             Antes de publicarse ha pasado las pruebas en Windows y se ha comprobado
-            que el ejecutable arranca y responde.
-          files: dist/Kevil Studio.exe
+            que ffmpeg está dentro y que el ejecutable arranca y responde.
+          files: |
+            dist/Kevil-Studio-Windows.zip
+            dist/Kevil Studio.exe
           fail_on_unmatched_files: true
