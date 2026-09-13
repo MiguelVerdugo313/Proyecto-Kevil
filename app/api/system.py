@@ -37,7 +37,9 @@ from app.models import (
 )
 from app.services import branding
 from app.services import media as media_service
-from app.services import brandkit, storage, thumbnails, tiktok, timing, youtube_api
+from app.services import (
+    autopilot, brandkit, storage, thumbnails, tiktok, timing, youtube_api,
+)
 from app.services.queue import enqueue
 
 router = APIRouter(prefix="/api", tags=["sistema"])
@@ -405,6 +407,35 @@ def _buscar_etiqueta(texto: str, etiquetas: tuple[str, ...]) -> str:
         if encontrado:
             return encontrado.group(1)
     return ""
+
+
+# --------------------------------------------------------------------------
+# Piloto automático
+# --------------------------------------------------------------------------
+class AutopilotIn(BaseModel):
+    enabled: bool
+
+
+@router.get("/autopilot")
+def get_autopilot(db: Session = Depends(get_db)):
+    """Si Kevil está trabajando solo y, si no, qué le falta."""
+    return autopilot.estado(db)
+
+
+@router.post("/autopilot")
+def set_autopilot(body: AutopilotIn, db: Session = Depends(get_db)):
+    if body.enabled:
+        falta = autopilot.falta_algo(db)
+        if falta:
+            raise HTTPException(
+                400,
+                "Antes de que Kevil pueda trabajar solo le falta: " + "; ".join(falta),
+            )
+        resultado = autopilot.activar(db)
+    else:
+        resultado = autopilot.desactivar(db)
+    db.commit()
+    return resultado
 
 
 # --------------------------------------------------------------------------

@@ -214,7 +214,20 @@ Más detalle en [`docs/CONECTAR-YOUTUBE.md`](docs/CONECTAR-YOUTUBE.md).
 > así que salen **unas 6 publicaciones diarias**. Kevil lleva la cuenta y te la muestra
 > en Ajustes. Es un límite de Google, igual para cualquier programa que use su API.
 
-### 3. Ajusta el flujo y deja que trabaje
+### 3. Enciende el piloto automático
+
+En el **Panel**, arriba del todo, hay un interruptor: **Piloto automático**. Con él
+encendido, Kevil hace todo el recorrido solo y **no te pide permiso para nada**: vigila
+tus canales, los vídeos nuevos entran solos, se cortan, se programan en tu mejor hora y
+se publican.
+
+Antes de dejarte encenderlo comprueba que tienes lo mínimo (un canal del que sacar
+vídeos y una cuenta donde publicar) y, si falta algo, te dice qué y te lleva ahí.
+
+Apágalo cuando quieras y cada flujo vuelve **al modo que tenía**, no a uno inventado: si
+tú habías puesto «enviar a borradores», eso es lo que recupera.
+
+### 4. Ajusta el flujo si quieres afinarlo
 
 En **Flujos** tienes seis plantillas listas: cortes virales, directos largos, podcast,
 tutoriales/gameplay, **🔁 Shorts a TikTok** y **🚀 Clips a TikTok y Shorts**. Duplica la
@@ -223,7 +236,7 @@ que más se acerque, toca lo que quieras y márcala como predeterminada.
 Los clips terminados aparecen en **Clips**. Ahí los ves, ajustas el corte,
 el encuadre y el texto, y los apruebas. En **Agenda** ves cuándo sale cada uno.
 
-### 4. (Opcional) Activa la IA y cuéntale de qué va tu canal
+### 5. (Opcional) Activa la IA y cuéntale de qué va tu canal
 
 En **Ajustes → Inteligencia artificial → Editar** pegas tu clave de OpenRouter, la de
 NVIDIA o **las dos** (si a una se le acaban los créditos, Kevil sigue con la otra sin
@@ -234,7 +247,7 @@ con eso el asistente afina las ideas y sabe cuándo avisarte.
 Y en **Ajustes → Colores** puedes ponerle a la aplicación los colores de tu canal de
 YouTube, sacados de su propio avatar.
 
-### 5. Sube un vídeo y publica mejor
+### 6. Sube un vídeo y publica mejor
 
 En **Estudio** arrastras el vídeo y sales con el título, la descripción y las miniaturas.
 En **Coach** ves si vas al día, cuál es tu mejor franja y qué grabar después.

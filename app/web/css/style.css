@@ -877,3 +877,14 @@ details > summary { list-style: none; }
 details > summary::-webkit-details-marker { display: none; }
 details > summary::before { content: "▸ "; }
 details[open] > summary::before { content: "▾ "; }
+
+/* ---------------------------------------------------- piloto automático */
+.piloto .card-head { align-items: flex-start; }
+.piloto.on {
+  border-color: var(--accent);
+  background:
+    linear-gradient(180deg, var(--accent-soft), transparent 70%),
+    var(--surface);
+}
+.piloto .switch { flex: none; margin-top: 2px; }
+.piloto .switch input:disabled + .track { opacity: .4; cursor: not-allowed; }
