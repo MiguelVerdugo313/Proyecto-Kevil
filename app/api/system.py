@@ -38,7 +38,8 @@ from app.models import (
 from app.services import branding
 from app.services import media as media_service
 from app.services import (
-    autopilot, brandkit, storage, thumbnails, tiktok, timing, youtube_api,
+    autopilot, brandkit, credenciales, storage, thumbnails, tiktok, timing,
+    youtube_api,
 )
 from app.services.queue import enqueue
 
@@ -299,23 +300,39 @@ class PastedCredentials(BaseModel):
     text: str
 
 
-def _buscar_par(datos: Any, claves: tuple[str, ...]) -> str:
-    """Busca una clave en cualquier nivel de un JSON (Google anida en «installed»)."""
-    if isinstance(datos, dict):
-        for clave in claves:
-            valor = datos.get(clave)
-            if isinstance(valor, str) and valor.strip():
-                return valor.strip()
-        for valor in datos.values():
-            encontrado = _buscar_par(valor, claves)
-            if encontrado:
-                return encontrado
-    elif isinstance(datos, list):
-        for elemento in datos:
-            encontrado = _buscar_par(elemento, claves)
-            if encontrado:
-                return encontrado
-    return ""
+_buscar_par = credenciales.buscar_par
+
+
+@router.post("/credentials/youtube/buscar")
+def find_youtube_credentials(db: Session = Depends(get_db)):
+    """Busca él solo el «client_secret_….json» que Google acaba de descargar.
+
+    Es el paso que más se atraganta: abrir el archivo, seleccionarlo entero y
+    pegarlo. Como casi siempre está en Descargas, Kevil mira ahí (y en el
+    escritorio, y junto al programa) y lo guarda sin que haya que tocarlo.
+    """
+    hallazgo = credenciales.buscar_de_google()
+    if hallazgo is None:
+        raise HTTPException(
+            404,
+            "No he encontrado el archivo de Google. Suele quedarse en "
+            "«Descargas» y se llama «client_secret_….json». Si lo tienes en "
+            "otro sitio, déjalo en la carpeta de Kevil o pégalo aquí abajo.",
+        )
+
+    ruta, client_id, client_secret = hallazgo
+    save_settings(
+        db, {"youtube_client_id": client_id, "youtube_client_secret": client_secret}
+    )
+    db.commit()
+    return {
+        "ok": True,
+        "file": ruta.name,
+        "folder": str(ruta.parent),
+        "client_id": client_id,
+        "ready": youtube_api.is_configured(),
+        "redirect_uri": youtube_api.redirect_uri(),
+    }
 
 
 @router.post("/credentials/youtube")
