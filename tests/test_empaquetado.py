@@ -151,3 +151,20 @@ def test_no_se_empaqueta_un_ffmpeg_de_mentira(tmp_path, monkeypatch):
     monkeypatch.setenv("KEVIL_FFMPEG_DIR", str(bueno))
     monkeypatch.setattr(construir.shutil, "which", lambda n: None)
     assert construir._buscar_binario("ffmpeg") == str(real)
+
+
+def test_avisa_si_el_puerto_esta_ocupado():
+    """El puerto va escrito en la dirección de retorno de Google y de TikTok:
+    arrancar en otro rompería las conexiones sin decir por qué."""
+    import socket
+
+    import arranque
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as servidor:
+        servidor.bind(("127.0.0.1", 0))
+        servidor.listen(1)
+        puerto = servidor.getsockname()[1]
+        assert arranque._puerto_ocupado("127.0.0.1", puerto) is True
+
+    # ya cerrado: libre otra vez
+    assert arranque._puerto_ocupado("127.0.0.1", puerto) is False

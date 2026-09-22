@@ -14,6 +14,18 @@ pero la subida se simula.
 1. Entra en <https://developers.tiktok.com> y accede con tu cuenta de TikTok.
 2. **Manage apps → Connect an app**. Ponle un nombre (por ejemplo, «Kevil Studio»).
 3. Rellena los datos que pida (categoría, descripción, política de privacidad).
+4. En **Platforms**, marca **Desktop**. No marques *Web*: como aplicación web,
+   TikTok exige que la dirección de retorno empiece por `https` y no acepta la de
+   tu propio ordenador.
+5. Al marcar Desktop aparece **Configure for Web/Desktop → Web/Desktop URL**. Ese
+   campo es **la web de tu aplicación**, no la dirección de retorno, y tiene que
+   empezar por `https`. Si no tienes una, vale la del repositorio. Si pones ahí la
+   dirección de retorno, TikTok contesta *«Enter a valid URL beginning with
+   https://»*.
+
+> Las aplicaciones de escritorio **tienen que usar PKCE**: Kevil lo hace solo, con
+> el detalle particular de TikTok de enviar el reto en hexadecimal en vez de en
+> base64url. Sin eso la autorización falla aunque todo lo demás esté bien.
 
 ## 2. Añade los productos y permisos
 
@@ -36,7 +48,9 @@ En la app, añade el producto **Content Posting API** y activa estos permisos (*
 
 ## 3. Configura la URL de retorno
 
-En **Login Kit / Redirect URI**, añade exactamente:
+Va **dentro de Login Kit**, en el campo **Redirect URI** —que es otro distinto del
+*Web/Desktop URL* del paso 1—. Ahí sí se admite `http` y tu propio ordenador, y
+añade exactamente:
 
 ```
 http://127.0.0.1:8756/api/oauth/tiktok/callback
@@ -47,8 +61,15 @@ La correcta siempre aparece en **Ajustes** dentro de la aplicación: cópiala de
 
 ## 4. Copia las credenciales
 
-En la ficha de la app tienes **Client key** y **Client secret**.
-Pégalas en Kevil Studio, en **Ajustes → TikTok**, y guarda.
+En la ficha de la app tienes **Client key** y **Client secret**. Cada una va en su
+casilla de Kevil Studio, en **Ajustes → TikTok**. Son cadenas de letras y números:
+ahí no va ninguna dirección web.
+
+## 4 bis. Si TikTok aún no ha revisado tu app
+
+Sin revisar, la API no deja publicar directamente. Kevil se da cuenta y **deja el
+clip en la bandeja de tu TikTok** en vez de perderlo: te llega igual al móvil y
+sólo tienes que darle a publicar. Lo verás anotado en los avisos.
 
 ## 5. Autoriza la cuenta
 
