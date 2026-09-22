@@ -1,0 +1,148 @@
+/* Kevil Studio — el mismo estilo que la aplicación: negro, puntos y oro. */
+
+:root {
+  --bg: #0a0a0a;
+  --text: #f2ede4;
+  --muted: #a29a8e;
+  --muted-2: #777066;
+  --line: rgba(255, 255, 255, .1);
+  --glass: rgba(255, 255, 255, .03);
+  --oro: #a78b71;
+  --oro-claro: #c9b8a0;
+  --oro-alto: #e8d5b7;
+  --titulo: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  --texto: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0 20px 90px;
+  background: radial-gradient(1100px 620px at 50% -12%, rgba(167, 139, 113, .16), transparent 62%), var(--bg);
+  color: var(--text);
+  font-family: var(--texto);
+  font-size: 16px;
+  font-weight: 300;
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, .08) 1px, transparent 0);
+  background-size: 32px 32px;
+  -webkit-mask-image: radial-gradient(ellipse 100% 78% at 50% 0%, #000 42%, transparent 100%);
+  mask-image: radial-gradient(ellipse 100% 78% at 50% 0%, #000 42%, transparent 100%);
+}
+
+.hoja { max-width: 760px; margin: 0 auto; }
+
+header.marca {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 54px 0 34px;
+}
+.sello {
+  width: 54px; height: 54px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 16px;
+  background: linear-gradient(145deg, var(--oro-alto), var(--oro));
+  color: #14100b;
+  font-family: var(--titulo);
+  font-style: italic;
+  font-weight: 700;
+  font-size: 28px;
+  box-shadow: 0 0 100px rgba(167, 139, 113, .2);
+}
+.marca strong { font-size: 17px; font-weight: 600; display: block; letter-spacing: -.01em; }
+.marca span {
+  font-size: 10px; font-weight: 700; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--muted-2);
+}
+
+h1, h2, h3 {
+  font-family: var(--titulo);
+  font-style: italic;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  line-height: 1.15;
+  margin: 0;
+}
+h1 { font-size: 42px; }
+h2 { font-size: 26px; margin: 52px 0 14px; }
+h3 { font-size: 19px; margin: 32px 0 8px; }
+p { margin: 0 0 16px; }
+.entrada { font-size: 19px; color: var(--muted); margin: 18px 0 34px; }
+
+a { color: var(--oro-claro); text-decoration: none; border-bottom: 1px solid rgba(201, 184, 160, .35); }
+a:hover { color: var(--oro-alto); border-bottom-color: var(--oro-alto); }
+
+ul { padding-left: 22px; margin: 0 0 16px; }
+li { margin-bottom: 9px; }
+strong { font-weight: 600; }
+code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: .9em; color: var(--oro-claro);
+  background: var(--glass); padding: 2px 6px; border-radius: 6px;
+}
+
+.tarjeta {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 32px;
+  padding: 30px 34px;
+  margin: 26px 0;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.tarjeta h3:first-child { margin-top: 0; }
+
+.botones { display: flex; flex-wrap: wrap; gap: 12px; margin: 30px 0 10px; }
+.boton {
+  display: inline-block;
+  padding: 12px 24px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--glass);
+  color: var(--text);
+  font-size: 14px; font-weight: 500;
+  border-bottom: 1px solid var(--line);
+}
+.boton:hover { border-color: rgba(255, 255, 255, .2); color: var(--text); }
+.boton.oro {
+  background: linear-gradient(140deg, var(--oro-claro), var(--oro));
+  color: #14100b; border-color: transparent; font-weight: 600;
+}
+.boton.oro:hover { background: linear-gradient(140deg, var(--oro-alto), var(--oro-claro)); color: #14100b; }
+
+.ingles {
+  margin-top: 64px;
+  padding-top: 34px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+.ingles h2 { color: var(--text); }
+
+footer {
+  margin-top: 70px;
+  padding-top: 26px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+}
+footer a { border-bottom: 0; }
+
+@media (max-width: 560px) {
+  h1 { font-size: 32px; }
+  .tarjeta { padding: 24px 22px; border-radius: 24px; }
+}
