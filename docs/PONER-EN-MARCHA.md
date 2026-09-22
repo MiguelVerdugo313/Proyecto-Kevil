@@ -147,6 +147,13 @@ Pasar tus Shorts a TikTok y todo lo demás funciona sin esto.
    sólo lo usas tú) → **Configuración avanzada → Ir a Kevil Studio** →
    aceptar los permisos.
 
+8. **Importante, para no reconectar cada semana**: en la pantalla de
+   consentimiento, cambia el estado de publicación de **«Prueba» a «En
+   producción»**. Mientras esté en prueba, Google caduca el acceso **a los 7
+   días** y habría que volver a conectar. En producción no caduca. Sigue
+   saliendo el aviso de «aplicación no verificada» —da igual, es para ti— y no
+   hace falta pasar ninguna revisión.
+
 > Google da 10.000 unidades de cuota al día y cada subida cuesta 1.600: salen
 > **unas 6 publicaciones diarias**. Es límite suyo, no de Kevil, y lo verás
 > contado en Ajustes.
