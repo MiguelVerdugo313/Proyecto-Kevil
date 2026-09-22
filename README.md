@@ -51,9 +51,12 @@ Vídeo que subes tú ──► Kit de publicación: títulos · descripción · 
 4. **Elige los momentos**: puntúa cada tramo por ritmo del habla, palabras gancho,
    preguntas, datos concretos y pausas del audio. También puedes cortar por trozos
    iguales, por silencios o a mano.
-5. **Monta el vertical**: recorte inteligente que sigue la acción, fondo desenfocado,
-   split o recorte fijo; rótulos estilo karaoke; gancho arriba; marca de agua;
-   barra de progreso; audio nivelado a −14 LUFS.
+5. **Monta el vertical**: el recorte va **siguiendo a la acción durante todo el clip**,
+   no se queda clavado en un punto —mide por dónde pasa el movimiento varias veces por
+   segundo, lo suaviza y mueve el encuadre con freno, así el que habla no se sale de
+   plano—. También puedes usar fondo desenfocado, pantalla partida o recorte fijo.
+   Encima van los rótulos estilo karaoke, el gancho arriba, la marca de agua, la barra
+   de progreso y el audio nivelado a −14 LUFS.
 6. **Escribe** título, descripción y hashtags con tus plantillas.
 7. **Programa** cada clip en la mejor franja de cada cuenta (ver más abajo).
 8. **Publica** en TikTok, en YouTube Shorts o en ambos a la vez; lo deja en borradores,
@@ -216,11 +219,28 @@ Ahí eliges:
 
 ### 2. Conecta TikTok
 
-En **Ajustes → TikTok → Conectar**. La primera vez sale una guía de tres pasos con los
-enlaces directos y un botón para copiar la URL de retorno; al final pegas de golpe la
-*client key* y el *client secret* que te enseña TikTok y Kevil las separa solo. A partir
-de ahí es **un botón**: «Conectar con TikTok» → entras en tu cuenta → vuelves conectado.
-Los detalles largos están en [`docs/CONECTAR-TIKTOK.md`](docs/CONECTAR-TIKTOK.md).
+En **Ajustes → TikTok → Conectar**. La primera vez sale una guía de cinco pasos con los
+nombres exactos de cada campo del portal de TikTok, porque es donde todo el mundo se
+equivoca:
+
+1. En **Platforms**, marca **Desktop** (no *Web*: como web, TikTok exige que la dirección
+   de retorno empiece por `https` y no acepta la de tu ordenador).
+2. **Web/Desktop URL** es la web de tu aplicación, no la de retorno. Si no tienes, vale
+   la del repositorio.
+3. En **Products** añade *Login Kit* y *Content Posting API*, y en **Scopes** marca
+   `user.info.basic`, `video.publish`, `video.upload` y `video.list`.
+4. La dirección de retorno va **dentro de Login Kit**, en el campo *Redirect URI*. Kevil
+   te la da con un botón de copiar.
+5. La *Client key* y el *Client secret* van en sus dos casillas de Kevil. Si las pegas de
+   golpe se reparten solas, y si pegas una dirección te avisa en el momento.
+
+A partir de ahí es **un botón**: «Conectar con TikTok» → entras en tu cuenta → vuelves
+conectado. Los detalles largos están en
+[`docs/CONECTAR-TIKTOK.md`](docs/CONECTAR-TIKTOK.md).
+
+Mientras TikTok no revise tu app sólo deja dejar el vídeo en tu bandeja en vez de
+publicarlo directamente. Kevil lo detecta y lo hace así solo, y te lo dice en los avisos:
+el clip te llega igual y sólo tienes que darle a publicar.
 
 Si prefieres probar antes, crea una **cuenta de prueba**: se hace en un clic y simula las
 publicaciones. Todo lo demás (cortes, render, programación) funciona igual.
@@ -412,11 +432,14 @@ Las ideas se guardan o se descartan, así no te repite siempre lo mismo.
 
 ## El aspecto
 
-Interfaz en **modo oscuro** (negro puro con capas de cristal esmerilado y una textura
-de grano finísima) o **claro** (grises suaves), con el botón ◐ de la barra superior para
-cambiar; tu elección se recuerda. Tipografía Inter, esquinas muy redondeadas y
-animaciones de entrada suaves. Si te quedas sin conexión, Inter cae en la tipografía del
-sistema y todo sigue viéndose bien.
+Interfaz en **modo oscuro** (negro `#0a0a0a` con una rejilla de puntos de fondo y capas
+de cristal esmerilado) o **claro** (papel cálido), con el botón ◐ de la barra superior
+para cambiar; tu elección se recuerda. Los acentos son una gama de **oros y bronces**
+(`#a78b71` · `#c9b8a0` · `#e8d5b7`), los titulares van en **Playfair Display** itálica y
+el resto en **Inter**, con esquinas de 24 a 48 px y un resplandor cálido en el centro.
+
+Las dos tipografías van **dentro del programa**: no dependen de internet ni se quedan a
+medio pintar mientras se descargan.
 
 ### Con los colores de tu canal
 
@@ -429,7 +452,7 @@ El color no se aplica tal cual: se ajusta para cada modo hasta que **contrasta a
 4.5:1** con el fondo (la referencia de la WCAG para texto legible), así que un rojo casi
 negro se aclara en oscuro y se oscurece en claro, y el texto que va encima del acento se
 elige blanco o negro según contraste mejor. Un logo feo nunca deja la aplicación
-ilegible. «Color por defecto» vuelve al esmeralda de casa.
+ilegible. «Color por defecto» vuelve al oro de casa.
 
 ### Ajustes: lo esencial a la vista
 

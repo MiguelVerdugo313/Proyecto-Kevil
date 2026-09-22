@@ -140,7 +140,7 @@ def test_una_imagen_que_no_lo_es_no_revienta(tmp_path):
 def test_branding_por_defecto(client):
     datos = client.get("/api/branding").json()
     assert datos["theme"] == {"custom": False}
-    assert datos["default_accent"] == "#34D399"
+    assert datos["default_accent"] == "#A78B71"
     assert datos["channels"] == []
 
 

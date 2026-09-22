@@ -42,10 +42,10 @@ from app.services import (
     youtube_api,
 )
 from app.services.queue import enqueue
+from app.version import VERSION
 
 router = APIRouter(prefix="/api", tags=["sistema"])
 
-VERSION = "1.0.0"
 
 
 class SettingsIn(BaseModel):
@@ -376,43 +376,69 @@ def paste_youtube_credentials(body: PastedCredentials, db: Session = Depends(get
     }
 
 
-@router.post("/credentials/tiktok")
-def paste_tiktok_credentials(body: PastedCredentials, db: Session = Depends(get_db)):
-    """Pega de golpe la client key y el client secret de TikTok.
+class TikTokKeysIn(BaseModel):
+    text: str = ""
+    client_key: str = ""
+    client_secret: str = ""
 
-    TikTok no da ningún archivo: se copian de la pantalla de la app. Se acepta
-    cualquier formato razonable (una por línea, con etiquetas, separadas por
-    comas…) para que baste con seleccionar y pegar.
+
+AVISO_DIRECCION = (
+    "Eso es una dirección web, no una clave. La «Client key» y el «Client "
+    "secret» son cadenas de letras y números de la pantalla de tu app. La "
+    "dirección de retorno va en TikTok, en el campo «Redirect URI» de Login Kit."
+)
+
+
+@router.post("/credentials/tiktok")
+def paste_tiktok_credentials(body: TikTokKeysIn, db: Session = Depends(get_db)):
+    """Guarda la client key y el client secret de TikTok.
+
+    Lo normal es que lleguen en sus dos campos. Se admite también pegar de golpe
+    lo que salga de la pantalla de TikTok (con etiquetas, en dos líneas, separado
+    por comas…) para el que prefiera seleccionar y pegar.
     """
+    clave = (body.client_key or "").strip()
+    secreto = (body.client_secret or "").strip()
     texto = (body.text or "").strip()
-    if not texto:
-        raise HTTPException(400, "Pega aquí la client key y el client secret.")
+
+    if not clave and not secreto and not texto:
+        raise HTTPException(400, "Pon aquí la client key y el client secret.")
 
     # Es fácil confundirse y pegar aquí la dirección de retorno: sin este aviso
     # se guardaría como si fuera una clave y el fallo saldría mucho después.
-    if "http://" in texto or "https://" in texto:
-        raise HTTPException(
-            400,
-            "Aquí van las dos claves, no una dirección web. La «Client key» y el "
-            "«Client secret» son cadenas de letras y números que salen en la "
-            "pantalla de tu app de TikTok. La dirección de retorno va en TikTok, "
-            "en el campo «Redirect URI» de Login Kit.",
-        )
+    for valor in (clave, secreto, texto):
+        if "http://" in valor or "https://" in valor:
+            raise HTTPException(400, AVISO_DIRECCION)
 
-    clave = _buscar_etiqueta(texto, ("client key", "client_key", "clientkey", "key"))
-    secreto = _buscar_etiqueta(
-        texto, ("client secret", "client_secret", "clientsecret", "secret")
-    )
-    if not clave or not secreto:
-        # sin etiquetas: dos palabras sueltas, la primera es la clave
-        piezas = [p for p in re.split(r"[\s,;]+", texto) if len(p) >= 8]
-        if len(piezas) == 2:
-            clave, secreto = piezas
+    if texto and not (clave and secreto):
+        clave = clave or _buscar_etiqueta(
+            texto, ("client key", "client_key", "clientkey", "key")
+        )
+        secreto = secreto or _buscar_etiqueta(
+            texto, ("client secret", "client_secret", "clientsecret", "secret")
+        )
+        if not clave or not secreto:
+            # sin etiquetas: dos palabras sueltas, la primera es la clave
+            piezas = [p for p in re.split(r"[\s,;]+", texto) if len(p) >= 8]
+            if len(piezas) == 2:
+                clave, secreto = piezas
+
     if not clave or not secreto:
         raise HTTPException(
             400,
-            "No he sabido distinguir la client key del client secret. Pégalos en "
-            "dos líneas, la clave primero, o rellénalos a mano abajo.",
+            "Faltan datos: necesito la «Client key» y el «Client secret», los dos.",
+        )
+    if clave == secreto:
+        raise HTTPException(
+            400,
+            "Has puesto lo mismo en los dos campos. Son valores distintos: en la "
+            "pantalla de tu app, «Client key» arriba y «Client secret» debajo.",
+        )
+    if len(clave) < 8 or len(secreto) < 8:
+        raise HTTPException(
+            400,
+            "Esas claves son demasiado cortas. Cópialas enteras de la pantalla de "
+            "tu app de TikTok, sin espacios.",
         )
 
     save_settings(db, {"tiktok_client_key": clave, "tiktok_client_secret": secreto})
@@ -568,7 +594,7 @@ def get_branding(db: Session = Depends(get_db)):
         "accent_2": settings.brand_accent_2,
         "source": settings.brand_source,
         "channels": canales,
-        "default_accent": "#34D399",
+        "default_accent": "#A78B71",
     }
 
 

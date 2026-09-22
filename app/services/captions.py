@@ -143,7 +143,7 @@ def build_ass(
     font = sub.get("font") or "DejaVu Sans"
     font_size = int(sub.get("font_size", 64) or 64)
     primary = hex_to_ass(sub.get("primary_color", "#FFFFFF"))
-    highlight = hex_to_ass(sub.get("highlight_color", "#28E7C5"))
+    highlight = hex_to_ass(sub.get("highlight_color", "#E8D5B7"))
     outline = int(sub.get("outline", 4) or 0)
     position_y = float(sub.get("position_y", 72) or 72)
     uppercase = bool(sub.get("uppercase", True))
@@ -166,7 +166,7 @@ def build_ass(
         f"Style: Mark,{font},{int(width * 0.032)},&H30FFFFFF,&H30FFFFFF,&H50000000,&H00000000,"
         f"0,0,0,0,100,100,0,0,1,2,0,5,{margin},{margin},0,1",
         # Barra de progreso (dibujo)
-        "Style: Bar,Arial,20,&H0028E7C5,&H0028E7C5,&H00000000,&H00000000,"
+        "Style: Bar,Arial,20,&H00B7D5E8,&H00B7D5E8,&H00000000,&H00000000,"
         "0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1",
     ]
 

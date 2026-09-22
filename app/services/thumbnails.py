@@ -27,7 +27,7 @@ from app.services import media as media_service
 WIDTH, HEIGHT = 1280, 720
 
 # Paleta de acentos para las bandas y los bordes
-ACCENTS = ["#28E7C5", "#FFB545", "#FF4D8D", "#7C5CFF"]
+ACCENTS = ["#E8D5B7", "#C9B8A0", "#A78B71", "#8A6F55"]
 
 
 # --------------------------------------------------------------------------
@@ -222,7 +222,7 @@ def compose(
     text: str,
     output: str | Path,
     style: str = "centro",
-    accent: str = "#28E7C5",
+    accent: str = "#E8D5B7",
     from_video: bool = True,
     timestamp: float = 0.0,
 ) -> Path:

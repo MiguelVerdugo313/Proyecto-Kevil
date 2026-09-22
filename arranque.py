@@ -64,6 +64,18 @@ def main() -> None:
 
     from app.main import app as aplicacion
 
+    # El puerto no es un detalle: es el que va escrito en la dirección de
+    # retorno que registras en Google y en TikTok. Si está ocupado, más vale
+    # decirlo claro que arrancar en otro y que fallen las conexiones.
+    if _puerto_ocupado(settings.host, settings.port):
+        _avisar(
+            f"El puerto {settings.port} está ocupado.\n\n"
+            "Seguramente ya tienes Kevil Studio abierto: mira en la barra de "
+            "tareas. Si no, cierra el programa que lo esté usando y vuelve a "
+            "abrir Kevil."
+        )
+        return
+
     configuracion = uvicorn.Config(
         aplicacion,                 # el objeto, no la ruta: dentro del .exe no
         host=settings.host,         # se puede importar por su nombre
@@ -135,6 +147,27 @@ def _anotar_error(exc: BaseException, que: str) -> str:
     except Exception:
         pass
     return donde
+
+
+def _puerto_ocupado(host: str, puerto: int) -> bool:
+    """¿Hay ya algo escuchando ahí?"""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sonda:
+        sonda.settimeout(0.6)
+        return sonda.connect_ex((host or "127.0.0.1", int(puerto))) == 0
+
+
+def _avisar(mensaje: str) -> None:
+    """Un aviso a secas, sin traza: el .exe no tiene consola donde leerlo."""
+    print(mensaje, file=sys.stderr)
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.user32.MessageBoxW(0, mensaje, "Kevil Studio", 0x30)
+        except Exception:
+            pass
 
 
 def _avisar_del_error(exc: BaseException) -> None:

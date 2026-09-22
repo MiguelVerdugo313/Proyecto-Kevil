@@ -58,6 +58,61 @@ SECRET_SETTINGS = {
 
 SEEDED_KEY = "seeded_presets"
 
+# Mejoras que se aplican a las plantillas que vienen de serie cuando el
+# programa se actualiza.
+MEJORAS_KEY = "mejoras_de_plantilla"
+
+# Cada cambio dice de qué valor viene y a cuál va: así sólo se tocan las
+# plantillas que siguen con el valor de antes. Si tú elegiste otra cosa, se
+# respeta. Y cada mejora se aplica una sola vez, aunque luego vuelvas atrás.
+MEJORAS: dict[str, dict[str, dict[str, dict[str, tuple[Any, Any]]]]] = {
+    # El recorte vertical que va siguiendo a la acción es lo que hace que el
+    # clip no corte a quien habla. Antes el flujo recomendado salía con el
+    # vídeo centrado sobre fondo desenfocado.
+    "seguir-la-accion-1": {
+        "Cortes virales (recomendado)": {"reframe": {"mode": ("blur", "smart")}},
+        "Clips a TikTok y Shorts": {"reframe": {"mode": ("blur", "smart")}},
+        "Podcast / entrevistas": {"reframe": {"mode": ("crop", "smart")}},
+    },
+}
+
+
+def actualizar_plantillas(session: Session) -> int:
+    """Pone al día las plantillas que siguen con los valores de fábrica."""
+    registro = session.get(Setting, MEJORAS_KEY)
+    aplicadas: list[str] = list((registro.value if registro else None) or [])
+    cambiados = 0
+
+    for clave, por_nombre in MEJORAS.items():
+        if clave in aplicadas:
+            continue
+        aplicadas.append(clave)
+        for flow in session.scalars(select(Flow)).all():
+            cambios = por_nombre.get(flow.name)
+            if not cambios:
+                continue
+            pasos = [dict(paso) for paso in (flow.steps or [])]
+            tocado = False
+            for paso in pasos:
+                campos = cambios.get(paso.get("type", ""))
+                if not campos:
+                    continue
+                config = dict(paso.get("config") or {})
+                for campo, (antes, despues) in campos.items():
+                    if config.get(campo) == antes:
+                        config[campo] = despues
+                        tocado = True
+                paso["config"] = config
+            if tocado:
+                flow.steps = normalize_steps(pasos)
+                cambiados += 1
+
+    if registro is None:
+        session.add(Setting(key=MEJORAS_KEY, value=aplicadas))
+    else:
+        registro.value = aplicadas
+    return cambiados
+
 
 def seed_flows(session: Session) -> None:
     """Crea las plantillas de flujo que aún no se hayan creado nunca.
@@ -176,3 +231,4 @@ def run() -> None:
         load_setting_overrides(session)
         migrate_ai_settings(session)
         seed_flows(session)
+        actualizar_plantillas(session)

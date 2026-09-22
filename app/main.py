@@ -9,7 +9,7 @@ import contextlib
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
@@ -18,6 +18,7 @@ from app.api import ROUTERS
 from app.config import settings
 from app.db import init_db, session_scope
 from app.rutas import raiz_recursos
+from app.version import VERSION
 from app.services import events, pipeline, scheduler, studio  # noqa: F401  (registran trabajos)
 from app.services.queue import runner
 
@@ -47,7 +48,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Kevil Studio",
     description="De tus vídeos y directos de YouTube a TikTok, en automático.",
-    version="1.0.0",
+    version=VERSION,
     lifespan=lifespan,
 )
 
@@ -67,12 +68,34 @@ async def unhandled_error(_request, exc: Exception):  # pragma: no cover
     return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
+class SinCache(StaticFiles):
+    """Archivos de la interfaz sin guardar en caché.
+
+    La ventana es un Chromium con perfil propio y se queda con el código
+    anterior durante días: se actualiza el programa y se sigue viendo la
+    pantalla vieja. Aquí no compensa cachear nada —los archivos están en el
+    disco de al lado— así que se sirven siempre frescos.
+    """
+
+    def file_response(self, *args, **kwargs):  # type: ignore[override]
+        respuesta = super().file_response(*args, **kwargs)
+        respuesta.headers["Cache-Control"] = "no-store, must-revalidate"
+        return respuesta
+
+
 if WEB_DIR.exists():
-    app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+    app.mount("/static", SinCache(directory=WEB_DIR), name="static")
 
     @app.get("/", include_in_schema=False)
     def index():
-        return FileResponse(WEB_DIR / "index.html")
+        # La página se sirve sin caché y con la versión pegada a los archivos de
+        # estilo y de código. Así, al actualizar el programa, la ventana no se
+        # queda enseñando la interfaz anterior.
+        html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+        return HTMLResponse(
+            html.replace("__V__", VERSION),
+            headers={"Cache-Control": "no-store, must-revalidate"},
+        )
 
     @app.get("/favicon.svg", include_in_schema=False)
     def favicon():

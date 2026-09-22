@@ -9,10 +9,10 @@
        navegador para el icono de la ventana y de la barra de tareas. -->
   <link rel="icon" href="/favicon.png" type="image/png" sizes="512x512">
   <link rel="apple-touch-icon" href="/favicon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css">
+  <!-- Las tipografías van dentro del programa: ni depende de internet ni se
+       queda medio pintado mientras las baja. -->
+  <link rel="stylesheet" href="/static/css/fuentes.css?v=__V__">
+  <link rel="stylesheet" href="/static/css/style.css?v=__V__">
   <script>
     // El tema se aplica antes de pintar nada para que no parpadee
     try {
@@ -78,6 +78,9 @@
   <div class="toasts" id="toasts"></div>
   <div class="modal-root" id="modal-root" hidden></div>
 
+  <!-- Aquí no se le cuelga la versión: los módulos se importan entre sí por su
+       ruta pelada y el navegador cargaría dos copias del mismo archivo. Basta
+       con que el servidor los mande sin caché. -->
   <script type="module" src="/static/js/app.js"></script>
 </body>
 </html>
