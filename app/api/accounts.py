@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import secrets
 import time
 from datetime import timedelta
@@ -26,9 +27,19 @@ router = APIRouter(prefix="/api", tags=["cuentas"])
 _oauth_states: dict[str, float] = {}
 
 
-def _result_page(title: str, message: str, ok: bool) -> str:
-    """Página que se ve al volver de autorizar (TikTok o YouTube)."""
+def _result_page(title: str, message: str, ok: bool, tecnico: str = "") -> str:
+    """Página que se ve al volver de autorizar (TikTok o YouTube).
+
+    Cuando algo falla se deja además el error tal cual lo manda la plataforma,
+    plegado: no estorba y sirve para copiarlo si hay que preguntar.
+    """
     color = "#C9B8A0" if ok else "#E07A6E"
+    detalle = ""
+    if tecnico:
+        detalle = (
+            "<details><summary>Ver el error técnico</summary>"
+            f"<code>{html.escape(tecnico)}</code></details>"
+        )
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
 <title>{title}</title>
 <link rel="stylesheet" href="/static/css/fuentes.css">
@@ -46,9 +57,14 @@ font-family:'Playfair Display',Georgia,serif;font-style:italic;letter-spacing:-.
 p{{color:#A29A8E;line-height:1.7;margin:0;font-weight:300}}
 a{{color:{color};display:inline-block;margin-top:26px;text-decoration:none;
 font-weight:500;font-size:14px}}
-</style></head><body><div class="card"><h1>{title}</h1><p>{message}</p>
+details{{margin-top:22px;font-size:12px;color:#777066}}
+summary{{cursor:pointer}}
+code{{display:block;margin-top:10px;word-break:break-all;text-align:left;
+font-family:ui-monospace,Consolas,monospace;color:#A29A8E;line-height:1.6}}
+</style></head><body><div class="card"><h1>{title}</h1><p>{message}</p>{detalle}
 <a href="/#cuentas">Volver a Kevil Studio</a></div>
-<script>setTimeout(()=>{{window.location='/#cuentas'}},2600)</script></body></html>"""
+{'' if tecnico else "<script>setTimeout(()=>{window.location='/#cuentas'},2600)</script>"}
+</body></html>"""
 
 
 # --------------------------------------------------------------------------
@@ -222,14 +238,17 @@ def tiktok_oauth_callback(
         # El código pelado («invalid_scope») no dice qué tocar: se traduce, y el
         # original se deja anotado en el registro por si hay que buscarlo.
         detalle = tiktok.traducir_error(error, error_description)
+        crudo = " · ".join(p for p in (error, error_description, log_id) if p)
         events.log(
             db,
-            f"TikTok no ha autorizado: {error} {error_description} {log_id}".strip(),
+            f"TikTok no ha autorizado: {crudo}",
             level="error",
             scope="tiktok",
         )
         db.commit()
-        return HTMLResponse(page("No se ha podido conectar", detalle, False), status_code=400)
+        return HTMLResponse(
+            page("No se ha podido conectar", detalle, False, crudo), status_code=400
+        )
     if not code or state not in _oauth_states:
         return HTMLResponse(
             page("Petición no válida", "Vuelve a intentarlo desde la aplicación.", False),
@@ -242,9 +261,13 @@ def tiktok_oauth_callback(
         credentials = tiktok.exchange_code(code, state)
         user = tiktok.fetch_user_info(credentials)
     except Exception as exc:
-        events.log(db, f"TikTok: {exc}", level="error", scope="tiktok")
+        crudo = f"{getattr(exc, 'codigo', '')} {getattr(exc, 'detalle', '')} " \
+                f"{getattr(exc, 'log_id', '')}".strip() or type(exc).__name__
+        events.log(db, f"TikTok: {exc} [{crudo}]", level="error", scope="tiktok")
         db.commit()
-        return HTMLResponse(page("Error al conectar", str(exc), False), status_code=400)
+        return HTMLResponse(
+            page("Error al conectar", str(exc), False, crudo), status_code=400
+        )
 
     open_id = credentials.get("open_id") or user.get("open_id", "")
     account = db.scalars(
