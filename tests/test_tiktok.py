@@ -187,3 +187,53 @@ def test_un_error_que_no_tiene_arreglo_se_propaga(tiktok_de_mentira):
             video_path=tiktok_de_mentira,
             caption="hola",
         )
+
+
+# --------------------------------------------------------------------------
+# Mientras la app no esté revisada
+# --------------------------------------------------------------------------
+def test_cuando_solo_cabe_lo_privado_se_va_a_la_bandeja():
+    """Publicar «sólo para mí» no lo ve nadie y hay que ir a cambiarlo a mano;
+    en la bandeja se publica en público con un toque."""
+    assert tiktok.mejor_en_la_bandeja(["SELF_ONLY"], "PUBLIC_TO_EVERYONE") is True
+
+    # si la cuenta admite público, se publica y punto
+    assert tiktok.mejor_en_la_bandeja(
+        ["PUBLIC_TO_EVERYONE", "SELF_ONLY"], "PUBLIC_TO_EVERYONE"
+    ) is False
+    # si lo que has pedido es justo privado, se respeta
+    assert tiktok.mejor_en_la_bandeja(["SELF_ONLY"], "SELF_ONLY") is False
+    # y sin respuesta de TikTok no se desvía nada
+    assert tiktok.mejor_en_la_bandeja([], "PUBLIC_TO_EVERYONE") is False
+
+
+class ClienteSinRevisar(ClienteFalso):
+    """TikTok de juguete con la app aún sin auditar: sólo admite privado."""
+
+    def post(self, url, **kw):
+        if "creator_info" in url:
+            ClienteFalso.llamadas.append(url)
+            return _Respuesta({"data": {"privacy_level_options": ["SELF_ONLY"]}})
+        return super().post(url, **kw)
+
+
+def test_sin_revisar_el_clip_acaba_en_la_bandeja(monkeypatch, tmp_path):
+    ClienteFalso.llamadas = []
+    ClienteFalso.rechazo_directo = ""
+    monkeypatch.setattr(tiktok.httpx, "Client", ClienteSinRevisar)
+    monkeypatch.setattr(tiktok.settings, "dry_run", False, raising=False)
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"0" * 2048)
+
+    resultado = tiktok.publish_video(
+        {"access_token": "t", "expires_at": 9e12},
+        video_path=clip,
+        caption="hola",
+        privacy_level="PUBLIC_TO_EVERYONE",
+    )
+
+    assert resultado["mode"] == "draft"
+    assert "bandeja" in resultado["notice"]
+    # ni se intenta la publicación directa: se va derecho a la bandeja
+    assert not any(u.endswith("/post/publish/video/init/") for u in ClienteFalso.llamadas)
+    assert any("inbox" in u for u in ClienteFalso.llamadas)

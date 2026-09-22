@@ -133,7 +133,13 @@ Para **probar y usar el programa no necesitas nada de lo anterior**.
 4. El sandbox tiene **su propia Client key y Client secret**: ésas son las que
    van en Kevil, no las de producción.
 
-Límites del sandbox: hasta 5 sandboxes por app y 10 cuentas en cada uno, y todo
-lo que se publique queda **privado** (`SELF_ONLY`) o en la bandeja hasta que
-apruebe la revisión. Kevil ya cuenta con eso: si TikTok no deja publicar en
-público, deja el clip en la bandeja y te lo avisa.
+Límites del sandbox: hasta 5 sandboxes por app y 10 cuentas en cada uno.
+
+Y el que de verdad importa: mientras la app no esté revisada, **la API no puede
+publicar en público**. Kevil lo pregunta antes de subir nada y, si TikTok sólo
+admite «sólo para mí», deja el clip **en tu bandeja de TikTok** en vez de
+publicarlo en privado. Así te llega al móvil, le das a publicar y **ahí sí sale
+en público para tu gente**. El trabajo entero lo hace el programa; lo único
+manual es ese toque por clip.
+
+Cuando pases la revisión, ese toque desaparece: publica solo y en público.
