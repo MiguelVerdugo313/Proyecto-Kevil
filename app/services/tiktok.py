@@ -122,7 +122,11 @@ def exchange_code(code: str, state: str = "") -> dict[str, Any]:
         )
     payload = _json(response)
     if "access_token" not in payload:
-        raise TikTokError(f"TikTok no ha devuelto el token: {payload}")
+        raise TikTokError(
+            "TikTok no ha devuelto el acceso. Revisa que la «Redirect URI» de "
+            f"Login Kit sea exactamente {redirect_uri()} y que las dos claves "
+            "sean las de esta misma app."
+        )
     payload["expires_at"] = time.time() + float(payload.get("expires_in", 86400))
     return payload
 
@@ -164,16 +168,121 @@ def valid_credentials(credentials: dict[str, Any]) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
+# Errores en cristiano
+# --------------------------------------------------------------------------
+# TikTok contesta con códigos secos («invalid_client») que no dicen qué tocar.
+# Aquí se traducen al problema real y al sitio exacto donde se arregla.
+EXPLICACIONES: dict[str, str] = {
+    "invalid_client": (
+        "La clave o el secreto de tu app no son correctos. Cópialos otra vez "
+        "de developers.tiktok.com → tu app → «Client key» y «Client secret», "
+        "sin espacios ni saltos de línea."
+    ),
+    "invalid_request": (
+        "TikTok no ha aceptado la petición. Casi siempre es la dirección de "
+        "retorno: en tu app, dentro de «Login Kit», el campo «Redirect URI» "
+        "tiene que ser exactamente la que te da Kevil."
+    ),
+    "invalid_grant": (
+        "El código de autorización ya se había usado o ha caducado. Vuelve a "
+        "pulsar «Conectar con TikTok»."
+    ),
+    "access_denied": (
+        "Has cancelado la autorización en la pantalla de TikTok, o la cuenta "
+        "no tiene permiso todavía. Vuelve a intentarlo y pulsa «Autorizar»."
+    ),
+    "invalid_scope": (
+        "Tu app no tiene activados los permisos que pide Kevil. En "
+        "developers.tiktok.com → tu app → «Scopes», añade user.info.basic, "
+        "video.publish, video.upload y video.list."
+    ),
+    "scope_not_authorized": (
+        "La cuenta no ha concedido alguno de los permisos. Vuelve a conectar y "
+        "acepta todos los que te pida la pantalla de TikTok."
+    ),
+    "unauthorized_client": (
+        "Tu app no tiene habilitado el inicio de sesión. Añádele el producto "
+        "«Login Kit» en developers.tiktok.com."
+    ),
+    "access_token_invalid": (
+        "El acceso ha caducado. Entra en Cuentas y vuelve a conectar tu TikTok."
+    ),
+    "unaudited_client_can_only_post_to_private_accounts": (
+        "Mientras TikTok no revise tu app, sólo deja publicar en privado. Kevil "
+        "lo deja como borrador en tu bandeja de TikTok para que lo publiques tú."
+    ),
+    "privacy_level_option_mismatch": (
+        "La privacidad elegida no está permitida para esta cuenta. Kevil usará "
+        "la primera que TikTok acepte."
+    ),
+    "spam_risk_too_many_posts": (
+        "TikTok ha cortado por exceso de publicaciones seguidas. Prueba dentro "
+        "de un rato o baja el ritmo en Ajustes."
+    ),
+    "spam_risk_user_banned_from_posting": (
+        "TikTok ha bloqueado las publicaciones de esta cuenta. No es cosa de "
+        "Kevil: revísalo dentro de la aplicación de TikTok."
+    ),
+    "rate_limit_exceeded": (
+        "Demasiadas peticiones seguidas a TikTok. Kevil lo reintentará solo más "
+        "tarde."
+    ),
+    "file_format_check_failed": (
+        "TikTok ha rechazado el archivo. El clip tiene que ser un MP4 con vídeo "
+        "y audio; prueba a volver a montarlo."
+    ),
+    "reached_active_user_cap": (
+        "Tu app está en modo pruebas y ha llegado al tope de cuentas. Añade tu "
+        "cuenta en el «Sandbox» de developers.tiktok.com o pide la revisión."
+    ),
+}
+
+
+def traducir_error(codigo: str, mensaje: str = "") -> str:
+    """Mensaje que se entiende, guardando el código por si hace falta buscarlo."""
+    codigo = (codigo or "").strip()
+    explicacion = EXPLICACIONES.get(codigo)
+    if explicacion:
+        return explicacion
+    detalle = (mensaje or "").strip()
+    if codigo and detalle:
+        return f"TikTok ha respondido «{codigo}»: {detalle}"
+    return f"TikTok ha respondido «{codigo or detalle or 'un error desconocido'}»."
+
+
+# --------------------------------------------------------------------------
 # Llamadas
 # --------------------------------------------------------------------------
+class TikTokRechazo(TikTokError):
+    """Error con el código original a mano, para poder reaccionar a él."""
+
+    def __init__(self, codigo: str, mensaje: str = "", log_id: str = ""):
+        super().__init__(traducir_error(codigo, mensaje))
+        self.codigo = codigo
+        self.detalle = mensaje
+        self.log_id = log_id
+
+
 def _json(response: httpx.Response) -> dict[str, Any]:
     try:
         payload = response.json()
     except Exception:
         raise TikTokError(f"Respuesta inesperada de TikTok ({response.status_code}).")
+
     error = (payload or {}).get("error")
     if isinstance(error, dict) and error.get("code") not in (None, "ok"):
-        raise TikTokError(f"{error.get('code')}: {error.get('message')}")
+        raise TikTokRechazo(
+            str(error.get("code") or ""),
+            str(error.get("message") or ""),
+            str(error.get("log_id") or ""),
+        )
+    # El endpoint de tokens contesta con error/error_description en la raíz
+    if isinstance(error, str) and error:
+        raise TikTokRechazo(
+            error,
+            str((payload or {}).get("error_description") or ""),
+            str((payload or {}).get("log_id") or ""),
+        )
     if response.status_code >= 400:
         raise TikTokError(f"TikTok respondió {response.status_code}: {payload}")
     return payload
@@ -206,6 +315,34 @@ def fetch_creator_info(credentials: dict[str, Any]) -> dict[str, Any]:
             f"{API_BASE}/post/publish/creator_info/query/", headers=_headers(credentials)
         )
     return _json(response).get("data") or {}
+
+
+# Códigos con los que TikTok dice «directamente no, pero por la bandeja sí».
+CAEN_EN_BORRADOR = {
+    "unaudited_client_can_only_post_to_private_accounts",
+    "privacy_level_option_mismatch",
+    "scope_not_authorized",
+}
+
+
+def privacidad_valida(credentials: dict[str, Any], deseada: str) -> str:
+    """La privacidad pedida, o la primera que esta cuenta admita.
+
+    TikTok rechaza la publicación entera si se le manda una opción que la cuenta
+    no tiene (las cuentas privadas, por ejemplo, no admiten «público»). Preguntar
+    antes cuesta una llamada y evita perder el clip.
+    """
+    try:
+        info = fetch_creator_info(credentials)
+    except TikTokError:
+        return deseada  # si no se puede preguntar, se intenta con lo pedido
+    opciones = [str(o) for o in (info.get("privacy_level_options") or []) if o]
+    if not opciones or deseada in opciones:
+        return deseada
+    for preferida in ("PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"):
+        if preferida in opciones:
+            return preferida
+    return opciones[0]
 
 
 def fetch_recent_videos(credentials: dict[str, Any], limit: int = 20) -> list[dict[str, Any]]:
@@ -286,28 +423,46 @@ def publish_video(
         "total_chunk_count": total_chunks,
     }
 
-    if mode == "draft":
-        endpoint = f"{API_BASE}/post/publish/inbox/video/init/"
-        body: dict[str, Any] = {"source_info": source_info}
-    else:
-        endpoint = f"{API_BASE}/post/publish/video/init/"
-        body = {
-            "post_info": {
-                "title": caption[:2200],
-                "privacy_level": privacy_level,
-                "disable_comment": not allow_comments,
-                "disable_duet": not allow_duet,
-                "disable_stitch": not allow_stitch,
-                "video_cover_timestamp_ms": 1000,
-                "brand_content_toggle": bool(commercial_content),
-                "brand_organic_toggle": False,
-            },
-            "source_info": source_info,
-        }
+    if mode != "draft":
+        privacy_level = privacidad_valida(credentials, privacy_level)
 
-    with httpx.Client(timeout=TIMEOUT) as client:
-        response = client.post(endpoint, headers=_headers(credentials), json=body)
-    data = _json(response).get("data") or {}
+    def iniciar(en_borrador: bool) -> dict[str, Any]:
+        if en_borrador:
+            endpoint = f"{API_BASE}/post/publish/inbox/video/init/"
+            body: dict[str, Any] = {"source_info": source_info}
+        else:
+            endpoint = f"{API_BASE}/post/publish/video/init/"
+            body = {
+                "post_info": {
+                    "title": caption[:2200],
+                    "privacy_level": privacy_level,
+                    "disable_comment": not allow_comments,
+                    "disable_duet": not allow_duet,
+                    "disable_stitch": not allow_stitch,
+                    "video_cover_timestamp_ms": 1000,
+                    "brand_content_toggle": bool(commercial_content),
+                    "brand_organic_toggle": False,
+                },
+                "source_info": source_info,
+            }
+        with httpx.Client(timeout=TIMEOUT) as client:
+            response = client.post(endpoint, headers=_headers(credentials), json=body)
+        return _json(response).get("data") or {}
+
+    borrador = mode == "draft"
+    aviso = ""
+    try:
+        data = iniciar(borrador)
+    except TikTokRechazo as rechazo:
+        # Mientras TikTok no revise la app no deja publicar directamente. En vez
+        # de dar el clip por perdido, se deja en la bandeja de TikTok: el vídeo
+        # llega igual y sólo falta darle a publicar en el móvil.
+        if borrador or rechazo.codigo not in CAEN_EN_BORRADOR:
+            raise
+        borrador = True
+        aviso = str(rechazo)
+        data = iniciar(True)
+
     publish_id = data.get("publish_id")
     upload_url = data.get("upload_url")
     if not publish_id or not upload_url:
@@ -322,6 +477,8 @@ def publish_video(
         "share_url": status.get("share_url", ""),
         "dry_run": False,
         "size": size,
+        "mode": "draft" if borrador else "direct",
+        "notice": aviso,
         "raw": status,
     }
 

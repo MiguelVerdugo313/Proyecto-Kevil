@@ -28,19 +28,22 @@ _oauth_states: dict[str, float] = {}
 
 def _result_page(title: str, message: str, ok: bool) -> str:
     """Página que se ve al volver de autorizar (TikTok o YouTube)."""
-    color = "#34D399" if ok else "#F87171"
+    color = "#C9B8A0" if ok else "#E07A6E"
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
 <title>{title}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/fuentes.css">
 <style>
-body{{margin:0;height:100vh;display:grid;place-items:center;background:#000;
-color:#fafafa;font-family:'Inter',system-ui,sans-serif}}
-.card{{max-width:460px;padding:48px 40px;border-radius:40px;
-background:rgba(255,255,255,.05);backdrop-filter:blur(12px);
-border:1px solid rgba(255,255,255,.1);text-align:center}}
-h1{{font-size:22px;margin:0 0 14px;color:{color};font-weight:600;letter-spacing:-.05em}}
-p{{color:#71717A;line-height:1.6;margin:0;font-weight:300}}
+body{{margin:0;height:100vh;display:grid;place-items:center;background:#0A0A0A;
+color:#F2EDE4;font-family:'Inter',system-ui,sans-serif;
+background-image:radial-gradient(circle at 1px 1px,rgba(255,255,255,.08) 1px,transparent 0);
+background-size:32px 32px}}
+.card{{max-width:480px;padding:48px 40px;border-radius:48px;
+background:rgba(255,255,255,.03);backdrop-filter:blur(10px);
+border:1px solid rgba(255,255,255,.1);text-align:center;
+box-shadow:0 0 100px rgba(167,139,113,.2)}}
+h1{{font-size:24px;margin:0 0 16px;color:{color};font-weight:600;
+font-family:'Playfair Display',Georgia,serif;font-style:italic;letter-spacing:-.02em}}
+p{{color:#A29A8E;line-height:1.7;margin:0;font-weight:300}}
 a{{color:{color};display:inline-block;margin-top:26px;text-decoration:none;
 font-weight:500;font-size:14px}}
 </style></head><body><div class="card"><h1>{title}</h1><p>{message}</p>
@@ -206,12 +209,27 @@ def tiktok_oauth_start():
 
 @router.get("/oauth/tiktok/callback", response_class=HTMLResponse)
 def tiktok_oauth_callback(
-    code: str = "", state: str = "", error: str = "", db: Session = Depends(get_db)
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    error_description: str = "",
+    log_id: str = "",
+    db: Session = Depends(get_db),
 ):
     page = _result_page
 
     if error:
-        return HTMLResponse(page("No se ha podido conectar", error, False), status_code=400)
+        # El código pelado («invalid_scope») no dice qué tocar: se traduce, y el
+        # original se deja anotado en el registro por si hay que buscarlo.
+        detalle = tiktok.traducir_error(error, error_description)
+        events.log(
+            db,
+            f"TikTok no ha autorizado: {error} {error_description} {log_id}".strip(),
+            level="error",
+            scope="tiktok",
+        )
+        db.commit()
+        return HTMLResponse(page("No se ha podido conectar", detalle, False), status_code=400)
     if not code or state not in _oauth_states:
         return HTMLResponse(
             page("Petición no válida", "Vuelve a intentarlo desde la aplicación.", False),
@@ -224,6 +242,8 @@ def tiktok_oauth_callback(
         credentials = tiktok.exchange_code(code, state)
         user = tiktok.fetch_user_info(credentials)
     except Exception as exc:
+        events.log(db, f"TikTok: {exc}", level="error", scope="tiktok")
+        db.commit()
         return HTMLResponse(page("Error al conectar", str(exc), False), status_code=400)
 
     open_id = credentials.get("open_id") or user.get("open_id", "")

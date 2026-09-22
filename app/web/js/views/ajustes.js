@@ -405,67 +405,91 @@ function editarTikTok(valores, tt, reload) {
       </p>
 
       <div class="guia">
-        ${paso(1, 'Crea la aplicación como <b>Desktop</b>',
+        ${paso(1, 'Crea la aplicación y márcala como <b>Desktop</b>',
           `Entra en <a href="https://developers.tiktok.com/apps" target="_blank" rel="noreferrer">developers.tiktok.com/apps</a>,
            inicia sesión y pulsa <b>Connect an app</b>.
-           <br><br>En <b>Platforms</b> marca <b>Desktop</b> y <u>no</u> Web. Es
-           importante: como «Web», TikTok exige que la dirección de retorno empiece
-           por <span class="mono">https</span> y no acepta la de tu ordenador.`)}
-        ${paso(2, 'Rellena los datos de la app',
-          `En <b>Web/Desktop URL</b> va la <b>web de tu aplicación</b>, no la
-           dirección de retorno. Si no tienes una, sirve la de tu repositorio:`)}
-        ${campoCopiable('Web de la aplicación', 'https://github.com/MiguelVerdugo313/Proyecto-Kevil', 'tt-web')}
-        ${paso(3, 'Añade los productos y la dirección de retorno',
-          `Añade <b>Login Kit</b> y <b>Content Posting API</b>. Dentro de Login Kit
-           hay un campo <b>Redirect URI</b> —distinto del anterior— y ahí sí va esto:`)}
+           <br><br>Baja hasta <b>Platforms</b> y marca <b>Desktop</b>. Deja
+           <b>Web</b> sin marcar: como «Web», TikTok exige que la dirección de
+           retorno empiece por <span class="mono">https</span> y no acepta la de
+           tu ordenador.`)}
+        ${paso(2, 'Web/Desktop URL: la web de tu app, <u>no</u> la de retorno',
+          `Al marcar Desktop sale un recuadro <b>Configure for Web/Desktop</b>
+           con el campo <b>Web/Desktop URL</b>. Ahí va la web de tu aplicación y
+           tiene que empezar por <span class="mono">https</span> —si pones otra
+           cosa te saldrá «Enter a valid URL beginning with https://»—. Si no
+           tienes web, vale ésta:`)}
+        ${campoCopiable('Web/Desktop URL', 'https://github.com/MiguelVerdugo313/Proyecto-Kevil', 'tt-web')}
+        ${paso(3, 'Añade los dos productos y sus permisos',
+          `En <b>Products</b> añade <b>Login Kit</b> y <b>Content Posting API</b>.
+           Después, en <b>Scopes</b>, marca estos cuatro:
+           <span class="mono">user.info.basic</span>,
+           <span class="mono">video.publish</span>,
+           <span class="mono">video.upload</span> y
+           <span class="mono">video.list</span>.
+           Sin ellos TikTok corta la conexión nada más empezar.`)}
+        ${paso(4, 'La dirección de retorno, dentro de Login Kit',
+          `Dentro de <b>Login Kit</b> hay un campo <b>Redirect URI</b> —es otro,
+           no el del paso 2— y ahí sí va esto tal cual:`)}
         ${campoCopiable('Redirect URI', tt.redirect_uri, 'tt-redirect')}
-        ${paso(4, 'Copia las dos claves y pégalas aquí',
-          `En la pantalla de tu app verás <b>Client key</b> y <b>Client secret</b>.
-           Son dos cadenas de letras y números; <u>no</u> son direcciones web.
-           Pégalas abajo, una en cada línea.`)}
+        ${paso(5, 'Copia las dos claves en sus casillas',
+          `Arriba en la pantalla de tu app están <b>Client key</b> y
+           <b>Client secret</b>. Cada una en su casilla de aquí abajo; no son
+           direcciones web.`)}
       </div>
 
-      <div class="field full" style="margin-top:6px">
-        <label>Pega aquí las dos claves</label>
-        <textarea id="tt-pegado" rows="3" class="mono"
-          placeholder="Client key: awxxxxxxxxxxxx&#10;Client secret: xxxxxxxxxxxxxxxx"></textarea>
-        <span class="help">Sólo las dos claves. Aquí no va ninguna dirección web.</span>
+      <div class="form-grid" style="margin-top:6px">
+        <div class="field full">
+          <label>Client key</label>
+          <input type="text" id="tt-key" class="mono" autocomplete="off" spellcheck="false"
+            value="${escapeHtml(valores.tiktok_client_key || '')}" placeholder="aw…">
+          <span class="help">Empieza por «aw» y es la más corta de las dos.</span>
+        </div>
+        <div class="field full">
+          <label>Client secret</label>
+          <input type="text" id="tt-secret" class="mono" autocomplete="off" spellcheck="false"
+            placeholder="la cadena larga que sale debajo de la client key">
+        </div>
       </div>
+      <p class="tiny" id="tt-aviso" style="margin-top:8px;color:var(--red)" hidden></p>
 
       <p class="muted tiny" style="margin-top:12px">
-        TikTok revisa las aplicaciones antes de dejar publicar. Mientras tanto
-        Kevil sigue funcionando en simulación y no pierdes nada de lo programado.
-      </p>
-
-      <details style="margin-top:12px">
-        <summary class="muted small">O ponlas a mano</summary>
-        <div class="form-grid" style="margin-top:12px">
-          <div class="field full"><label>Client key</label>
-            <input type="text" id="tt-key" value="${escapeHtml(valores.tiktok_client_key || '')}" placeholder="aw…"></div>
-          <div class="field full"><label>Client secret</label>
-            <input type="password" id="tt-secret" value="${escapeHtml(valores.tiktok_client_secret || '')}" placeholder="••••••••"></div>
-        </div>
-      </details>`,
+        Hasta que TikTok revise tu app sólo deja dejar el vídeo en tu bandeja de
+        TikTok en vez de publicarlo directamente. Kevil lo detecta y lo hace así
+        solo: el clip te llega igual y sólo tienes que darle a publicar.
+      </p>`,
     wide: true,
-    onOpen: activarCopiar,
+    onOpen: (root) => {
+      activarCopiar(root);
+      // Si pega de golpe las dos claves en una casilla, se reparten solas.
+      root.querySelector('#tt-key').addEventListener('paste', (evento) => {
+        const pegado = (evento.clipboardData || window.clipboardData).getData('text') || '';
+        const piezas = pegado.split(/[\s,;:=]+/).filter((p) => p.length >= 8);
+        if (piezas.length === 2) {
+          evento.preventDefault();
+          root.querySelector('#tt-key').value = piezas[0];
+          root.querySelector('#tt-secret').value = piezas[1];
+        }
+      });
+    },
     actions: [
       { label: 'Cancelar' },
       { label: 'Guardar y conectar', variant: 'primary', onClick: async (root) => {
-        const pegado = root.querySelector('#tt-pegado').value.trim();
-        if (pegado) {
-          await api.post('/api/credentials/tiktok', { text: pegado });
-        } else {
-          const clave = root.querySelector('#tt-key').value.trim();
-          const secreto = root.querySelector('#tt-secret').value.trim();
-          if (!clave || !secreto) {
-            toastError('Pega las dos claves, o rellena los campos de abajo.');
-            return false;
-          }
-          await api.put('/api/settings', {
-            tiktok_client_key: clave,
-            tiktok_client_secret: secreto === '••••••••' ? undefined : secreto,
-          });
+        const aviso = root.querySelector('#tt-aviso');
+        const fallo = (texto) => {
+          aviso.textContent = texto;
+          aviso.hidden = false;
+          return false;
+        };
+        const clave = root.querySelector('#tt-key').value.trim();
+        const secreto = root.querySelector('#tt-secret').value.trim();
+
+        if (!clave || !secreto) return fallo('Faltan las dos claves: la key y el secret.');
+        if (/https?:\/\//.test(clave) || /https?:\/\//.test(secreto)) {
+          return fallo('Eso es una dirección web. La de retorno va en TikTok, en «Redirect URI» de Login Kit.');
         }
+        if (clave === secreto) return fallo('Has puesto lo mismo en las dos casillas: son valores distintos.');
+
+        await api.post('/api/credentials/tiktok', { client_key: clave, client_secret: secreto });
         toast('Credenciales guardadas · abriendo TikTok…');
         setTimeout(() => { window.location.href = '/api/oauth/tiktok/start'; }, 700);
         return true;

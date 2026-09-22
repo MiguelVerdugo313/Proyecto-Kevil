@@ -360,7 +360,7 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "key": "highlight_color",
                 "label": "Color de la palabra activa",
                 "type": "color",
-                "default": "#28E7C5",
+                "default": "#E8D5B7",
             },
             {
                 "key": "outline",

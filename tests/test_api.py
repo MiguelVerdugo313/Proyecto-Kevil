@@ -379,5 +379,46 @@ def test_pegar_una_direccion_donde_van_las_claves_avisa(client):
     )
     assert confusion.status_code == 400
     detalle = confusion.json()["detail"]
-    assert "no una dirección web" in detalle
+    assert "una dirección web" in detalle
     assert "Redirect URI" in detalle          # y dice dónde va de verdad
+
+    # y también si la dirección viene en la casilla de la clave
+    en_la_casilla = client.post(
+        "/api/credentials/tiktok",
+        json={"client_key": "http://127.0.0.1:8756/api/oauth/tiktok/callback",
+              "client_secret": "wn1p6HPIKykY1IgN"},
+    )
+    assert en_la_casilla.status_code == 400
+
+
+def test_las_claves_de_tiktok_en_sus_dos_casillas(client):
+    """Lo normal ahora: cada clave en su campo, sin adivinar nada."""
+    try:
+        bien = client.post(
+            "/api/credentials/tiktok",
+            json={"client_key": "awabcdefghij", "client_secret": "secretolargo12345"},
+        )
+        assert bien.status_code == 200
+        assert bien.json()["client_key"] == "awabcdefghij"
+        assert bien.json()["ready"] is True
+
+        # las dos iguales es casi siempre un copiar y pegar mal hecho
+        repetida = client.post(
+            "/api/credentials/tiktok",
+            json={"client_key": "awabcdefghij", "client_secret": "awabcdefghij"},
+        )
+        assert repetida.status_code == 400
+        assert "lo mismo" in repetida.json()["detail"]
+
+        # y media clave tampoco vale
+        corta = client.post(
+            "/api/credentials/tiktok", json={"client_key": "aw", "client_secret": "x"}
+        )
+        assert corta.status_code == 400
+
+        falta = client.post("/api/credentials/tiktok", json={"client_key": "awabcdefghij"})
+        assert falta.status_code == 400
+    finally:
+        client.put(
+            "/api/settings", json={"tiktok_client_key": "", "tiktok_client_secret": ""}
+        )

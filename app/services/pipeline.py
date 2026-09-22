@@ -822,11 +822,25 @@ def _publish_to_tiktok(session, ctx, post, clip, account, publish_config) -> dic
         except Exception:
             pass
 
+    # Si TikTok no ha dejado publicar directamente, el clip se queda en la
+    # bandeja de la aplicación de TikTok. Hay que decirlo: si no, uno lo da por
+    # publicado y no aparece.
+    if result.get("notice"):
+        events.log(
+            session,
+            f"Clip enviado a la bandeja de TikTok: {result['notice']}",
+            level="warning",
+            scope="tiktok",
+            data={"post_id": post.id},
+        )
+
     return {
         "publish_id": result.get("publish_id", ""),
         "external_id": "",
         "share_url": result.get("share_url", ""),
         "dry_run": result.get("dry_run", False),
+        "mode": result.get("mode", ""),
+        "notice": result.get("notice", ""),
     }
 
 
