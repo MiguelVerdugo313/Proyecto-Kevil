@@ -325,6 +325,24 @@ CAEN_EN_BORRADOR = {
 }
 
 
+SOLO_PARA_MI = "SELF_ONLY"
+
+AVISO_SIN_REVISAR = (
+    "TikTok todavía no ha revisado tu app, así que por la API sólo dejaría "
+    "publicar en privado. El clip se queda en tu bandeja de TikTok: ábrelo en "
+    "el móvil, dale a publicar y ahí sí sale en público."
+)
+
+
+def opciones_de_privacidad(credentials: dict[str, Any]) -> list[str]:
+    """Qué privacidades admite esta cuenta, según la propia TikTok."""
+    try:
+        info = fetch_creator_info(credentials)
+    except TikTokError:
+        return []            # si no se puede preguntar, se sigue a ciegas
+    return [str(o) for o in (info.get("privacy_level_options") or []) if o]
+
+
 def privacidad_valida(credentials: dict[str, Any], deseada: str) -> str:
     """La privacidad pedida, o la primera que esta cuenta admita.
 
@@ -332,17 +350,27 @@ def privacidad_valida(credentials: dict[str, Any], deseada: str) -> str:
     no tiene (las cuentas privadas, por ejemplo, no admiten «público»). Preguntar
     antes cuesta una llamada y evita perder el clip.
     """
-    try:
-        info = fetch_creator_info(credentials)
-    except TikTokError:
-        return deseada  # si no se puede preguntar, se intenta con lo pedido
-    opciones = [str(o) for o in (info.get("privacy_level_options") or []) if o]
+    return elegir_privacidad(opciones_de_privacidad(credentials), deseada)
+
+
+def elegir_privacidad(opciones: list[str], deseada: str) -> str:
     if not opciones or deseada in opciones:
         return deseada
-    for preferida in ("PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"):
+    for preferida in ("PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", SOLO_PARA_MI):
         if preferida in opciones:
             return preferida
     return opciones[0]
+
+
+def mejor_en_la_bandeja(opciones: list[str], deseada: str) -> bool:
+    """¿Conviene dejarlo de borrador en vez de publicarlo en privado?
+
+    Mientras TikTok no revise la app, lo único que deja es publicar «sólo para
+    mí». Un clip así no lo ve nadie y además hay que ir a buscarlo para cambiarle
+    la privacidad a mano. Dejarlo en la bandeja es mejor: llega igual y se
+    publica en público con un toque desde el móvil.
+    """
+    return bool(opciones) and set(opciones) == {SOLO_PARA_MI} and deseada != SOLO_PARA_MI
 
 
 def fetch_recent_videos(credentials: dict[str, Any], limit: int = 20) -> list[dict[str, Any]]:
@@ -423,8 +451,15 @@ def publish_video(
         "total_chunk_count": total_chunks,
     }
 
-    if mode != "draft":
-        privacy_level = privacidad_valida(credentials, privacy_level)
+    borrador = mode == "draft"
+    aviso = ""
+    if not borrador:
+        opciones = opciones_de_privacidad(credentials)
+        if mejor_en_la_bandeja(opciones, privacy_level):
+            borrador = True
+            aviso = AVISO_SIN_REVISAR
+        else:
+            privacy_level = elegir_privacidad(opciones, privacy_level)
 
     def iniciar(en_borrador: bool) -> dict[str, Any]:
         if en_borrador:
@@ -449,8 +484,6 @@ def publish_video(
             response = client.post(endpoint, headers=_headers(credentials), json=body)
         return _json(response).get("data") or {}
 
-    borrador = mode == "draft"
-    aviso = ""
     try:
         data = iniciar(borrador)
     except TikTokRechazo as rechazo:
