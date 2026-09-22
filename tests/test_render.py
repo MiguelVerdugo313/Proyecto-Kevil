@@ -124,3 +124,104 @@ def test_deteccion_del_centro_de_accion(tmp_path):
     media_service.make_test_video(origen, seconds=8)
     foco = renderer.estimate_focus_x(origen, 1, 6)
     assert 0.0 <= foco <= 1.0
+
+
+# --------------------------------------------------------------------------
+# Encuadre que sigue a la acción
+# --------------------------------------------------------------------------
+def test_la_expresion_de_foco_se_mueve_con_el_tiempo():
+    fija = renderer.expresion_de_foco([])
+    assert fija == "0.5"
+    assert renderer.expresion_de_foco([(0.0, 0.3)]) == "0.3000"
+
+    movil = renderer.expresion_de_foco([(0.0, 0.2), (1.0, 0.8)])
+    assert "t" in movil                      # depende del momento del clip
+    assert "0.2000" in movil and "0.8000" in movil
+    assert movil.count("gte(t,") >= 1
+
+
+def test_el_recorte_usa_la_expresion_y_no_se_sale():
+    cadenas, _ = renderer.build_video_filters(
+        mode="smart", width=1080, height=1920, focus_x=0.5, zoom=1.0, blur=20,
+        focus_track=[(0.0, 0.2), (2.0, 0.8)],
+    )
+    crop = cadenas[0]
+    assert "crop=1080:1920" in crop
+    assert "0.2000" in crop and "0.8000" in crop
+    # el foco es el punto que va al centro, y se pega a los bordes sin salirse
+    assert "iw*(" in crop and "-540" in crop
+    assert "min(max(" in crop and "iw-1080" in crop
+
+
+def test_suavizado_frena_los_saltos():
+    brusco = [0.1, 0.9, 0.1, 0.9, 0.1, 0.9]
+    suave = renderer._suavizar(brusco)
+    saltos = [abs(b - a) for a, b in zip(suave, suave[1:])]
+    assert max(saltos) <= renderer.PASO_MAXIMO + 1e-6
+    assert all(0.0 <= v <= 1.0 for v in suave)
+
+
+@pytest.mark.skipif(not media_service.ffmpeg_ready(), reason="ffmpeg no está instalado")
+def test_el_encuadre_persigue_a_lo_que_se_mueve(tmp_path):
+    """Un cuadro que cruza la pantalla: con seguimiento no se sale del clip."""
+    origen = tmp_path / "movil.mp4"
+    media_service.run_ffmpeg([
+        "-f", "lavfi", "-i", "color=c=black:s=1280x720:d=8:r=25",
+        "-f", "lavfi", "-i", "color=c=white:s=200x200:d=8:r=25",
+        "-filter_complex", "[0:v][1:v]overlay=x='120+t*110':y=260:eval=frame[v]",
+        "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast",
+        "-pix_fmt", "yuv420p", "-an", str(origen),
+    ], total_duration=8)
+
+    puntos = renderer.seguir_accion(origen, 0.5, 7.5)
+    assert len(puntos) >= 5
+    assert puntos[0][1] < puntos[-1][1] - 0.2      # va de izquierda a derecha
+    assert all(0.0 <= x <= 1.0 for _, x in puntos)
+    assert all(b[0] > a[0] for a, b in zip(puntos, puntos[1:]))   # en orden
+
+    salida = tmp_path / "clip.mp4"
+    settings.work_path.mkdir(parents=True, exist_ok=True)
+    datos = renderer.render_clip(
+        source_path=origen, start=0.5, end=7.5, output_path=salida,
+        reframe={**default_config("reframe"), "mode": "smart", "resolution": "360x640"},
+        audio=default_config("audio"), subtitles_enabled=False,
+        overlays_enabled=False, has_audio=False,
+    )
+    assert salida.exists()
+    assert len(datos["focus_track"]) >= 5
+
+
+# --------------------------------------------------------------------------
+# Puesta al día de las plantillas al actualizar el programa
+# --------------------------------------------------------------------------
+def test_las_plantillas_se_ponen_al_dia_sin_pisar_lo_tuyo(session):
+    from app import bootstrap
+    from app.models import Flow, Setting
+
+    def con_modo(nombre, modo):
+        pasos = default_steps()
+        for paso in pasos:
+            if paso["type"] == "reframe":
+                paso["config"]["mode"] = modo
+        return Flow(name=nombre, description="", icon="", steps=pasos)
+
+    de_fabrica = con_modo("Cortes virales (recomendado)", "blur")
+    tocado = con_modo("Clips a TikTok y Shorts", "split")     # elegido a mano
+    ajeno = con_modo("Mi flujo", "blur")                      # no es una plantilla
+    session.add_all([de_fabrica, tocado, ajeno])
+    session.flush()
+
+    assert bootstrap.actualizar_plantillas(session) == 1
+    session.flush()
+
+    def modo(flow):
+        return step_config(flow.steps, "reframe")["mode"]
+
+    assert modo(de_fabrica) == "smart"      # seguía con el valor de antes
+    assert step_config(de_fabrica.steps, "reframe")["follow"] is True
+    assert modo(tocado) == "split"          # lo eligió el usuario: no se toca
+    assert modo(ajeno) == "blur"            # no es una plantilla de las nuestras
+
+    # y no se repite en cada arranque
+    assert bootstrap.actualizar_plantillas(session) == 0
+    assert session.get(Setting, bootstrap.MEJORAS_KEY).value == ["seguir-la-accion-1"]

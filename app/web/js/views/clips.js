@@ -42,7 +42,7 @@ async function openClip(clipId, reload) {
           <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
             ${statusPill(clip.status)}
             <span class="pill">${fmt.duration(clip.duration_s)}</span>
-            <span class="pill info">gancho ${Math.round(clip.score * 100)}%</span>
+            <span class="pill info">viralidad ${Math.round(clip.score * 100)}</span>
           </div>
           <p class="muted tiny" style="margin-top:9px;line-height:1.55">
             Del original: ${fmt.duration(clip.start_s)} → ${fmt.duration(clip.end_s)}<br>

@@ -262,6 +262,16 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 ],
             },
             {
+                "key": "follow",
+                "label": "Seguir a la acción durante el clip",
+                "type": "bool",
+                "default": True,
+                "help": (
+                    "El recorte se va moviendo con lo que pasa en pantalla, en vez "
+                    "de quedarse clavado. Sólo en «Recorte con seguimiento»."
+                ),
+            },
+            {
                 "key": "focus_x",
                 "label": "Centro horizontal del recorte",
                 "type": "slider",
@@ -702,7 +712,7 @@ ESSENTIAL_FIELDS: dict[str, set[str]] = {
     "ingest": {"quality"},
     "transcribe": {"engine"},
     "segment": {"strategy", "min_duration", "max_duration", "max_clips"},
-    "reframe": {"mode"},
+    "reframe": {"mode", "follow"},
     "subtitles": {"style", "font_size", "highlight_color"},
     "overlays": {"hook_enabled", "watermark"},
     "audio": {"normalize"},
@@ -816,8 +826,13 @@ FLOW_PRESETS: list[dict[str, Any]] = [
     {
         "name": "Cortes virales (recomendado)",
         "icon": "⚡",
-        "description": "Momentos con más gancho, rótulos en karaoke y publicación repartida.",
-        "steps": _preset({}),
+        "description": (
+            "Momentos con más gancho, encuadre que sigue a la acción, rótulos en "
+            "karaoke y publicación repartida."
+        ),
+        # El vertical a pantalla completa siguiendo lo que pasa es el formato que
+        # mejor funciona en TikTok; para gameplay está la plantilla de al lado.
+        "steps": _preset({"reframe": {"mode": "smart", "follow": True, "zoom": 1.0}}),
     },
     {
         "name": "Directos largos",
@@ -844,7 +859,7 @@ FLOW_PRESETS: list[dict[str, Any]] = [
         "description": "Encuadre a la cara, rótulos grandes y clips algo más largos.",
         "steps": _preset(
             {
-                "reframe": {"mode": "crop", "zoom": 1.1},
+                "reframe": {"mode": "smart", "follow": True, "zoom": 1.1},
                 "subtitles": {"style": "blocks", "font_size": 58, "position_y": 76},
                 "segment": {"min_duration": 30, "max_duration": 90, "clips_per_hour": 6},
             }
@@ -875,6 +890,7 @@ FLOW_PRESETS: list[dict[str, Any]] = [
         "description": "Cada corte sale a la vez en TikTok y en YouTube Shorts.",
         "steps": _preset(
             {
+                "reframe": {"mode": "smart", "follow": True},
                 "segment": {"max_duration": 58},   # por debajo de 60 s en ambas
                 "publish": {"publish_tiktok": True, "publish_youtube_shorts": True},
                 "schedule": {"max_per_day": 2},
