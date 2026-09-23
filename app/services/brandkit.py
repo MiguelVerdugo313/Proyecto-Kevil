@@ -22,6 +22,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from app import procesos
 from app.config import settings
 from app.services import branding
 
@@ -51,7 +52,7 @@ def _sonda(path: Path) -> dict[str, Any]:
         "-of", "json", str(path),
     ]
     try:
-        salida = subprocess.run(comando, capture_output=True, timeout=30)
+        salida = procesos.run(comando, capture_output=True, timeout=30)
         datos = json.loads(salida.stdout or b"{}")
     except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
         return {}

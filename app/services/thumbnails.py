@@ -20,6 +20,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from app import procesos
 from app.config import settings
 from app.services import ai, brandkit, branding, captions
 from app.services import media as media_service
@@ -49,7 +50,7 @@ def score_frames(
         "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
     ]
     try:
-        result = subprocess.run(command, capture_output=True, timeout=600)
+        result = procesos.run(command, capture_output=True, timeout=600)
     except (FileNotFoundError, subprocess.TimeoutExpired):  # pragma: no cover
         return []
 

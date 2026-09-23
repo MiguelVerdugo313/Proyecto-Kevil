@@ -38,7 +38,8 @@ from app.models import (
 from app.services import branding
 from app.services import media as media_service
 from app.services import (
-    autopilot, brandkit, credenciales, storage, thumbnails, tiktok, timing,
+    autopilot, brandkit, credenciales, events, pausa, storage, thumbnails, tiktok,
+    timing,
     youtube_api,
 )
 from app.services.queue import enqueue
@@ -105,7 +106,54 @@ def status(db: Session = Depends(get_db)):
         "jobs_running": _count(db, Job, Job.status == JobStatus.running.value),
         "jobs_pending": _count(db, Job, Job.status == JobStatus.pending.value),
         "clips_ready": _count(db, Clip, Clip.status == ClipStatus.rendered.value),
+        "paused": pausa.activa(),
     }
+
+
+# --------------------------------------------------------------------------
+# Pausa del motor
+# --------------------------------------------------------------------------
+def _estado_motor(db: Session, parados: int = 0) -> dict[str, Any]:
+    esperando = _count(
+        db, Job, Job.status == JobStatus.pending.value, Job.kind.in_(pausa.PESADOS)
+    )
+    return {
+        "paused": pausa.activa(),
+        "running": _count(db, Job, Job.status == JobStatus.running.value),
+        "waiting": esperando,
+        "stopped": parados,
+    }
+
+
+@router.get("/motor")
+def motor(db: Session = Depends(get_db)):
+    return _estado_motor(db)
+
+
+@router.post("/motor/pausa")
+def pausar_motor(db: Session = Depends(get_db)):
+    """Para en seco descargas, cortes y renders, y no empieza ninguno nuevo.
+
+    Lo que estaba a medias vuelve a la cola: al reanudar se retoma sin perder
+    nada. Las publicaciones programadas siguen saliendo a su hora.
+    """
+    parados = pausa.pausar(db)
+    events.log(
+        db,
+        "Motor en pausa" + (f": {parados} proceso(s) detenido(s)" if parados else ""),
+        level="info",
+        scope="sistema",
+    )
+    db.commit()
+    return _estado_motor(db, parados)
+
+
+@router.post("/motor/reanudar")
+def reanudar_motor(db: Session = Depends(get_db)):
+    pausa.reanudar(db)
+    events.log(db, "Motor en marcha otra vez", level="success", scope="sistema")
+    db.commit()
+    return _estado_motor(db)
 
 
 @router.get("/dashboard")
@@ -507,6 +555,32 @@ def storage_status():
 def storage_clean(db: Session = Depends(get_db)):
     """Limpieza normal: temporales y lo que ya esté publicado."""
     resultado = storage.enforce_budget(db)
+    db.commit()
+    return resultado | {"usage": storage.usage()}
+
+
+@router.get("/storage/free")
+def storage_free_preview(db: Session = Depends(get_db)):
+    """Lo que se liberaría con «Liberar espacio», sin tocar nada."""
+    return storage.plan_de_limpieza(db) | {"usage": storage.usage()}
+
+
+@router.post("/storage/free")
+def storage_free(db: Session = Depends(get_db)):
+    """Borra lo que sobra y nada de lo que hace falta.
+
+    Se van los temporales, los clips descartados y los ya publicados, los
+    originales de los que ya no queda nada por montar y los archivos sueltos
+    que no son de nadie. Lo programado y lo que está por revisar se queda.
+    """
+    resultado = storage.liberar_espacio(db)
+    if resultado["freed_mb"]:
+        events.log(
+            db,
+            f"Espacio liberado: {resultado['freed_mb']} MB",
+            level="success",
+            scope="disco",
+        )
     db.commit()
     return resultado | {"usage": storage.usage()}
 

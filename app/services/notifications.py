@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import platform
 import shutil
-import subprocess
 import threading
 from datetime import timedelta
 from typing import Any
@@ -17,6 +16,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import procesos
 from app.config import settings
 from app.models import Notification, utcnow
 
@@ -73,7 +73,7 @@ def send_desktop(title: str, body: str) -> None:
 
     def run() -> None:
         try:
-            subprocess.run(command, capture_output=True, timeout=10)
+            procesos.run(command, capture_output=True, timeout=10)
         except Exception:
             pass  # nunca debe romper nada
 

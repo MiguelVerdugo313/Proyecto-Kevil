@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Iterable
 
+from app import procesos
 from app.config import settings
 
 
@@ -48,7 +49,7 @@ def probe(path: str | Path) -> dict:
         path,
     ]
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        out = procesos.run(cmd, capture_output=True, text=True, timeout=120)
     except FileNotFoundError as exc:  # pragma: no cover - entorno sin ffprobe
         raise MediaError("No se encuentra ffprobe. Instala ffmpeg.") from exc
     if out.returncode != 0:
@@ -100,7 +101,7 @@ def run_ffmpeg(
     cmd += list(args)
 
     try:
-        proc = subprocess.Popen(
+        proc = procesos.popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -113,15 +114,22 @@ def run_ffmpeg(
 
     tail: list[str] = []
     assert proc.stdout is not None
-    for line in proc.stdout:
-        tail.append(line)
-        if len(tail) > 400:
-            del tail[:200]
-        if on_progress and total_duration > 0:
-            match = re.match(r"out_time_ms=(\d+)", line.strip())
-            if match:
-                seconds = int(match.group(1)) / 1_000_000
-                on_progress(max(0.0, min(1.0, seconds / total_duration)))
+    try:
+        for line in proc.stdout:
+            tail.append(line)
+            if len(tail) > 400:
+                del tail[:200]
+            if on_progress and total_duration > 0:
+                match = re.match(r"out_time_ms=(\d+)", line.strip())
+                if match:
+                    seconds = int(match.group(1)) / 1_000_000
+                    on_progress(max(0.0, min(1.0, seconds / total_duration)))
+    except BaseException:
+        # Si quien escucha el avance corta —por ejemplo, porque se ha puesto el
+        # motor en pausa— ffmpeg no se puede quedar trabajando por su cuenta.
+        proc.kill()
+        proc.wait()
+        raise
 
     try:
         proc.wait(timeout=timeout)
@@ -158,7 +166,7 @@ def detect_silences(
         "-f", "null", "-",
     ]
     try:
-        out = subprocess.run(
+        out = procesos.run(
             [settings.ffmpeg_path, *args], capture_output=True, text=True, timeout=60 * 30
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):  # pragma: no cover

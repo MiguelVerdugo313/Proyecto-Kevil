@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.api.common import clip_to_dict, naive_utc
 from app.db import get_db
 from app.models import Account, Clip, ClipStatus, Post, PostStatus
-from app.services import events, pipeline
+from app.services import events, pipeline, storage
 from app.services.queue import enqueue
 
 router = APIRouter(prefix="/api/clips", tags=["clips"])
@@ -180,17 +180,44 @@ def reject_clip(clip_id: int, db: Session = Depends(get_db)):
     return clip_to_dict(clip)
 
 
+class BorrarClipsIn(BaseModel):
+    ids: list[int] = []
+    status: str = ""          # p. ej. «rejected» para vaciar los descartados
+
+
+@router.post("/delete")
+def delete_clips(body: BorrarClipsIn, db: Session = Depends(get_db)):
+    """Borra del disco y de la lista los clips elegidos (o todos los de un estado)."""
+    ids = list(body.ids or [])
+    if body.status:
+        ids += [
+            clip.id for clip in db.scalars(
+                select(Clip).where(Clip.status == body.status)
+            ).all()
+        ]
+    if not ids:
+        raise HTTPException(400, "No has elegido ningún clip.")
+    resultado = storage.borrar_clips(db, ids)
+    if resultado["deleted"]:
+        events.log(
+            db,
+            f"{resultado['deleted']} clip(s) borrados · {resultado['freed_mb']} MB liberados",
+            level="info",
+            scope="clips",
+        )
+    db.commit()
+    return resultado
+
+
 @router.delete("/{clip_id}")
 def delete_clip(clip_id: int, db: Session = Depends(get_db)):
-    clip = db.get(Clip, clip_id)
-    if not clip:
+    if not db.get(Clip, clip_id):
         raise HTTPException(404, "Clip no encontrado")
-    for path in (clip.render_path, clip.thumb_path):
-        if path:
-            Path(path).unlink(missing_ok=True)
-    db.delete(clip)
+    resultado = storage.borrar_clips(db, [clip_id])
+    if resultado["skipped"]:
+        raise HTTPException(409, "Ese clip se está subiendo ahora mismo: espera a que termine.")
     db.commit()
-    return {"ok": True}
+    return {"ok": True, **resultado}
 
 
 # --------------------------------------------------------------------------

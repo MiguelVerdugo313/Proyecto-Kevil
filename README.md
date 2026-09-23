@@ -501,9 +501,31 @@ Kevil no está pensado para dejarte el ordenador lleno de vídeos:
 3. **Tiene un tope.** Si la carpeta de medios se pasa de lo que le digas (3 GB por
    defecto), se borra lo más antiguo que ya esté publicado.
 
-Todo esto se ve y se cambia en **Ajustes → Espacio en disco**, donde también tienes
-«Limpiar lo publicado» y «Borrarlo todo ahora». Si prefieres guardarlo todo, hay un
-interruptor para cada cosa.
+Y cuando quieras hacer limpieza a mano, en **Clips** tienes:
+
+* **🧹 Liberar espacio**: te enseña lo que se iría y cuánto ocupa antes de borrar nada.
+  Se lleva los temporales, los clips descartados y los ya publicados, los originales
+  de los que no queda nada por montar y los archivos sueltos que no son de nadie
+  (descargas cortadas y restos). **No toca** lo que está por revisar, lo programado ni
+  lo que se está montando, así que se puede pulsar sin miedo.
+* **Elegir para borrar**: marcas los clips que no quieres y fuera, del disco y de la
+  lista. En «Descartados» hay además un botón para vaciarlos todos de una vez.
+
+Todo esto se ve y se cambia también en **Ajustes → Espacio en disco**, donde está el
+«Borrarlo todo ahora» para empezar de cero (cancela lo programado, porque sin su
+archivo no podría salir). Si prefieres guardarlo todo, hay un interruptor para cada
+cosa.
+
+### Pausar para jugar
+
+En la barra lateral, en la caja del **Motor**, está el botón **⏸ Pausar**. Al pulsarlo
+se corta en seco lo que esté bajando o montando —el ordenador vuelve a ser tuyo al
+momento— y no se empieza nada pesado hasta que le des a **▶ Reanudar**. Lo cortado
+vuelve a la cola y se retoma sin perder nada. Si cierras Kevil en pausa, se abre en
+pausa.
+
+Lo único que sigue en pausa son las publicaciones programadas: pesan poco y tienen
+hora, y si se pararan se te acumularían todas las de la tarde.
 
 > Para las estrategias que eligen los cortes escuchando los silencios se baja la pista
 > de **audio** (unos 100 MB en un directo de dos horas, frente a varios GB de vídeo) y

@@ -19,7 +19,7 @@ from app.config import settings
 from app.db import init_db, session_scope
 from app.rutas import raiz_recursos
 from app.version import VERSION
-from app.services import events, pipeline, scheduler, studio  # noqa: F401  (registran trabajos)
+from app.services import events, pausa, pipeline, scheduler, studio  # noqa: F401  (registran trabajos)
 from app.services.queue import runner
 
 # Dentro del .exe la interfaz vive en la carpeta que descomprime PyInstaller
@@ -33,6 +33,8 @@ async def lifespan(_app: FastAPI):
     settings.ensure_dirs()
     init_db()
     bootstrap.run()
+    with session_scope() as session:
+        pausa.cargar(session)       # si se cerró en pausa, se abre en pausa
     runner.size = max(1, settings.workers)
     runner.start()
     scheduler.start()

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import session_scope
 from app.models import Job, JobStatus, utcnow
+from app.services import pausa
 
 Handler = Callable[[Session, "JobContext"], None]
 
@@ -44,6 +45,10 @@ class JobContext:
         self._last_write = 0.0
 
     def progress(self, value: float, message: str = "") -> None:
+        # Cada vez que un trabajo pesado cuenta cómo va, se mira si hay que
+        # parar: así hasta las fases que no lanzan ningún programa se cortan.
+        if pausa.afecta(self.job.kind):
+            pausa.comprobar()
         self.job.progress = max(0.0, min(1.0, float(value)))
         if message:
             self.job.message = message[:400]
@@ -96,15 +101,16 @@ class Worker(threading.Thread):
 
     def _claim(self) -> int | None:
         with _claim_lock, session_scope() as session:
+            consulta = select(Job).where(
+                Job.status == JobStatus.pending.value,
+                # los trabajos de una base anterior no tienen hora: van ya
+                or_(Job.run_at.is_(None), Job.run_at <= utcnow()),
+            )
+            if pausa.activa():
+                # en pausa sólo sale lo ligero: publicar a su hora, métricas…
+                consulta = consulta.where(Job.kind.not_in(pausa.PESADOS))
             job = session.scalars(
-                select(Job)
-                .where(
-                    Job.status == JobStatus.pending.value,
-                    # los trabajos de una base anterior no tienen hora: van ya
-                    or_(Job.run_at.is_(None), Job.run_at <= utcnow()),
-                )
-                .order_by(Job.priority.asc(), Job.created_at.asc())
-                .limit(1)
+                consulta.order_by(Job.priority.asc(), Job.created_at.asc()).limit(1)
             ).first()
             if not job:
                 return None
@@ -145,10 +151,31 @@ class Worker(threading.Thread):
                     job.progress = 1.0
                     job.finished_at = utcnow()
                 except Exception as exc:  # noqa: BLE001
+                    if isinstance(exc, pausa.Pausado) or (
+                        pausa.activa() and pausa.afecta(job.kind)
+                    ):
+                        # Cortado por la pausa: no es un fallo. Se deshace lo
+                        # que dejó a medias y vuelve a la cola tal cual.
+                        session.rollback()
+                        _devolver_a_la_cola(session, job_id)
+                        continue
                     job.status = JobStatus.failed.value
                     job.error = f"{exc}\n{traceback.format_exc()}"[:4000]
                     job.message = str(exc)[:400]
                     job.finished_at = utcnow()
+
+
+def _devolver_a_la_cola(session: Session, job_id: int) -> None:
+    job = session.get(Job, job_id)
+    if job is None:
+        return
+    job.status = JobStatus.pending.value
+    job.message = "En pausa: se retomará al reanudar"
+    job.progress = 0.0
+    job.started_at = None
+    # el intento cortado no cuenta, o tras varias pausas se daría por perdido
+    job.attempts = max(0, (job.attempts or 1) - 1)
+    session.commit()
 
 
 class JobRunner:

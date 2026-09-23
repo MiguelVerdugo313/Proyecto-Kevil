@@ -9,6 +9,9 @@ import {
 let filters = { status: '', video: null };
 let accounts = [];
 let reloadView = () => location.reload();
+// Modo «elegir para borrar»: los clips marcados se guardan aquí por su id
+let eligiendo = false;
+const elegidos = new Set();
 
 const FILTERS = [
   { value: '', label: 'Todos' },
@@ -88,7 +91,16 @@ async function openClip(clipId, reload) {
         </div>
       </div>`,
     actions: [
-      { label: 'Descartar', variant: 'danger', onClick: async () => {
+      { label: 'Borrar', variant: 'danger', onClick: async () => {
+        if (!await confirmDialog('Borrar el clip',
+          'Se borra el vídeo de tu ordenador y desaparece de la lista. Si estaba programado, esa publicación se cancela.',
+          'Borrar')) return false;
+        const r = await api.post('/api/clips/delete', { ids: [clip.id] });
+        if (r.skipped) { toast('Se está subiendo ahora mismo: espera a que termine', 'warn'); return false; }
+        toast(`Clip borrado${r.freed_mb ? ` · ${r.freed_mb} MB liberados` : ''}`);
+        reload();
+      } },
+      { label: 'Descartar', onClick: async () => {
         await api.post(`/api/clips/${clip.id}/reject`);
         toast('Clip descartado');
         reload();
@@ -113,6 +125,54 @@ async function openClip(clipId, reload) {
       } },
     ],
   });
+}
+
+/* ------------------------------------------------------ liberar espacio */
+const QUE_SE_BORRA = [
+  ['temporales', 'Archivos temporales', 'restos de los renders'],
+  ['descartados', 'Clips descartados', 'los que dijiste que no'],
+  ['publicados', 'Clips ya publicados', 'ya están en TikTok o en YouTube'],
+  ['originales', 'Vídeos originales', 'de los que ya no queda nada por montar'],
+  ['huerfanos', 'Archivos sueltos', 'descargas cortadas y restos que no son de nadie'],
+];
+
+async function liberarEspacio() {
+  const plan = await api.get('/api/storage/free');
+  const partes = plan.parts || {};
+  modal({
+    title: 'Liberar espacio',
+    body: `
+      <p class="muted small" style="line-height:1.7">
+        Se borra <b>sólo lo que ya no hace falta</b>. Los clips por revisar, los
+        programados y los que se están montando <b>no se tocan</b>.
+      </p>
+      <div style="margin-top:14px">
+        ${QUE_SE_BORRA.map(([clave, nombre, detalle]) => `
+          <div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)">
+            <span><b class="small">${nombre}</b><br><span class="muted tiny">${detalle}</span></span>
+            <b class="small nowrap">${fmtMB(partes[clave])}</b>
+          </div>`).join('')}
+        <div style="display:flex;justify-content:space-between;padding:12px 0 0">
+          <b>En total</b><b style="color:var(--accent-2)">${fmtMB(plan.total_mb)}</b>
+        </div>
+      </div>
+      <p class="muted tiny" style="margin-top:14px">
+        Ahora mismo Kevil ocupa ${fmtMB(plan.usage?.total_mb)} en tu disco.
+      </p>`,
+    actions: [
+      { label: 'Cancelar' },
+      { label: 'Liberar espacio', variant: 'primary', onClick: async () => {
+        const r = await api.post('/api/storage/free', {});
+        toast(r.freed_mb ? `${fmtMB(r.freed_mb)} liberados` : 'No había nada que borrar');
+        reloadView();
+      } },
+    ],
+  });
+}
+
+function fmtMB(mb) {
+  const n = Number(mb || 0);
+  return n >= 1024 ? `${(n / 1024).toFixed(1)} GB` : `${n.toFixed(n < 10 ? 1 : 0)} MB`;
 }
 
 async function saveClip(root, clip) {
@@ -143,6 +203,7 @@ export default {
   refreshMs: 12000,
 
   actions: [
+    { label: '🧹 Liberar espacio', onClick: () => liberarEspacio() },
     { label: 'Aprobar todos los revisables', onClick: async () => {
       const pending = await api.clips('?status=rendered&limit=200');
       if (!pending.length) { toast('No hay clips pendientes', 'warn'); return; }
@@ -180,15 +241,28 @@ export default {
               <button class="btn sm ${filters.status === filter.value ? 'primary' : 'ghost'}"
                 data-filter="${filter.value}">${escapeHtml(filter.label)}</button>`).join('')}
           </div>
-          <div style="display:flex;gap:8px;align-items:center">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             ${filters.video ? '<button class="btn sm ghost" data-clear-video>Quitar filtro de vídeo</button>' : ''}
+            ${filters.status === 'rejected' && clips.length
+              ? '<button class="btn sm danger" data-vaciar-descartados>Borrar todos los descartados</button>' : ''}
+            ${clips.length ? `<button class="btn sm ${eligiendo ? 'primary' : 'ghost'}" data-elegir>
+                ${eligiendo ? 'Terminar' : 'Elegir para borrar'}</button>` : ''}
             <span class="muted small">${clips.length} clip(s)</span>
           </div>
         </div>
 
+        ${eligiendo ? `<div class="barra-borrar">
+          <span><b id="n-elegidos">${elegidos.size}</b> elegido(s) · pulsa en los clips que ya no quieras</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn sm ghost" data-todos>Elegir todos</button>
+            <button class="btn sm danger" data-borrar-elegidos ${elegidos.size ? '' : 'disabled'}>Borrar elegidos</button>
+          </div>
+        </div>` : ''}
+
         ${clips.length ? `<div class="clip-grid">${clips.map((clip) => `
-          <div class="clip" data-open="${clip.id}">
+          <div class="clip ${eligiendo && elegidos.has(clip.id) ? 'elegido' : ''}" data-open="${clip.id}">
             <div class="thumb">
+              ${eligiendo ? `<span class="marca-eleccion">${elegidos.has(clip.id) ? '✓' : ''}</span>` : ''}
               ${clip.has_thumb ? `<img src="/api/clips/${clip.id}/thumb" alt="" loading="lazy">` : '<span style="font-size:28px">🎬</span>'}
               <div class="play">▶</div>
               <div class="score">${Math.round(clip.score * 100)}</div>
@@ -219,9 +293,59 @@ export default {
     root.querySelectorAll('[data-open]').forEach((node) => {
       node.onclick = (event) => {
         event.stopPropagation();
-        openClip(Number(node.dataset.open), ctx.reload).catch(toastError);
+        const id = Number(node.dataset.open);
+        if (eligiendo) {
+          // eligiendo, pulsar marca o desmarca en vez de abrir la ficha
+          if (elegidos.has(id)) elegidos.delete(id); else elegidos.add(id);
+          ctx.reload();
+          return;
+        }
+        openClip(id, ctx.reload).catch(toastError);
       };
     });
+
+    const botonElegir = root.querySelector('[data-elegir]');
+    if (botonElegir) {
+      botonElegir.onclick = () => {
+        eligiendo = !eligiendo;
+        elegidos.clear();
+        ctx.reload();
+      };
+    }
+    const todos = root.querySelector('[data-todos]');
+    if (todos) todos.onclick = () => { clips.forEach((c) => elegidos.add(c.id)); ctx.reload(); };
+
+    const borrarElegidos = root.querySelector('[data-borrar-elegidos]');
+    if (borrarElegidos) {
+      borrarElegidos.onclick = async () => {
+        const ids = [...elegidos];
+        if (!ids.length) return;
+        if (!await confirmDialog('Borrar clips',
+          `Se borran ${ids.length} clip(s) de tu ordenador y de la lista. Los que estuvieran programados se cancelan.`,
+          `Borrar ${ids.length}`)) return;
+        try {
+          const r = await api.post('/api/clips/delete', { ids });
+          toast(`${r.deleted} clip(s) borrados · ${r.freed_mb} MB liberados`
+            + (r.skipped ? ` · ${r.skipped} se estaban subiendo y se han dejado` : ''));
+          eligiendo = false;
+          elegidos.clear();
+          ctx.reload();
+        } catch (error) { toastError(error); }
+      };
+    }
+
+    const vaciar = root.querySelector('[data-vaciar-descartados]');
+    if (vaciar) {
+      vaciar.onclick = async () => {
+        if (!await confirmDialog('Borrar los descartados',
+          `Se borran los ${clips.length} clip(s) descartados de tu ordenador y de la lista.`, 'Borrar')) return;
+        try {
+          const r = await api.post('/api/clips/delete', { status: 'rejected' });
+          toast(`${r.deleted} clip(s) borrados · ${r.freed_mb} MB liberados`);
+          ctx.reload();
+        } catch (error) { toastError(error); }
+      };
+    }
   },
 
   async onRefresh() {
