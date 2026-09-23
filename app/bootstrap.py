@@ -74,7 +74,48 @@ MEJORAS: dict[str, dict[str, dict[str, dict[str, tuple[Any, Any]]]]] = {
         "Clips a TikTok y Shorts": {"reframe": {"mode": ("blur", "smart")}},
         "Podcast / entrevistas": {"reframe": {"mode": ("crop", "smart")}},
     },
+    # Rótulos al estilo de los clips virales y varios clips por vídeo: con los
+    # valores de antes un vídeo de siete minutos daba un solo clip. «*» vale
+    # para todos los flujos, también los tuyos, pero sólo donde siga el valor
+    # de fábrica de antes.
+    "rotulos-virales-y-mas-clips-1": {
+        "*": {
+            "segment": {"clips_per_hour": (8, 20), "max_clips": (12, 20)},
+            "subtitles": {
+                "style": ("karaoke", "viral"),
+                "font": ("DejaVu Sans", "Montserrat Black"),
+                "font_size": (64, 125),
+                "highlight_color": (["#E8D5B7", "#28E7C5"], "#FFD400"),
+                "outline": (4, 8),
+                "position_y": (72, 66),
+                "max_chars": (22, 16),
+            },
+        },
+        "Directos largos": {"segment": {"clips_per_hour": (6, 15), "max_clips": (25, 30)}},
+        "Podcast / entrevistas": {
+            "segment": {"clips_per_hour": (6, 12)},
+            "subtitles": {
+                "style": ("blocks", "viral"),
+                "font_size": (58, 125),
+                "position_y": (76, 70),
+            },
+        },
+    },
 }
+
+
+def _cambios_para(por_nombre: dict[str, Any], nombre: str) -> dict[str, dict[str, Any]]:
+    """Lo que toca a un flujo: lo común («*») y encima lo suyo."""
+    cambios: dict[str, dict[str, Any]] = {}
+    for clave in ("*", nombre):
+        for paso, campos in (por_nombre.get(clave) or {}).items():
+            cambios.setdefault(paso, {}).update(campos)
+    return cambios
+
+
+def _coincide(actual: Any, antes: Any) -> bool:
+    """`antes` puede ser un valor o una lista de valores de fábrica de antes."""
+    return actual in antes if isinstance(antes, list) else actual == antes
 
 
 def actualizar_plantillas(session: Session) -> int:
@@ -88,7 +129,7 @@ def actualizar_plantillas(session: Session) -> int:
             continue
         aplicadas.append(clave)
         for flow in session.scalars(select(Flow)).all():
-            cambios = por_nombre.get(flow.name)
+            cambios = _cambios_para(por_nombre, flow.name)
             if not cambios:
                 continue
             pasos = [dict(paso) for paso in (flow.steps or [])]
@@ -99,7 +140,7 @@ def actualizar_plantillas(session: Session) -> int:
                     continue
                 config = dict(paso.get("config") or {})
                 for campo, (antes, despues) in campos.items():
-                    if config.get(campo) == antes:
+                    if _coincide(config.get(campo), antes):
                         config[campo] = despues
                         tocado = True
                 paso["config"] = config

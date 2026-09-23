@@ -6,8 +6,52 @@ en el vídeo. Es mucho más fiable (y más bonito) que encadenar drawtext.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
+
+# Tipografías que viajan con el programa (en el .exe también): la de los
+# rótulos virales no suele estar instalada en Windows.
+TIPOGRAFIAS = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+FUENTE_VIRAL = "Montserrat Black"
+
+# Ancho de cada carácter de Montserrat Black, en proporción al tamaño de letra
+# de ASS (libass escala la fuente para que ascendente + descendente = tamaño).
+# Sirve para saber si una línea cabe sin tener que abrir la fuente: en el
+# estilo viral no se parte la línea, se encoge, y salirse del vídeo es lo peor
+# que le puede pasar a un rótulo.
+ANCHOS = {
+    "A": 0.516, "B": 0.495, "C": 0.472, "D": 0.529, "E": 0.431, "F": 0.412,
+    "G": 0.492, "H": 0.515, "I": 0.224, "J": 0.367, "K": 0.49, "L": 0.395,
+    "M": 0.611, "N": 0.515, "O": 0.543, "P": 0.476, "Q": 0.543, "R": 0.477,
+    "S": 0.421, "T": 0.419, "U": 0.502, "V": 0.503, "W": 0.772, "X": 0.488,
+    "Y": 0.455, "Z": 0.44, "Á": 0.516, "É": 0.431, "Í": 0.224, "Ó": 0.543,
+    "Ú": 0.502, "Ñ": 0.515, "Ü": 0.502, "0": 0.443, "1": 0.268, "2": 0.389,
+    "3": 0.393, "4": 0.456, "5": 0.396, "6": 0.423, "7": 0.413, "8": 0.434,
+    "9": 0.423, " ": 0.192, ".": 0.195, ",": 0.195, "!": 0.201, "¡": 0.201,
+    "?": 0.388, "¿": 0.388, "'": 0.163, "-": 0.25, "%": 0.587, "$": 0.421,
+    "#": 0.474, "@": 0.664, "&": 0.497,
+}
+ANCHO_MEDIO = 0.5
+# Las demás fuentes (Arial, DejaVu, Impact…) se miden con la misma tabla y un
+# margen, que sobra en unas y falta en ninguna.
+ANCHO_OTRAS = 1.2
+
+
+def asegurar_tipografias(destino: str | Path) -> None:
+    """Deja las tipografías del programa en la carpeta de fuentes de los datos."""
+    destino = Path(destino)
+    destino.mkdir(parents=True, exist_ok=True)
+    for origen in TIPOGRAFIAS.glob("*.ttf"):
+        copia = destino / origen.name
+        if not copia.exists() or copia.stat().st_size != origen.stat().st_size:
+            shutil.copyfile(origen, copia)
+
+
+def ancho_texto(texto: str, tamano: float, fuente: str = FUENTE_VIRAL) -> float:
+    """Ancho aproximado en píxeles de una línea en mayúsculas."""
+    factor = 1.0 if fuente.lower() == FUENTE_VIRAL.lower() else ANCHO_OTRAS
+    return sum(ANCHOS.get(c, ANCHO_MEDIO) for c in texto.upper()) * tamano * factor
 
 ASS_HEADER = """[Script Info]
 ScriptType: v4.00+
@@ -72,9 +116,18 @@ def escape_text(text: str) -> str:
 # --------------------------------------------------------------------------
 # Agrupación de palabras en líneas
 # --------------------------------------------------------------------------
+FIN_DE_FRASE = tuple(".,;:!?…")
+
+
 def group_words(
-    words: list[dict[str, Any]], max_chars: int = 22, max_words: int = 7
+    words: list[dict[str, Any]], max_chars: int = 22, max_words: int = 7,
+    *, por_frases: bool = False,
 ) -> list[list[dict[str, Any]]]:
+    """Reparte las palabras en líneas.
+
+    Con `por_frases` una línea nunca cruza un punto o una coma: «VAMOS. ESTO»
+    en la misma pantalla se lee peor que dos golpes seguidos.
+    """
     groups: list[list[dict[str, Any]]] = []
     current: list[dict[str, Any]] = []
     length = 0
@@ -87,7 +140,10 @@ def group_words(
         too_long = length + len(text) + 1 > max_chars
         too_many = len(current) >= max_words
         big_pause = gap > 0.6
-        if current and (too_long or too_many or big_pause):
+        sentence = por_frases and bool(current) and (
+            (current[-1].get("text") or "").strip().endswith(FIN_DE_FRASE)
+        )
+        if current and (too_long or too_many or big_pause or sentence):
             groups.append(current)
             current, length = [], 0
         current.append(word)
@@ -121,6 +177,99 @@ def _wrap(text: str, max_chars: int) -> str:
 
 
 # --------------------------------------------------------------------------
+# Estilo viral
+#
+# Es el formato que domina en TikTok y Shorts (el de los clips de Hormozi,
+# MrBeast o los que saca Opus Clip): dos o tres palabras cada vez, letra muy
+# gruesa en mayúsculas con borde negro grueso y sombra, la palabra que se está
+# diciendo en amarillo y un poco más grande, y un «salto» al aparecer cada
+# grupo. Va en el tercio de abajo pero por encima de los textos de la app.
+# --------------------------------------------------------------------------
+PALABRAS_POR_LINEA = 3
+POP_MS = 90                 # lo que tarda cada grupo en «saltar» al entrar
+CRECE_ACTIVA = 1.12         # la palabra que suena, un 12 % más grande
+SIN_PAUSA = 0.35            # huecos más cortos no dejan la pantalla vacía
+
+
+def _limpiar(texto: str, uppercase: bool) -> str:
+    """Sin puntos ni comas colgando: en pantalla sólo estorban."""
+    texto = (texto or "").strip().rstrip(".,;:…").lstrip("-—")
+    return texto.upper() if uppercase else texto
+
+
+def _escala(k: float, pop: bool, final: float = 1.0) -> str:
+    """Etiquetas de tamaño: fijo, o con el salto de entrada.
+
+    El salto arranca pequeño, se pasa un poco y vuelve a su sitio; `final` es
+    el tamaño en el que acaba (la palabra activa acaba algo más grande).
+    """
+    base = round(100 * k * final)
+    if not pop:
+        if final == 1.0:
+            return f"\\fscx{base}\\fscy{base}"
+        # sin salto de grupo: sólo la palabra activa crece al llegar
+        return f"\\fscx{round(100 * k)}\\fscy{round(100 * k)}\\t(0,{POP_MS},\\fscx{base}\\fscy{base})"
+    small, big = round(base * 0.8), round(base * 1.06)
+    return (
+        f"\\fscx{small}\\fscy{small}"
+        f"\\t(0,{POP_MS},\\fscx{big}\\fscy{big})"
+        f"\\t({POP_MS},{POP_MS + 60},\\fscx{base}\\fscy{base})"
+    )
+
+
+def _viral(
+    dialogue, words: list[dict[str, Any]], *, width: int, margin: int,
+    font: str, font_size: int, outline: int, primary: str, highlight: str,
+    y: float, uppercase: bool, max_chars: int,
+) -> None:
+    limpias = []
+    for word in words:
+        texto = _limpiar(word.get("text", ""), uppercase)
+        if texto:
+            limpias.append({**word, "text": word.get("text", ""), "clean": texto})
+    groups = group_words(
+        limpias, max_chars=max_chars, max_words=PALABRAS_POR_LINEA, por_frases=True
+    )
+    disponible = width - 2 * margin
+    color_normal = override_color(primary)
+    color_activo = override_color(highlight)
+
+    for number, group in enumerate(groups):
+        texts = [escape_text(w["clean"]) for w in group]
+        # lo que ocupa la línea con la palabra más larga ya agrandada
+        linea = " ".join(w["clean"] for w in group)
+        mayor = max(ancho_texto(w["clean"], font_size, font) for w in group)
+        necesario = ancho_texto(linea, font_size, font) + mayor * (CRECE_ACTIVA - 1) + 2 * outline
+        k = min(1.0, disponible / max(1.0, necesario))
+
+        start = group[0]["start"]
+        siguiente = groups[number + 1][0]["start"] if number + 1 < len(groups) else None
+        end = max(group[-1]["end"] + 0.2, start + 0.4)
+        if siguiente is not None and (siguiente - end < SIN_PAUSA or end > siguiente):
+            end = siguiente                       # sin parpadeos entre grupos
+
+        for index, word in enumerate(group):
+            pop = index == 0
+            parts = []
+            for position, text in enumerate(texts):
+                if position == index:
+                    parts.append(
+                        f"{{\\1c{color_activo}{_escala(k, pop, CRECE_ACTIVA)}}}{text}"
+                        f"{{\\1c{color_normal}{_escala(k, pop)}}}"
+                    )
+                else:
+                    parts.append(text)
+            state_start = start if index == 0 else word["start"]
+            state_end = group[index + 1]["start"] if index + 1 < len(group) else end
+            dialogue(
+                state_start,
+                max(state_end, state_start + 0.1),
+                "Sub",
+                f"{{\\an5\\pos({width / 2:.0f},{y:.0f}){_escala(k, pop)}}}" + " ".join(parts),
+            )
+
+
+# --------------------------------------------------------------------------
 # Construcción del archivo
 # --------------------------------------------------------------------------
 def build_ass(
@@ -140,25 +289,33 @@ def build_ass(
     sub = subtitles_config or {}
     over = overlays_config or {}
 
-    font = sub.get("font") or "DejaVu Sans"
-    font_size = int(sub.get("font_size", 64) or 64)
-    primary = hex_to_ass(sub.get("primary_color", "#FFFFFF"))
-    highlight = hex_to_ass(sub.get("highlight_color", "#E8D5B7"))
-    outline = int(sub.get("outline", 4) or 0)
-    position_y = float(sub.get("position_y", 72) or 72)
+    style_name = (sub.get("style") or "viral").lower()
+    viral = style_name == "viral"
+    # Los tamaños se piensan para un vertical de 1920 de alto; en otras
+    # resoluciones se escalan para que el rótulo ocupe lo mismo en pantalla.
+    scale = height / 1920 if height > 0 else 1.0
+    font = sub.get("font") or FUENTE_VIRAL
+    font_size = round(int(sub.get("font_size", 125) or 125) * scale)
+    primary_hex = sub.get("primary_color", "#FFFFFF")
+    highlight_hex = sub.get("highlight_color", "#FFD400")
+    primary = hex_to_ass(primary_hex)
+    highlight = hex_to_ass(highlight_hex)
+    outline = round(int(sub.get("outline", 8) or 0) * scale)
+    shadow = max(1, round(outline * 0.6)) if viral else 1
+    position_y = float(sub.get("position_y", 66) or 66)
     uppercase = bool(sub.get("uppercase", True))
-    max_chars = int(sub.get("max_chars", 22) or 22)
-    style_name = (sub.get("style") or "karaoke").lower()
+    max_chars = int(sub.get("max_chars", 16) or 16)
 
-    hook_size = int(over.get("hook_font_size", 58) or 58)
+    hook_size = round(int(over.get("hook_font_size", 58) or 58) * scale)
     hook_y = float(over.get("hook_position_y", 16) or 16)
     hook_seconds = float(over.get("hook_seconds", 3) or 0)
 
     margin = int(width * 0.07)
     styles = [
-        # Rótulos principales
-        f"Style: Sub,{font},{font_size},{primary},{primary},&H00000000,&H90000000,"
-        f"-1,0,0,0,100,100,0,0,1,{outline},1,5,{margin},{margin},0,1",
+        # Rótulos principales (en el viral, sombra negra para despegarlos del fondo)
+        f"Style: Sub,{font},{font_size},{primary},{primary},&H00000000,"
+        f"{'&H70000000' if viral else '&H90000000'},"
+        f"-1,0,0,0,100,100,0,0,1,{outline},{shadow},5,{margin},{margin},0,1",
         # Gancho superior (caja opaca)
         f"Style: Hook,{font},{hook_size},&H00FFFFFF,&H00FFFFFF,&H00101014,&HB0101014,"
         f"-1,0,0,0,100,100,0,0,3,14,0,5,{margin},{margin},0,1",
@@ -180,7 +337,14 @@ def build_ass(
         )
 
     # --- Rótulos --------------------------------------------------------
-    if subtitles_enabled and words:
+    if subtitles_enabled and words and viral:
+        _viral(
+            dialogue, words, width=width, margin=margin,
+            font=font, font_size=font_size, outline=outline,
+            primary=primary_hex, highlight=highlight_hex,
+            y=height * position_y / 100, uppercase=uppercase, max_chars=max_chars,
+        )
+    elif subtitles_enabled and words:
         y = height * position_y / 100
         groups = group_words(words, max_chars=max_chars)
         for group in groups:

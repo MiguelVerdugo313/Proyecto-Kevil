@@ -224,4 +224,100 @@ def test_las_plantillas_se_ponen_al_dia_sin_pisar_lo_tuyo(session):
 
     # y no se repite en cada arranque
     assert bootstrap.actualizar_plantillas(session) == 0
-    assert session.get(Setting, bootstrap.MEJORAS_KEY).value == ["seguir-la-accion-1"]
+    assert session.get(Setting, bootstrap.MEJORAS_KEY).value == list(bootstrap.MEJORAS)
+
+
+def test_los_flujos_viejos_pasan_a_rotulos_virales_y_mas_clips(session):
+    """Con los valores de antes un vídeo corto daba un clip y rótulos sosos."""
+    from app import bootstrap
+    from app.models import Flow
+
+    antes = {
+        "segment": {"clips_per_hour": 8, "max_clips": 12},
+        "subtitles": {"style": "karaoke", "font": "DejaVu Sans", "font_size": 64,
+                      "highlight_color": "#28E7C5", "outline": 4, "position_y": 72,
+                      "max_chars": 22},
+    }
+
+    def flujo(nombre, **cambios):
+        pasos = default_steps()
+        for paso in pasos:
+            paso["config"].update(antes.get(paso["type"], {}))
+            paso["config"].update(cambios.get(paso["type"], {}))
+        return Flow(name=nombre, description="", icon="", steps=pasos)
+
+    viejo = flujo("Mi flujo")
+    elegido = flujo("Otro mío", subtitles={"style": "blocks", "font_size": 80},
+                    segment={"max_clips": 3})
+    session.add_all([viejo, elegido])
+    session.flush()
+
+    bootstrap.actualizar_plantillas(session)
+    session.flush()
+
+    rotulos, corte = step_config(viejo.steps, "subtitles"), step_config(viejo.steps, "segment")
+    assert rotulos["style"] == "viral" and rotulos["font"] == "Montserrat Black"
+    assert rotulos["highlight_color"] == "#FFD400" and rotulos["font_size"] == 125
+    assert corte["clips_per_hour"] == 20 and corte["max_clips"] == 20
+
+    # lo que se eligió a mano se respeta; lo que seguía de fábrica, se mejora
+    rotulos = step_config(elegido.steps, "subtitles")
+    assert rotulos["style"] == "blocks" and rotulos["font_size"] == 80
+    assert rotulos["highlight_color"] == "#FFD400"
+    assert step_config(elegido.steps, "segment")["max_clips"] == 3
+
+
+# --------------------------------------------------------------------------
+# Rótulos virales
+# --------------------------------------------------------------------------
+def _dialogos(ruta):
+    return [l for l in ruta.read_text(encoding="utf-8").splitlines() if l.startswith("Dialogue:")]
+
+
+def test_rotulos_virales_por_defecto(tmp_path):
+    config = default_config("subtitles")
+    assert config["style"] == "viral" and config["font"] == captions.FUENTE_VIRAL
+    frase = ("¿Sabes qué? Los zombis vienen, corre corre, "
+             "extraordinariamente incomprensiblemente rápido.")
+    palabras, t = [], 0.0
+    for texto in frase.split():
+        palabras.append({"start": t, "end": t + 0.3, "text": texto})
+        t += 0.32
+    destino = tmp_path / "viral.ass"
+    captions.build_ass(path=destino, width=1080, height=1920, duration=t + 1,
+                       words=palabras, subtitles_config=config, overlays_enabled=False)
+    contenido = destino.read_text(encoding="utf-8")
+    assert "Style: Sub,Montserrat Black,125," in contenido
+    dialogos = _dialogos(destino)
+    assert len(dialogos) == len(palabras)          # un estado por palabra que suena
+
+    import re
+    for linea in dialogos:
+        texto = linea.split(",,", 1)[1].split(",", 4)[-1]
+        visible = re.sub(r"\{[^}]*\}", "", texto)
+        assert len(visible.split()) <= 3, visible            # dos o tres palabras
+        assert "," not in visible and "." not in visible     # sin puntuación colgando
+        assert "&H00D4FF&" in texto                          # la que suena, en amarillo
+        # y nunca se sale del vídeo: las palabras largas encogen la línea
+        escala = int(re.search(r"\\fscx(\d+)", texto).group(1))
+        ancho = captions.ancho_texto(visible, 125) * escala / 100
+        assert ancho <= 1080 - 2 * int(1080 * 0.07), visible
+    # «¿SABES QUÉ?» no se junta con la frase siguiente
+    assert not any("QUÉ? LOS" in d or "QUÉ LOS" in d for d in dialogos)
+    # el salto de entrada al aparecer cada grupo
+    assert "\\t(0,90," in contenido
+
+
+def test_rotulos_escalan_con_la_resolucion(tmp_path):
+    destino = tmp_path / "720.ass"
+    captions.build_ass(path=destino, width=720, height=1280, duration=2,
+                       words=PALABRAS, subtitles_config=default_config("subtitles"))
+    assert "Style: Sub,Montserrat Black,83," in destino.read_text(encoding="utf-8")
+
+
+def test_la_tipografia_viaja_con_el_programa(tmp_path):
+    captions.asegurar_tipografias(tmp_path)
+    assert (tmp_path / "Montserrat-Black.ttf").stat().st_size > 100_000
+    from pathlib import Path
+    construir = (Path(__file__).parent.parent / "construir.py").read_text(encoding="utf-8")
+    assert "app/assets" in construir      # y entra en el .exe

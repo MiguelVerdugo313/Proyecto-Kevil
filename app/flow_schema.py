@@ -163,15 +163,16 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "key": "clips_per_hour",
                 "label": "Clips por hora de vídeo",
                 "type": "number",
-                "default": 8,
+                "default": 20,
                 "min": 1,
                 "max": 60,
+                "help": "En vídeos largos. Por corto que sea, se sacan al menos 8 si caben.",
             },
             {
                 "key": "max_clips",
                 "label": "Máximo de clips por vídeo",
                 "type": "number",
-                "default": 12,
+                "default": 20,
                 "min": 1,
                 "max": 100,
             },
@@ -182,6 +183,7 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "default": 30,
                 "min": 0,
                 "max": 600,
+                "help": "En vídeos cortos se reduce sola para que quepan más clips.",
             },
             {
                 "key": "skip_intro",
@@ -332,8 +334,12 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "key": "style",
                 "label": "Estilo",
                 "type": "select",
-                "default": "karaoke",
+                "default": "viral",
                 "options": [
+                    {
+                        "value": "viral",
+                        "label": "Viral (2-3 palabras, la que suena salta en amarillo)",
+                    },
                     {"value": "karaoke", "label": "Karaoke (resalta la palabra)"},
                     {"value": "blocks", "label": "Bloques de frase"},
                     {"value": "word", "label": "Palabra a palabra"},
@@ -343,8 +349,9 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "key": "font",
                 "label": "Tipografía",
                 "type": "select",
-                "default": "DejaVu Sans",
+                "default": "Montserrat Black",
                 "options": [
+                    {"value": "Montserrat Black", "label": "Montserrat Black (la de los virales)"},
                     {"value": "DejaVu Sans", "label": "DejaVu Sans"},
                     {"value": "Arial", "label": "Arial"},
                     {"value": "Impact", "label": "Impact"},
@@ -356,7 +363,7 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "key": "font_size",
                 "label": "Tamaño",
                 "type": "number",
-                "default": 64,
+                "default": 125,
                 "min": 24,
                 "max": 140,
             },
@@ -370,13 +377,13 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "key": "highlight_color",
                 "label": "Color de la palabra activa",
                 "type": "color",
-                "default": "#E8D5B7",
+                "default": "#FFD400",
             },
             {
                 "key": "outline",
                 "label": "Grosor del borde",
                 "type": "number",
-                "default": 4,
+                "default": 8,
                 "min": 0,
                 "max": 12,
             },
@@ -384,7 +391,7 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "key": "position_y",
                 "label": "Altura en pantalla (%)",
                 "type": "slider",
-                "default": 72,
+                "default": 66,
                 "min": 20,
                 "max": 92,
                 "step": 1,
@@ -399,7 +406,7 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "key": "max_chars",
                 "label": "Caracteres por línea",
                 "type": "number",
-                "default": 22,
+                "default": 16,
                 "min": 8,
                 "max": 60,
             },
@@ -827,8 +834,8 @@ FLOW_PRESETS: list[dict[str, Any]] = [
         "name": "Cortes virales (recomendado)",
         "icon": "⚡",
         "description": (
-            "Momentos con más gancho, encuadre que sigue a la acción, rótulos en "
-            "karaoke y publicación repartida."
+            "Momentos con más gancho, encuadre que sigue a la acción, rótulos "
+            "virales y publicación repartida."
         ),
         # El vertical a pantalla completa siguiendo lo que pasa es el formato que
         # mejor funciona en TikTok; para gameplay está la plantilla de al lado.
@@ -843,8 +850,8 @@ FLOW_PRESETS: list[dict[str, Any]] = [
                 "segment": {
                     "skip_intro": 300,
                     "skip_outro": 60,
-                    "clips_per_hour": 6,
-                    "max_clips": 25,
+                    "clips_per_hour": 15,
+                    "max_clips": 30,
                     "min_gap": 120,
                     "min_duration": 25,
                     "max_duration": 75,
@@ -856,12 +863,12 @@ FLOW_PRESETS: list[dict[str, Any]] = [
     {
         "name": "Podcast / entrevistas",
         "icon": "🎙️",
-        "description": "Encuadre a la cara, rótulos grandes y clips algo más largos.",
+        "description": "Encuadre a la cara y clips algo más largos.",
         "steps": _preset(
             {
                 "reframe": {"mode": "smart", "follow": True, "zoom": 1.1},
-                "subtitles": {"style": "blocks", "font_size": 58, "position_y": 76},
-                "segment": {"min_duration": 30, "max_duration": 90, "clips_per_hour": 6},
+                "subtitles": {"position_y": 70},   # un poco más abajo: la cara, arriba
+                "segment": {"min_duration": 30, "max_duration": 90, "clips_per_hour": 12},
             }
         ),
     },

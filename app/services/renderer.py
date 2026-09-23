@@ -315,6 +315,7 @@ def render_clip(
         )
     )
     if needs_ass:
+        captions.asegurar_tipografias(settings.fonts_path)
         captions.build_ass(
             path=ass_path,
             width=width,

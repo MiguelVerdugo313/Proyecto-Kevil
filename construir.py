@@ -144,6 +144,8 @@ def construir(un_archivo: bool = True, con_ffmpeg: bool = False) -> Path | None:
         "--noupx",
         # la interfaz (HTML, CSS, JS e iconos) va dentro del ejecutable
         "--add-data", f"{BASE_DIR / 'app' / 'web'}{sep}app/web",
+        # las tipografías de los rótulos (no suelen estar instaladas en Windows)
+        "--add-data", f"{BASE_DIR / 'app' / 'assets'}{sep}app/assets",
     ]
 
     icono = ICONO_WIN if platform.system() == "Windows" else ICONO_PNG
