@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.config import settings
+from app.services import pausa
 
 try:  # yt-dlp se importa de forma perezosa para que la app arranque sin él
     import yt_dlp
@@ -338,6 +339,7 @@ def download_video(
     langs = subtitle_langs or ["es", "en"]
 
     def hook(status: dict[str, Any]) -> None:
+        pausa.comprobar()        # yt-dlp corta la descarga si el aviso lanza
         if not on_progress:
             return
         if status.get("status") == "downloading":
@@ -598,6 +600,7 @@ def _hook_progreso(
     on_progress: Callable[[float, str], None] | None, etiqueta: str
 ) -> Callable[[dict[str, Any]], None]:
     def hook(status: dict[str, Any]) -> None:
+        pausa.comprobar()        # yt-dlp corta la descarga si el aviso lanza
         if not on_progress:
             return
         if status.get("status") == "downloading":

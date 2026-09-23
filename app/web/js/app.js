@@ -1,7 +1,7 @@
 // Arranque, navegación y latido de la interfaz.
 
 import { api } from './lib/api.js';
-import { escapeHtml, fmt, toastError } from './lib/ui.js';
+import { escapeHtml, fmt, toast, toastError } from './lib/ui.js';
 
 import panel from './views/panel.js';
 import estudio from './views/estudio.js';
@@ -93,9 +93,19 @@ async function heartbeat() {
     badgeCoach.hidden = !avisos.unread;
     badgeCoach.textContent = avisos.unread;
 
+    pintarMotor(Boolean(status.paused));
+
     const active = jobs.filter((job) => job.status === 'running' || job.status === 'pending');
     const body = document.getElementById('worker-body');
-    if (!active.length) {
+    if (status.paused) {
+      const esperando = active.filter((job) => job.status === 'pending').length;
+      body.innerHTML = `<div class="small" style="line-height:1.55">
+          <b>En pausa.</b> Nada pesado en marcha: el ordenador es tuyo.
+          <div class="muted tiny" style="margin-top:5px">${esperando
+            ? `${esperando} tarea(s) esperando · las publicaciones siguen saliendo a su hora`
+            : 'Las publicaciones programadas siguen saliendo a su hora'}</div>
+        </div>`;
+    } else if (!active.length) {
       body.innerHTML = '<div class="muted small">Sin tareas activas</div>';
     } else {
       body.innerHTML = active.slice(0, 4).map((job) => `
@@ -117,6 +127,43 @@ async function heartbeat() {
       '<span class="dot bad"></span> sin conexión con el servidor';
   }
 }
+
+/* ----------------------------------------------------- pausar el motor */
+let motorEnPausa = false;
+
+function pintarMotor(enPausa) {
+  motorEnPausa = enPausa;
+  const caja = document.getElementById('worker-box');
+  const boton = document.getElementById('motor-boton');
+  caja.classList.toggle('en-pausa', enPausa);
+  boton.textContent = enPausa ? '▶ Reanudar' : '⏸ Pausar';
+  boton.title = enPausa
+    ? 'Volver a bajar vídeos y montar clips'
+    : 'Parar descargas y renders para usar el ordenador para otra cosa';
+}
+
+document.getElementById('motor-boton').addEventListener('click', async (evento) => {
+  const boton = evento.currentTarget;
+  boton.disabled = true;
+  try {
+    if (motorEnPausa) {
+      await api.post('/api/motor/reanudar', {});
+      pintarMotor(false);
+      toast('Motor en marcha otra vez');
+    } else {
+      const estado = await api.post('/api/motor/pausa', {});
+      pintarMotor(true);
+      toast(estado.stopped
+        ? `En pausa: ${estado.stopped} proceso(s) parados al momento`
+        : 'En pausa: no se empezará nada pesado');
+    }
+    heartbeat();
+  } catch (error) {
+    toastError(error);
+  } finally {
+    boton.disabled = false;
+  }
+});
 
 /* ------------------------------------------------- los colores de tu marca */
 export function aplicarColores(tema) {

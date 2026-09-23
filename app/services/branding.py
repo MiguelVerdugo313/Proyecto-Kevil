@@ -17,6 +17,7 @@ from typing import Any
 
 import httpx
 
+from app import procesos
 from app.config import settings
 
 TIMEOUT = httpx.Timeout(20.0)
@@ -108,7 +109,7 @@ def palette_from_image(path: str | Path, *, colores: int = 6) -> list[dict[str, 
         "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
     ]
     try:
-        salida = subprocess.run(comando, capture_output=True, timeout=60)
+        salida = procesos.run(comando, capture_output=True, timeout=60)
     except (FileNotFoundError, subprocess.TimeoutExpired):  # pragma: no cover
         return []
     datos = salida.stdout or b""

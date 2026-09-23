@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
+from app import procesos
 from app.config import settings
 from app.services import captions
 from app.services import media as media_service
@@ -45,7 +46,7 @@ def _fotogramas(source: str | Path, start: float, end: float, fps: float) -> lis
         "-f", "rawvideo", "-pix_fmt", "gray", "-",
     ]
     try:
-        out = subprocess.run(cmd, capture_output=True, timeout=240)
+        out = procesos.run(cmd, capture_output=True, timeout=240)
     except (FileNotFoundError, subprocess.TimeoutExpired):  # pragma: no cover
         return []
     raw = out.stdout or b""

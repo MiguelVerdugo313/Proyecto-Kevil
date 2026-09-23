@@ -66,7 +66,10 @@ s.Save
         temporal = BASE_DIR / ".acceso-directo.vbs"
         try:
             temporal.write_text(script.strip(), encoding="utf-8")
-            subprocess.run(
+            # cscript es de consola: sin esto parpadea una terminal
+            from app import procesos
+
+            procesos.run(
                 ["cscript", "//nologo", str(temporal)],
                 capture_output=True, timeout=30, check=False,
             )
