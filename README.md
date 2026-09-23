@@ -71,7 +71,7 @@ recortan ni se les añade nada encima). Los Shorts nuevos que subas se republica
 La plantilla de flujo **🔁 Shorts a TikTok** ya viene preparada: estrategia «vídeo
 entero» y los pasos de rótulos y gancho apagados, porque el Short ya viene montado.
 
-### Camino 3 — preparar una subida a YouTube
+### Camino 3 — subir un vídeo a YouTube, con todo hecho
 
 En **Estudio** arrastras el vídeo y obtienes, en un par de minutos:
 
@@ -82,6 +82,14 @@ En **Estudio** arrastras el vídeo y obtienes, en un par de minutos:
 * **Tres miniaturas 1280×720** en estilos distintos, con el texto en grande.
 * Una **revisión** que te dice qué falla antes de publicar: título largo, pocas
   etiquetas, capítulos que YouTube no va a activar…
+
+Y con el botón **«Subir a YouTube»** se sube desde ahí mismo: el vídeo tal cual, con el
+título y la descripción que has elegido, las etiquetas y la miniatura puestas. Eliges
+quién puede verlo (privado, oculto o público) y, si quieres, la fecha a la que se hace
+público solo. Nada de copiar y pegar en YouTube Studio.
+
+> Para poner **miniatura propia** YouTube pide tener el canal verificado por teléfono.
+> Si no lo está, el vídeo sube igual y te lo dice.
 
 ---
 

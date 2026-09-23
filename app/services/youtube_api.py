@@ -237,6 +237,13 @@ def validate_short(width: int, height: int, duration: float) -> list[str]:
 
 
 def upload_short(
+    credentials: dict[str, Any], **kwargs: Any
+) -> dict[str, Any]:
+    """Sube un vídeo vertical como Short. Devuelve el id y la URL."""
+    return upload_video(credentials, como_short=True, **kwargs)
+
+
+def upload_video(
     credentials: dict[str, Any],
     *,
     video_path: str | Path,
@@ -247,10 +254,16 @@ def upload_short(
     made_for_kids: bool = False,
     publish_at: str | None = None,
     category_id: str = "22",
+    como_short: bool = False,
     dry_run: bool = False,
     on_progress: Callable[[float], None] | None = None,
 ) -> dict[str, Any]:
-    """Sube un vídeo vertical como Short. Devuelve el id y la URL."""
+    """Sube un vídeo al canal. Devuelve el id y la URL.
+
+    Sirve igual para un Short que para un vídeo largo: a YouTube se le manda lo
+    mismo y es él quien decide si lo trata como Short, según el formato y la
+    duración. Lo único que cambia aquí es la dirección que se devuelve.
+    """
     path = Path(video_path)
     if not path.exists():
         raise YouTubeAPIError(f"No se encuentra el archivo: {path}")
@@ -269,7 +282,7 @@ def upload_short(
 
     credentials = valid_credentials(credentials)
 
-    titulo = (title or "Short").strip()[:MAX_TITLE].replace("<", "(").replace(">", ")")
+    titulo = (title or "Vídeo").strip()[:MAX_TITLE].replace("<", "(").replace(">", ")")
     cuerpo: dict[str, Any] = {
         "snippet": {
             "title": titulo,
@@ -339,9 +352,14 @@ def upload_short(
     if not video_id:
         raise YouTubeAPIError(f"La subida no ha devuelto un identificador: {resultado}")
 
+    enlace = (
+        f"https://www.youtube.com/shorts/{video_id}"
+        if como_short
+        else f"https://www.youtube.com/watch?v={video_id}"
+    )
     return {
         "video_id": video_id,
-        "url": f"https://www.youtube.com/shorts/{video_id}",
+        "url": enlace,
         "status": ((resultado.get("status") or {}).get("uploadStatus")) or "uploaded",
         "dry_run": False,
         "size": size,
