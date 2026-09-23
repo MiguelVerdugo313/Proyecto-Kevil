@@ -113,3 +113,66 @@ def test_la_descripcion_se_recorta():
         text="", index=1, total=1,
     )
     assert len(resultado["caption"]) <= 120
+
+
+# --------------------------------------------------------------------------
+# Varios clips por vídeo (antes un vídeo de siete minutos daba uno solo)
+# --------------------------------------------------------------------------
+def _sin_solapes(clips, separacion=0.0):
+    for anterior, siguiente in zip(clips, clips[1:]):
+        assert siguiente["start"] >= anterior["end"] + separacion - 0.01
+
+
+def test_un_video_corto_da_varios_clips():
+    for duracion, minimo in ((150, 3), (420, 6), (900, 8)):
+        clips = segmenter.find_segments(
+            media_path="x.mp4", duration=duracion,
+            transcript=_transcripcion(duracion), config=_config(),
+        )
+        assert len(clips) >= minimo, (duracion, len(clips))
+        _sin_solapes(clips)
+        for clip in clips:
+            assert 21 - 0.01 <= clip["end"] - clip["start"] <= 59 + 0.01
+
+
+def test_un_directo_largo_da_muchos_mas():
+    clips = segmenter.find_segments(
+        media_path="x.mp4", duration=3 * 3600,
+        transcript=_transcripcion(3 * 3600), config=_config(),
+    )
+    assert len(clips) == _config()["max_clips"]
+    _sin_solapes(clips)
+
+
+def test_con_poca_charla_se_completa_con_tramos():
+    """Una partida donde casi no se habla no puede acabar en un solo clip."""
+    poca = {"segments": [
+        {"start": 100, "end": 104, "text": "¿por qué nadie hace esto?"},
+        {"start": 106, "end": 110, "text": "mira mira mira"},
+        {"start": 112, "end": 125, "text": "vamos que se viene"},
+    ], "words": []}
+    clips = segmenter.find_segments(
+        media_path="", duration=600, transcript=poca, config=_config(),
+    )
+    assert len(clips) >= 6
+    assert any(clip["reason"] != "Tramo del vídeo" for clip in clips)   # el bueno, dentro
+    _sin_solapes(clips)
+
+
+def test_el_mejor_juego_no_deja_huecos():
+    """Un clip largo en medio no puede bloquear dos buenos a los lados."""
+    candidatos = [
+        {"start": 20, "end": 80, "score": 0.6},
+        {"start": 0, "end": 45, "score": 0.5},
+        {"start": 55, "end": 100, "score": 0.5},
+    ]
+    elegidos = segmenter._best_set(candidatos, min_gap=5, max_clips=5)
+    assert [c["start"] for c in elegidos] == [0, 55]
+    # y con sitio para uno solo, el mejor
+    assert segmenter._best_set(candidatos, min_gap=5, max_clips=1)[0]["score"] == 0.6
+
+
+def test_los_saltos_de_directo_no_se_comen_un_video_corto():
+    inicio, fin = segmenter._usable_range(150, _config(skip_intro=300, skip_outro=60))
+    assert inicio <= 150 * 0.15 + 0.01
+    assert fin >= 150 * 0.85 - 0.01

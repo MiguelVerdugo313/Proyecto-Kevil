@@ -55,7 +55,7 @@ Vídeo que subes tú ──► Kit de publicación: títulos · descripción · 
    no se queda clavado en un punto —mide por dónde pasa el movimiento varias veces por
    segundo, lo suaviza y mueve el encuadre con freno, así el que habla no se sale de
    plano—. También puedes usar fondo desenfocado, pantalla partida o recorte fijo.
-   Encima van los rótulos estilo karaoke, el gancho arriba, la marca de agua, la barra
+   Encima van los rótulos virales (2-3 palabras, la que suena en amarillo), el gancho arriba, la marca de agua, la barra
    de progreso y el audio nivelado a −14 LUFS.
 6. **Escribe** título, descripción y hashtags con tus plantillas.
 7. **Programa** cada clip en la mejor franja de cada cuenta (ver más abajo).
@@ -325,7 +325,7 @@ Tu elección se recuerda, así que si eres de tocarlo todo lo tienes siempre abi
 | 2 | Transcripción | subtítulos de YouTube, Whisper local, idioma |
 | 3 | Selección de momentos | estrategia, duraciones, nº de clips, saltar intro/outro, palabras que suman y que restan |
 | 4 | Formato vertical | encuadre (desenfocado / recorte / seguimiento / split), zoom, centro, resolución, fps |
-| 5 | Rótulos automáticos | estilo (karaoke, bloques, palabra), tipografía, tamaño, colores, altura, mayúsculas |
+| 5 | Rótulos automáticos | estilo (viral, karaoke, bloques, palabra), tipografía, tamaño, colores, altura, mayúsculas |
 | 6 | Gancho y marca | texto del gancho y duración, marca de agua, barra de progreso |
 | 7 | Audio | normalización, volumen objetivo, entradas y salidas suaves |
 | 8 | Título y descripción | plantillas con variables, hashtags fijos y automáticos |
