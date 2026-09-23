@@ -156,8 +156,15 @@ function kitHtml(data) {
         </div>
         <div style="display:flex;gap:7px;flex-wrap:wrap">
           <button class="btn sm ghost" data-generar>Regenerar</button>
+          <button class="btn sm primary" data-subir-youtube>Subir a YouTube</button>
         </div>
       </div>
+
+      ${kit.youtube?.url ? `<div class="tip" style="margin-bottom:16px">
+        <b>Ya está en tu canal</b> como ${escapeHtml(PRIVACIDAD[kit.youtube.privacy] || kit.youtube.privacy || '')}
+        · <a href="${escapeHtml(kit.youtube.url)}" target="_blank" rel="noreferrer" style="color:var(--accent-2)">abrirlo en YouTube</a>
+        ${kit.youtube.warning ? `<br><span style="color:var(--amber)">${escapeHtml(kit.youtube.warning)}</span>` : ''}
+      </div>` : ''}
 
       ${kit.warning ? `<p class="small" style="color:var(--amber);margin-bottom:14px">${escapeHtml(kit.warning)}</p>` : ''}
       ${kit.notes ? `<div class="tip"><b>Consejo:</b> ${escapeHtml(kit.notes)}</div>` : ''}
@@ -239,6 +246,103 @@ function kitHtml(data) {
 }
 
 /* -------------------------------------------------------------- vista */
+/* ------------------------------------------------ subir a YouTube */
+const PRIVACIDAD = { public: 'público', unlisted: 'oculto', private: 'privado' };
+
+function subirAYouTubeDialog(data, reload) {
+  const video = data.video || {};
+  const kit = data.kit || {};
+  const titulo = kit.chosen_title || (kit.titles || [])[0] || video.title || '';
+  const miniaturas = kit.thumbnails || [];
+  const elegida = Number.isInteger(kit.chosen_thumbnail) ? kit.chosen_thumbnail : 0;
+
+  modal({
+    title: 'Subir a YouTube',
+    wide: true,
+    body: `
+      <p class="muted small" style="line-height:1.7">
+        Se sube <b>el vídeo tal cual</b> a tu canal, con el título, la descripción,
+        las etiquetas y la miniatura que has elegido aquí. Nada de copiar y pegar.
+      </p>
+
+      <div class="form-grid" style="margin-top:16px">
+        <div class="field full">
+          <label>Título</label>
+          <input type="text" id="sub-titulo" value="${escapeHtml(titulo)}" maxlength="100">
+          <span class="help">Hasta 100 caracteres, que es lo que admite YouTube.</span>
+        </div>
+        <div class="field full">
+          <label>Descripción</label>
+          <textarea id="sub-desc" style="min-height:150px">${escapeHtml(kit.description || '')}</textarea>
+        </div>
+        <div class="field">
+          <label>Quién puede verlo</label>
+          <select id="sub-privacidad">
+            <option value="private">Privado (sólo tú, para revisarlo antes)</option>
+            <option value="unlisted">Oculto (sólo con el enlace)</option>
+            <option value="public">Público</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Publicarlo más tarde <span class="muted tiny">(opcional)</span></label>
+          <input type="datetime-local" id="sub-cuando">
+          <span class="help">Si pones fecha, sube en privado y se hace público solo.</span>
+        </div>
+      </div>
+
+      ${miniaturas.length ? `
+        <div class="field full" style="margin-top:6px">
+          <label>Miniatura</label>
+          <div class="miniaturas" id="sub-minis">
+            ${miniaturas.map((thumb, index) => `
+              <figure class="mini ${index === elegida ? 'sel' : ''}" data-elegir="${index}">
+                <img src="/api/videos/${video.id}/kit/thumbnail/${index}" alt="" loading="lazy">
+                <figcaption><span class="muted tiny">${escapeHtml(thumb.style || '')}</span></figcaption>
+              </figure>`).join('')}
+          </div>
+          <span class="help">YouTube sólo admite miniatura propia si tienes el canal
+            verificado por teléfono. Si no la acepta, el vídeo sube igual.</span>
+        </div>` : ''}
+
+      <p class="muted tiny" style="margin-top:14px">
+        Cada subida gasta 1.600 de las 10.000 unidades diarias que da Google:
+        salen unas <b>6 al día</b> entre vídeos y Shorts.
+      </p>`,
+    onOpen: (nodo) => {
+      let seleccion = elegida;
+      nodo.querySelectorAll('[data-elegir]').forEach((figura) => {
+        figura.onclick = () => {
+          seleccion = Number(figura.dataset.elegir);
+          nodo.querySelectorAll('[data-elegir]').forEach((f) => f.classList.remove('sel'));
+          figura.classList.add('sel');
+        };
+      });
+      nodo.dataset.seleccion = String(seleccion);
+      nodo.addEventListener('click', () => {
+        const marcada = nodo.querySelector('[data-elegir].sel');
+        if (marcada) nodo.dataset.seleccion = marcada.dataset.elegir;
+      });
+    },
+    actions: [
+      { label: 'Cancelar' },
+      { label: 'Subir ahora', variant: 'primary', onClick: async (nodo) => {
+        const cuando = nodo.querySelector('#sub-cuando').value;
+        await api.post(`/api/videos/${video.id}/youtube`, {
+          title: nodo.querySelector('#sub-titulo').value.trim(),
+          description: nodo.querySelector('#sub-desc').value,
+          tags: kit.tags || [],
+          thumbnail_index: miniaturas.length ? Number(nodo.dataset.seleccion || 0) : null,
+          privacy_status: nodo.querySelector('#sub-privacidad').value,
+          publish_at: cuando ? new Date(cuando).toISOString() : null,
+        });
+        toast('Subiendo a YouTube… lo verás en el motor');
+        setTimeout(reload, 900);
+        return true;
+      } },
+    ],
+  });
+}
+
 /* ---------------------------------------------- miniatura para un directo */
 function miniaturaDirectoDialog() {
   modal({
@@ -413,6 +517,11 @@ function bind(root, data, ctx) {
       toast('Miniatura elegida');
     };
   });
+
+  const botonSubir = root.querySelector('[data-subir-youtube]');
+  if (botonSubir) {
+    botonSubir.onclick = () => subirAYouTubeDialog(data, () => ctx.reload());
+  }
 
   root.querySelectorAll('[data-copiar]').forEach((boton) => {
     boton.onclick = () => {

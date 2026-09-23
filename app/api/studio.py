@@ -19,7 +19,7 @@ from app.api.common import video_to_dict
 from app.config import settings
 from app.db import get_db
 from app.models import Video, VideoStatus
-from app.services import ai, events, seo
+from app.services import ai, events, seo, studio
 from app.services.queue import enqueue
 
 router = APIRouter(prefix="/api", tags=["estudio"])
@@ -40,6 +40,16 @@ class KitPatch(BaseModel):
     hashtags: list[str] | None = None
     chosen_title: str | None = None
     chosen_thumbnail: int | None = None
+
+
+class SubidaYouTube(BaseModel):
+    title: str = ""
+    description: str = ""
+    tags: list[str] | None = None
+    thumbnail_index: int | None = None
+    privacy_status: str = "private"
+    publish_at: str | None = None
+    made_for_kids: bool = False
 
 
 def _safe_name(name: str) -> str:
@@ -172,6 +182,52 @@ def patch_kit(video_id: int, body: KitPatch, db: Session = Depends(get_db)):
     video.kit = kit
     db.commit()
     return {"kit": kit}
+
+
+@router.post("/videos/{video_id}/youtube")
+def subir_a_youtube(
+    video_id: int, body: SubidaYouTube, db: Session = Depends(get_db)
+):
+    """Sube el vídeo al canal con el kit ya puesto: título, descripción,
+    etiquetas y miniatura. Sin salir del estudio."""
+    video = db.get(Video, video_id)
+    if not video:
+        raise HTTPException(404, "Vídeo no encontrado")
+    if not video.local_path or not Path(video.local_path).exists():
+        raise HTTPException(400, "El archivo del vídeo no está en el disco.")
+
+    try:
+        studio.canal_para_subir(db)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    if body.privacy_status not in {"public", "unlisted", "private"}:
+        raise HTTPException(400, "Privacidad no válida.")
+
+    kit = video.kit or {}
+    job = enqueue(
+        db,
+        "upload_youtube",
+        {
+            "video_id": video.id,
+            "title": body.title or kit.get("chosen_title") or video.title,
+            "description": body.description or kit.get("description") or "",
+            "tags": body.tags if body.tags is not None else (kit.get("tags") or []),
+            "thumbnail_index": (
+                body.thumbnail_index
+                if body.thumbnail_index is not None
+                else kit.get("chosen_thumbnail")
+            ),
+            "privacy_status": body.privacy_status,
+            "publish_at": body.publish_at or None,
+            "made_for_kids": bool(body.made_for_kids),
+        },
+        priority=95,
+        message=f"Subir «{video.title[:50]}» a YouTube",
+        dedupe=False,
+    )
+    db.commit()
+    return {"job_id": job.id}
 
 
 @router.get("/videos/{video_id}/kit/thumbnail/{index}")

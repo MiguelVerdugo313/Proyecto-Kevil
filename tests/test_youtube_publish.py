@@ -436,3 +436,83 @@ def test_el_flujo_del_canal_manda_aunque_no_se_pida(session):
     assert pipeline.resolve_flow(session, por_defecto.id, video).id == por_defecto.id
     # y un vídeo sin canal se queda con el predeterminado
     assert pipeline.resolve_flow(session, None, suelto).id == por_defecto.id
+
+
+# --------------------------------------------------------------------------
+# Subir el vídeo largo desde el estudio
+# --------------------------------------------------------------------------
+def test_el_video_largo_se_sube_con_su_direccion(google, tmp_path):
+    """Lo mismo que un Short, pero la dirección que se devuelve es la de un
+    vídeo normal: /watch?v=… en vez de /shorts/…"""
+    archivo = tmp_path / "video.mp4"
+    archivo.write_bytes(b"K" * (100 * 1024))
+
+    resultado = youtube_api.upload_video(
+        CREDENCIALES,
+        video_path=archivo,
+        title="Mi vídeo largo",
+        description="Con su descripción",
+        tags=["uno"],
+        privacy_status="private",
+    )
+    assert resultado["url"] == "https://www.youtube.com/watch?v=abc123XYZ"
+    assert resultado["quota_used"] == youtube_api.COST_UPLOAD
+
+    como_short = youtube_api.upload_video(
+        CREDENCIALES, video_path=archivo, title="x", como_short=True
+    )
+    assert como_short["url"].startswith("https://www.youtube.com/shorts/")
+
+
+def test_el_estudio_sube_el_video_con_el_kit_puesto(session, tmp_path, monkeypatch):
+    """El trabajo deja anotado en el kit dónde ha quedado el vídeo."""
+    from app.services import studio
+    from app.services.queue import JobContext
+
+    monkeypatch.setattr(settings, "dry_run", True)     # no se sube nada de verdad
+    archivo = tmp_path / "video.mp4"
+    archivo.write_bytes(b"x" * 4096)
+
+    cuenta = Account(
+        platform=Platform.youtube.value,
+        display_name="Mi Canal",
+        external_id="UC123",
+        status=AccountStatus.connected.value,
+        credentials={"access_token": "t", "refresh_token": "r", "expires_at": 9e12},
+    )
+    video = Video(
+        external_id="local-1",
+        origin="local",
+        title="Vídeo de prueba",
+        local_path=str(archivo),
+        duration_s=600,
+        kit={"chosen_title": "Un título mejor", "description": "Hola", "tags": ["a"]},
+    )
+    session.add_all([cuenta, video])
+    session.flush()
+
+    assert studio.canal_para_subir(session) is cuenta
+
+    from app.models import Job
+
+    job = Job(
+        kind="upload_youtube",
+        payload={"video_id": video.id, "privacy_status": "unlisted"},
+        status="running",
+    )
+    session.add(job)
+    session.commit()
+    studio.job_upload_youtube(session, JobContext(session, job))
+
+    guardado = (video.kit or {}).get("youtube") or {}
+    assert guardado["dry_run"] is True
+    assert guardado["privacy"] == "unlisted"
+    assert guardado["uploaded_at"]
+
+
+def test_sin_canal_conectado_no_se_puede_subir(session):
+    from app.services import studio
+
+    with pytest.raises(RuntimeError) as caja:
+        studio.canal_para_subir(session)
+    assert "Ajustes" in str(caja.value)

@@ -4,6 +4,7 @@ Trabajos en segundo plano:
 
 * `analyze_local`  — analiza el archivo que has subido y lo transcribe.
 * `build_kit`      — genera títulos, descripción, etiquetas y miniaturas.
+* `upload_youtube` — sube el vídeo al canal con ese kit puesto.
 * `generate_ideas` — propone temas para los próximos vídeos.
 * `coach_check`    — repaso diario de la cadencia del canal.
 """
@@ -13,12 +14,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.flow_schema import step_config
-from app.models import Video, VideoStatus, utcnow
-from app.services import coach, events, ideas, notifications, seo, thumbnails, transcript
+from app.models import Account, Platform, Video, VideoStatus, utcnow
+from app.services import (
+    coach, events, ideas, notifications, seo, thumbnails, transcript, youtube_api,
+)
 from app.services import media as media_service
 from app.services.pipeline import resolve_flow
 from app.services.queue import JobContext, enqueue, register
@@ -165,7 +169,125 @@ def job_build_kit(session: Session, ctx: JobContext) -> None:
 
 
 # --------------------------------------------------------------------------
-# 3. Ideas de contenido
+# 3. Subir el vídeo a YouTube con su kit
+# --------------------------------------------------------------------------
+def canal_para_subir(session: Session) -> Account:
+    """El canal de YouTube conectado con permiso de subida."""
+    cuentas = session.scalars(
+        select(Account).where(Account.platform == Platform.youtube.value)
+    ).all()
+    for cuenta in cuentas:
+        if (cuenta.credentials or {}).get("access_token"):
+            return cuenta
+    raise RuntimeError(
+        "Ningún canal de YouTube con permiso para subir. Conéctalo en "
+        "Ajustes → YouTube."
+    )
+
+
+@register("upload_youtube")
+def job_upload_youtube(session: Session, ctx: JobContext) -> None:
+    """Sube a YouTube el vídeo tal cual, con el título, la descripción, las
+    etiquetas y la miniatura que se hayan elegido en el estudio."""
+    video = session.get(Video, int(ctx.payload["video_id"]))
+    if not video:
+        raise RuntimeError("El vídeo ya no existe.")
+    if not video.local_path or not Path(video.local_path).exists():
+        raise RuntimeError("El archivo del vídeo ya no está en el disco.")
+
+    cuenta = canal_para_subir(session)
+    kit = dict(video.kit or {})
+    datos = ctx.payload
+
+    titulo = str(datos.get("title") or kit.get("title") or video.title)[:100]
+    descripcion = str(datos.get("description") or kit.get("description") or "")
+    etiquetas = list(datos.get("tags") or kit.get("tags") or [])
+    privacidad = str(datos.get("privacy_status") or "private")
+    cuando = datos.get("publish_at") or None
+
+    ctx.progress(0.05, f"Subiendo «{titulo[:40]}»…")
+    resultado = youtube_api.upload_video(
+        cuenta.credentials or {},
+        video_path=video.local_path,
+        title=titulo,
+        description=descripcion,
+        tags=etiquetas,
+        privacy_status=privacidad,
+        publish_at=cuando,
+        made_for_kids=bool(datos.get("made_for_kids", False)),
+        dry_run=bool(settings.dry_run),
+        on_progress=lambda ratio: ctx.progress(0.05 + 0.9 * ratio),
+    )
+
+    # las credenciales pueden haberse renovado durante la subida
+    try:
+        cuenta.credentials = youtube_api.valid_credentials(cuenta.credentials or {})
+    except Exception:
+        pass
+
+    # La miniatura va después: YouTube la quiere con el vídeo ya creado.
+    aviso_miniatura = ""
+    indice = datos.get("thumbnail_index")
+    if indice is not None and resultado.get("video_id") and not resultado.get("dry_run"):
+        miniaturas = kit.get("thumbnails") or []
+        ruta = ""
+        if 0 <= int(indice) < len(miniaturas):
+            ruta = str(miniaturas[int(indice)].get("path") or "")
+        if ruta and Path(ruta).exists():
+            ctx.progress(0.97, "Poniendo la miniatura…")
+            puesta = youtube_api.set_thumbnail(
+                cuenta.credentials or {}, resultado["video_id"], ruta
+            )
+            if not puesta:
+                # Es lo más habitual: hasta que no verificas el canal por
+                # teléfono, YouTube no deja poner miniatura propia.
+                aviso_miniatura = (
+                    "El vídeo ha subido bien, pero YouTube no ha aceptado la "
+                    "miniatura. Suele ser que el canal no está verificado por "
+                    "teléfono: verifícalo y ponla a mano desde YouTube Studio."
+                )
+
+    kit["youtube"] = {
+        "video_id": resultado.get("video_id", ""),
+        "url": resultado.get("url", ""),
+        "privacy": privacidad,
+        "publish_at": cuando or "",
+        "uploaded_at": utcnow().isoformat() + "Z",
+        "dry_run": bool(resultado.get("dry_run")),
+        "warning": aviso_miniatura,
+    }
+    video.kit = kit
+    session.commit()
+
+    events.log(
+        session,
+        f"Subido a YouTube: «{titulo[:50]}»" + (f" · {aviso_miniatura}" if aviso_miniatura else ""),
+        level="warn" if aviso_miniatura else "success",
+        scope="youtube",
+        data={"video_id": video.id, "quota": youtube_api.COST_UPLOAD},
+    )
+    notifications.notify(
+        session,
+        "Vídeo subido a YouTube",
+        f"«{titulo[:60]}» está en tu canal como {ETIQUETA_PRIVACIDAD.get(privacidad, privacidad)}.",
+        kind="youtube",
+        level="success",
+        action_label="Abrirlo en YouTube",
+        action_url=resultado.get("url", "") or "#estudio",
+        dedupe_hours=0,
+    )
+    ctx.progress(1.0, "Subido")
+
+
+ETIQUETA_PRIVACIDAD = {
+    "public": "público",
+    "unlisted": "oculto",
+    "private": "privado",
+}
+
+
+# --------------------------------------------------------------------------
+# 4. Ideas de contenido
 # --------------------------------------------------------------------------
 @register("generate_ideas")
 def job_generate_ideas(session: Session, ctx: JobContext) -> None:
@@ -200,7 +322,7 @@ def job_generate_ideas(session: Session, ctx: JobContext) -> None:
 
 
 # --------------------------------------------------------------------------
-# 4. Repaso del canal
+# 5. Repaso del canal
 # --------------------------------------------------------------------------
 @register("coach_check")
 def job_coach_check(session: Session, ctx: JobContext) -> None:
