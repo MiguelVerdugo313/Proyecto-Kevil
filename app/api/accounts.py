@@ -18,7 +18,7 @@ from app.api.common import account_to_dict, source_to_dict
 from app.config import settings
 from app.db import get_db
 from app.models import Account, AccountStatus, Platform, Post, PostStatus, Source, utcnow
-from app.services import events, pipeline, tiktok, timing, youtube_api
+from app.services import canales, events, pipeline, tiktok, timing, youtube_api
 from app.services import youtube as youtube_service
 from app.services.queue import enqueue
 
@@ -113,6 +113,11 @@ def list_accounts(platform: str | None = None, db: Session = Depends(get_db)):
         if publica:
             state = timing.account_state(db, account)
             extra = {"state": state, "health": timing.health_score(state)}
+        if account.platform == Platform.youtube.value:
+            fuente = canales.fuente_de(db, account)
+            # vigilado = Kevil busca sus vídeos para sacar clips
+            extra["vigilado"] = bool(fuente and fuente.enabled and fuente.auto_ingest)
+            extra["quitado"] = canales.lo_quitaste(db, account)
         result.append(account_to_dict(account, extra))
     return result
 
@@ -161,7 +166,24 @@ def add_youtube_account(body: YouTubeAccountIn, db: Session = Depends(get_db)):
         )
     ).first()
     if existing:
-        raise HTTPException(409, "Ese canal ya está conectado")
+        # Conectado ya (por ejemplo, autorizado para publicar Shorts): si aún no
+        # se vigilaba, se vigila ahora con lo que has elegido. Antes decía «ya
+        # está conectado» y se quedaba sin buscar vídeos.
+        fuente = canales.fuente_de(db, existing)
+        if fuente is not None and fuente.enabled and fuente.auto_ingest:
+            raise HTTPException(409, "Ese canal ya está conectado y vigilado")
+        fuente = canales.vigilar(db, existing, aunque_lo_quitaras=True)
+        if fuente is None:
+            raise HTTPException(409, "Ese canal ya está conectado")
+        for campo in ("auto_ingest", "include_lives", "include_shorts", "backfill_limit",
+                      "min_duration_s", "flow_id", "target_account_id"):
+            setattr(fuente, campo, getattr(body, campo))
+        db.commit()
+        return {
+            "account": account_to_dict(existing),
+            "source": source_to_dict(fuente),
+            "warning": warning,
+        }
 
     account = Account(
         platform=Platform.youtube.value,
@@ -367,14 +389,33 @@ def youtube_oauth_callback(
         db, f"YouTube conectado para publicar: {account.display_name}",
         level="success", scope="youtube",
     )
+    db.flush()
+    # el canal que autorizas es también el tuyo: se vigila para sacar clips
+    vigilado = canales.vigilar(db, account)
     db.commit()
     return HTMLResponse(
         _result_page(
             "¡Canal conectado!",
-            f"{account.display_name} ya puede recibir Shorts automáticamente.",
+            f"{html.escape(account.display_name)} ya puede recibir Shorts"
+            + (" y Kevil busca ya sus vídeos para sacar clips." if vigilado else "."),
             True,
         )
     )
+
+
+@router.post("/accounts/{account_id}/vigilar")
+def watch_account(account_id: int, db: Session = Depends(get_db)):
+    """Vigila el canal de una cuenta de YouTube para sacar clips de él."""
+    account = db.get(Account, account_id)
+    if not account or account.platform != Platform.youtube.value:
+        raise HTTPException(404, "Canal no encontrado")
+    fuente = canales.vigilar(db, account, aunque_lo_quitaras=True)
+    if fuente is None:
+        raise HTTPException(
+            400, "No se sabe el ID de este canal. Añádelo con «+ Conectar canal» pegando su URL."
+        )
+    db.commit()
+    return source_to_dict(fuente)
 
 
 class ShortsImportIn(BaseModel):

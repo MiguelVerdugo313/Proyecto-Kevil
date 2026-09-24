@@ -42,6 +42,7 @@ from app.services import (
     tiktok, timing, youtube_api,
 )
 from app.services.queue import enqueue
+from app.services import comunidad as comunidad_service
 from app.services import scheduler as scheduler_service
 from app.version import VERSION
 
@@ -109,6 +110,8 @@ def status(db: Session = Depends(get_db)):
         "paused": pausa.activa(),
         "timezone": timing.zona_local(),
         "motor": scheduler_service.agenda_del_motor(db),
+        # publicaciones de comunidad cuya hora ya ha llegado y siguen sin hacer
+        "comunidad_toca": comunidad_service.tocan(db),
     }
 
 
@@ -285,6 +288,7 @@ def dashboard(db: Session = Depends(get_db)):
     return {
         "series": _series_por_dia(db),
         "problemas": diagnostico.problemas(db)["total"],
+        "comunidad": comunidad_service.resumen(db),
         "counters": {
             "channels": _count(db, Source),
             "videos": _count(db, Video),

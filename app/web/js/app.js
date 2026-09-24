@@ -8,6 +8,7 @@ import { escapeHtml, fmt, toast, toastError } from './lib/ui.js';
 import panel from './views/panel.js';
 import estudio from './views/estudio.js';
 import coach from './views/coach.js';
+import comunidad from './views/comunidad.js';
 import cuentas from './views/cuentas.js';
 import videos from './views/videos.js';
 import clips from './views/clips.js';
@@ -16,7 +17,7 @@ import agenda from './views/agenda.js';
 import analitica from './views/analitica.js';
 import ajustes from './views/ajustes.js';
 
-const VIEWS = { panel, estudio, coach, cuentas, videos, clips, flujos, agenda, analitica, ajustes };
+const VIEWS = { panel, estudio, coach, comunidad, cuentas, videos, clips, flujos, agenda, analitica, ajustes };
 
 const viewRoot = document.getElementById('view');
 const titleNode = document.getElementById('page-title');
@@ -95,6 +96,9 @@ async function heartbeat() {
     const campana = document.getElementById('bell-count');
     campana.hidden = !avisos.unread;
     campana.textContent = avisos.unread > 9 ? '9+' : avisos.unread;
+    const badgeComunidad = document.getElementById('badge-comunidad');
+    badgeComunidad.hidden = !status.comunidad_toca;
+    badgeComunidad.textContent = status.comunidad_toca;
     const badgeCoach = document.getElementById('badge-coach');
     badgeCoach.hidden = !avisos.unread;
     badgeCoach.textContent = avisos.unread;
@@ -156,10 +160,18 @@ function enCuanto(iso) {
 
 function proximosHtml(motor, compacto) {
   const filas = [];
+  const sinVigilar = motor.sin_vigilar || [];
   if (motor.proxima_revision) {
     filas.push(`<div class="proximo"><span>Revisa tu canal</span><b>${enCuanto(motor.proxima_revision)}</b></div>`);
+  } else if (!compacto && sinVigilar.length) {
+    filas.push(`<div class="proximo-titulo">«${escapeHtml(sinVigilar[0].nombre)}» está conectado pero no se vigila.
+      <a href="#cuentas" style="color:var(--accent-2)">Vigilarlo</a> para sacar clips.</div>`);
   } else if (!compacto && !motor.canales) {
     filas.push('<div class="proximo-titulo">Conecta un canal en <a href="#cuentas" style="color:var(--accent-2)">Cuentas</a> para que busque vídeos solo.</div>');
+  }
+  if (!compacto && motor.canal_con_error) {
+    filas.push(`<div class="proximo-titulo" style="color:var(--amber)">No pudo leer «${escapeHtml(motor.canal_con_error)}» la última vez:
+      <a href="#cuentas" style="color:var(--accent-2)">ver</a>.</div>`);
   }
   if (motor.proxima_publicacion) {
     filas.push(`<div class="proximo"><span>Publica</span><b>${enCuanto(motor.proxima_publicacion)}</b></div>`
@@ -218,6 +230,8 @@ function comandos() {
       } },
     { texto: 'Usar mi sesión de YouTube', pista: 'cuando pide «no soy un robot»', icono: 'i-videos',
       hacer: () => usarSesionYouTube() },
+    { texto: 'Ideas para la pestaña Comunidad', pista: 'encuestas, avisos, carruseles', icono: 'i-comunidad', hacer: ir('#comunidad') },
+    { texto: 'Publicar también en YouTube Shorts', pista: 'dónde sale cada clip', icono: 'i-cuentas', hacer: ir('#cuentas') },
     { texto: 'Añadir una clave de IA', pista: 'Groq, Gemini, OpenRouter…', icono: 'i-ajustes', hacer: ir('#ajustes?seccion=ia') },
     { texto: 'Cambiar entre claro y oscuro', pista: '', icono: 'i-tema', hacer: () => botonTema.click() },
   ].map((a) => ({ ...a, grupo: 'Hacer' }));

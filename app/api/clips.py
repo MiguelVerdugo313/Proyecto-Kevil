@@ -35,11 +35,19 @@ class ClipPatch(BaseModel):
     reframe: dict[str, Any] | None = None
 
 
+class DestinoIn(BaseModel):
+    account_id: int
+    scheduled_at: datetime | None = None
+    slot_reason: str = ""
+
+
 class ApproveIn(BaseModel):
     account_id: int | None = None
     scheduled_at: datetime | None = None
     # la hora la propuso el motor y no se ha tocado: sigue siendo «suya»
     slot_reason: str = ""
+    # varias cuentas a la vez (TikTok y Shorts), cada una con su hora
+    destinos: list[DestinoIn] = []
 
 
 @router.get("")
@@ -128,8 +136,16 @@ def approve_clip(clip_id: int, body: ApproveIn, db: Session = Depends(get_db)):
     schedule_config = step_config(flow.steps, "schedule")
     publish_config = step_config(flow.steps, "publish")
 
-    # Una cuenta concreta si la piden; si no, los destinos que marque el flujo
-    if body.account_id:
+    # Las cuentas que marques; si no marcas nada, los destinos del flujo
+    horas: dict[int, tuple[datetime | None, str]] = {}
+    if body.destinos:
+        cuentas = []
+        for destino in body.destinos:
+            elegida = db.get(Account, destino.account_id)
+            if elegida:
+                cuentas.append(elegida)
+                horas[elegida.id] = (destino.scheduled_at, destino.slot_reason)
+    elif body.account_id:
         elegida = db.get(Account, body.account_id)
         cuentas = [elegida] if elegida else []
     else:
@@ -155,9 +171,10 @@ def approve_clip(clip_id: int, body: ApproveIn, db: Session = Depends(get_db)):
     for cuenta in cuentas:
         if cuenta.id in ya_programadas:
             continue
+        cuando, motivo = horas.get(cuenta.id, (body.scheduled_at, body.slot_reason))
         post = pipeline.schedule_clip(
-            db, clip, cuenta, schedule_config, when=naive_utc(body.scheduled_at),
-            reason=body.slot_reason[:300],
+            db, clip, cuenta, schedule_config, when=naive_utc(cuando),
+            reason=motivo[:300],
         )
         creados.append(post.id)
 

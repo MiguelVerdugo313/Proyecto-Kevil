@@ -8,7 +8,6 @@ import {
 } from '../lib/ui.js';
 
 let filters = { status: '', video: null };
-let accounts = [];
 let reloadView = () => location.reload();
 // Modo «elegir para borrar»: los clips marcados se guardan aquí por su id
 let eligiendo = false;
@@ -28,8 +27,6 @@ const FILTERS = [
 async function openClip(clipId, reload) {
   const clip = await api.get(`/api/clips/${clipId}`);
   const reframe = (clip.render_config || {}).reframe || {};
-  const accountOptions = accounts.map((account) =>
-    `<option value="${account.id}">@${escapeHtml(account.handle || account.display_name)}</option>`).join('');
 
   modal({
     title: clip.title || `Clip #${clip.id}`,
@@ -60,7 +57,7 @@ async function openClip(clipId, reload) {
             <input type="text" id="c-title" value="${escapeHtml(clip.title)}"></div>
           <div class="field"><label>Gancho (texto sobreimpreso)</label>
             <input type="text" id="c-hook" value="${escapeHtml(clip.hook)}"></div>
-          <div class="field"><label>Descripción de TikTok</label>
+          <div class="field"><label>Descripción (TikTok y Shorts)</label>
             <textarea id="c-caption" style="min-height:120px">${escapeHtml(clip.caption)}</textarea></div>
 
           <div class="form-grid">
@@ -82,12 +79,8 @@ async function openClip(clipId, reload) {
           </div>
 
           <div class="field">
-            <label>Programar en</label>
-            <div style="display:flex;gap:8px">
-              <select id="c-account" style="flex:1">${accountOptions || '<option value="">Sin cuentas de TikTok</option>'}</select>
-              <input type="datetime-local" id="c-when" style="flex:1">
-            </div>
-            <span class="help" id="c-when-help">Buscando la mejor hora…</span>
+            <label>Publicar en</label>
+            <div class="publicar-en" id="c-destinos"><span class="help">Mirando dónde publica su flujo…</span></div>
           </div>
         </div>
       </div>`,
@@ -113,19 +106,27 @@ async function openClip(clipId, reload) {
         reload();
       } },
       { label: 'Aprobar y programar', variant: 'primary', onClick: async (root) => {
-        await saveClip(root, clip);
-        const when = root.querySelector('#c-when').value;
-        const accountId = Number(root.querySelector('#c-account').value) || null;
-        if (!accountId) { toast('Conecta antes una cuenta de TikTok', 'warn'); return false; }
-        // Si la hora es la que propuso el motor, se manda con su motivo: así
-        // sigue siendo «suya» y puede recolocarla si cambia algo.
-        const propia = propuesta && when === propuesta.local;
-        await api.post(`/api/clips/${clip.id}/approve`, {
-          account_id: accountId,
-          scheduled_at: when ? fmt.fromLocalInput(when) : null,
-          slot_reason: propia ? propuesta.reason : '',
+        const destinos = [...root.querySelectorAll('[data-publicar]:checked')].map((casilla) => {
+          const id = Number(casilla.dataset.publicar);
+          const when = root.querySelector(`[data-cuando="${id}"]`).value;
+          // Si la hora es la que propuso el motor, se manda con su motivo: así
+          // sigue siendo «suya» y puede recolocarla si cambia algo.
+          const suya = propuestas[id] && when === propuestas[id].local;
+          return {
+            account_id: id,
+            scheduled_at: when ? fmt.fromLocalInput(when) : null,
+            slot_reason: suya ? propuestas[id].reason : '',
+          };
         });
-        toast(when ? `Clip programado para el ${fmt.date(fmt.fromLocalInput(when))}` : 'Clip programado a la mejor hora');
+        if (!destinos.length) {
+          toast(hayDestinos ? 'Marca al menos un sitio donde publicarlo' : 'Conecta antes TikTok o tu canal de YouTube en Cuentas', 'warn');
+          return false;
+        }
+        await saveClip(root, clip);
+        await api.post(`/api/clips/${clip.id}/approve`, { destinos });
+        const nombres = [...root.querySelectorAll('[data-publicar]:checked')]
+          .map((c) => c.dataset.plataforma === 'youtube' ? 'YouTube Shorts' : 'TikTok');
+        toast(`Programado en ${[...new Set(nombres)].join(' y ')}`);
         reload();
       } },
     ],
@@ -146,41 +147,80 @@ async function openClip(clipId, reload) {
           },
         });
       }
-      const cuenta = root.querySelector('#c-account');
-      cuenta.addEventListener('change', () => proponer(root, clip));
-      proponer(root, clip);
+      cargarDestinos(root, clip);
     },
   });
 }
 
-// La fecha no se deja vacía: se rellena con la hora que elegiría el motor, que
-// se puede cambiar. Así se ve cuándo va a salir antes de aprobarlo.
-let propuesta = null;
+// Dónde sale: las casillas vienen marcadas según el flujo del clip (TikTok,
+// YouTube Shorts o los dos) y cada sitio lleva su hora. La fecha no se deja
+// vacía: se rellena con la que elegiría el motor, y se puede cambiar.
+let propuestas = {};
+let hayDestinos = false;
+const PLATAFORMA = { tiktok: 'TikTok', youtube: 'YouTube Shorts' };
 
-async function proponer(root, clip) {
-  const campo = root.querySelector('#c-when');
-  const ayuda = root.querySelector('#c-when-help');
-  const accountId = Number(root.querySelector('#c-account').value) || null;
-  propuesta = null;
-  if (!accountId) {
-    ayuda.textContent = 'Conecta una cuenta para que el motor proponga la hora.';
+async function cargarDestinos(root, clip) {
+  const caja = root.querySelector('#c-destinos');
+  propuestas = {};
+  hayDestinos = false;
+  let datos;
+  try {
+    datos = await api.get(`/api/clips/${clip.id}/destinos`);
+  } catch (error) {
+    caja.innerHTML = `<span class="help">${escapeHtml(error.message || 'No se ha podido leer dónde publica.')}</span>`;
     return;
   }
-  const programado = [clip.post].find((p) => p && p.status === 'scheduled' && p.account_id === accountId);
+  hayDestinos = datos.cuentas.some((c) => c.puede);
+  if (!datos.cuentas.length) {
+    caja.innerHTML = '<span class="help">No hay dónde publicar todavía: conecta TikTok o tu canal de YouTube en <a href="#cuentas" style="color:var(--accent)">Cuentas</a>.</span>';
+    return;
+  }
+  const f = datos.flujo;
+  const segun = [f.tiktok && 'TikTok', f.shorts && 'YouTube Shorts'].filter(Boolean).join(' y ') || 'ningún sitio';
+  caja.innerHTML = datos.cuentas.map((c) => `
+    <div class="destino ${c.marcada ? '' : 'off'}" data-fila="${c.account_id}">
+      <label class="switch ${c.puede ? '' : 'apagado'}"><input type="checkbox" data-publicar="${c.account_id}"
+        data-plataforma="${c.plataforma}" ${c.marcada ? 'checked' : ''} ${c.puede ? '' : 'disabled'}><span class="track"></span></label>
+      <div><span class="plataforma">${PLATAFORMA[c.plataforma] || c.plataforma}</span> <b>${escapeHtml(c.nombre)}</b></div>
+      <input type="datetime-local" data-cuando="${c.account_id}" ${c.marcada ? '' : 'hidden'}>
+      <span class="help" data-motivo="${c.account_id}">${escapeHtml(c.aviso || '')}</span>
+    </div>`).join('')
+    + `<span class="help">Su flujo («${escapeHtml(f.name)}») publica en ${segun}. Cámbialo para siempre en
+       <a href="#cuentas" style="color:var(--accent)">Cuentas → Dónde sale cada clip</a>.</span>`;
+
+  datos.cuentas.forEach((c) => {
+    const casilla = caja.querySelector(`[data-publicar="${c.account_id}"]`);
+    casilla.onchange = () => {
+      caja.querySelector(`[data-fila="${c.account_id}"]`).classList.toggle('off', !casilla.checked);
+      caja.querySelector(`[data-cuando="${c.account_id}"]`).hidden = !casilla.checked;
+      if (casilla.checked) proponer(caja, clip, c);
+    };
+    if (c.marcada) proponer(caja, clip, c);
+  });
+}
+
+async function proponer(caja, clip, cuenta) {
+  const id = cuenta.account_id;
+  const campo = caja.querySelector(`[data-cuando="${id}"]`);
+  const ayuda = caja.querySelector(`[data-motivo="${id}"]`);
+  const aviso = cuenta.aviso ? ` ${cuenta.aviso}` : '';
+  const programado = (clip.posts || [clip.post]).find((p) => p && p.status === 'scheduled' && p.account_id === id);
   if (programado) {
     campo.value = fmt.toLocalInput(programado.scheduled_at);
-    ayuda.textContent = `Ya estaba programado: ${fmt.date(programado.scheduled_at)}.`;
+    ayuda.textContent = `Ya estaba programado: ${fmt.date(programado.scheduled_at)}.${aviso}`;
     return;
   }
+  if (campo.value) return;
+  ayuda.textContent = 'Buscando la mejor hora…';
   try {
-    const datos = await api.get(`/api/clips/${clip.id}/propuesta?account_id=${accountId}`);
-    propuesta = { ...datos, local: fmt.toLocalInput(datos.scheduled_at) };
-    campo.value = propuesta.local;
+    const datos = await api.get(`/api/clips/${clip.id}/propuesta?account_id=${id}`);
+    propuestas[id] = { ...datos, local: fmt.toLocalInput(datos.scheduled_at) };
+    campo.value = propuestas[id].local;
     ayuda.innerHTML = `El motor propone el <b>${escapeHtml(fmt.date(datos.scheduled_at, {
       weekday: 'long', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true,
-    }))}</b> (${escapeHtml(datos.reason)}). Cámbiala si prefieres otra.`;
+    }))}</b> (${escapeHtml(datos.reason)}).${escapeHtml(aviso)}`;
   } catch {
-    ayuda.textContent = 'Deja la fecha vacía y el motor elegirá la mejor hora al aprobar.';
+    ayuda.textContent = `Deja la fecha vacía y el motor elegirá la mejor hora al aprobar.${aviso}`;
   }
 }
 
@@ -285,11 +325,7 @@ export default {
     if (filters.status) query.set('status', filters.status);
     if (filters.video) query.set('video_id', filters.video);
 
-    const [clips, accountList] = await Promise.all([
-      api.clips(query.toString() ? `?${query}` : ''),
-      api.accounts('tiktok'),
-    ]);
-    accounts = accountList;
+    const clips = await api.clips(query.toString() ? `?${query}` : '');
 
     root.innerHTML = `
       <div class="card">
@@ -330,7 +366,9 @@ export default {
               <strong>${escapeHtml(clip.title || 'Clip')}</strong>
               <span class="src">${escapeHtml(clip.video_title)}</span>
               <div style="display:flex;gap:5px;flex-wrap:wrap">${statusPill(clip.status)}
-                ${clip.post ? `<span class="pill violet">${fmt.date(clip.post.scheduled_at)}</span>` : ''}</div>
+                ${(clip.posts || []).map((post) => `<span class="pill ${post.platform === 'youtube' ? 'pink' : 'violet'}"
+                  title="${escapeHtml(post.account_name)}">${post.platform === 'youtube' ? 'Shorts' : 'TikTok'} ·
+                  ${fmt.date(post.published_at || post.scheduled_at)}</span>`).join('')}</div>
               <div class="foot">
                 ${clip.has_file ? `<a class="btn sm ghost" href="/api/clips/${clip.id}/download" download onclick="event.stopPropagation()">Descargar</a>` : ''}
                 <button class="btn sm" data-open="${clip.id}">Abrir</button>

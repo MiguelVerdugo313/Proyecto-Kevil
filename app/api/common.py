@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.models import Account, Clip, EventLog, Flow, Job, Post, Source, Video
+from app.models import Account, Clip, EventLog, Flow, Job, Post, PostStatus, Source, Video
 
 
 def iso(value: datetime | None) -> str | None:
@@ -140,6 +140,8 @@ def clip_to_dict(clip: Clip, *, with_words: bool = False) -> dict[str, Any]:
         "render_config": clip.render_config or {},
         "created_at": iso(clip.created_at),
         "post": post_to_dict(post) if post else None,
+        # dónde va a salir (o salió): una entrada por TikTok y otra por Shorts
+        "posts": [post_to_dict(p) for p in clip.posts if p.status != PostStatus.cancelled.value],
     }
     if with_words:
         data["words"] = clip.words or []
@@ -153,6 +155,7 @@ def post_to_dict(post: Post) -> dict[str, Any]:
         "account_id": post.account_id,
         "account_name": post.account.display_name if post.account else "",
         "account_handle": post.account.handle if post.account else "",
+        "platform": post.account.platform if post.account else "",
         "clip_title": post.clip.title if post.clip else "",
         "scheduled_at": iso(post.scheduled_at),
         "published_at": iso(post.published_at),

@@ -979,6 +979,8 @@ input[type="color"] {
 .toast.warn .mark { background: var(--amber); }
 
 /* ------------------------------------------------------------------- modal */
+/* lo oculto se oculta siempre, aunque su estilo diga display: grid o flex */
+[hidden] { display: none !important; }
 .modal-root[hidden] { display: none !important; }
 .modal-root {
   position: fixed; inset: 0; z-index: 90;
@@ -1379,3 +1381,81 @@ details:not(.ayuda)[open] > summary::before { content: "▾ "; }
 }
 .piloto .switch { flex: none; margin-top: 2px; }
 .piloto .switch input:disabled + .track { opacity: .4; cursor: not-allowed; }
+
+/* ------------------------------------------------ canal sin vigilar */
+.aviso-vigilar {
+  display: flex; gap: 18px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  border-color: rgba(255, 179, 71, .38);
+  background: linear-gradient(135deg, rgba(255, 179, 71, .09), transparent 65%), var(--surface);
+}
+.aviso-vigilar h3 { color: var(--amber); }
+
+/* ------------------------------------------------ dónde sale cada clip */
+.destinos { display: flex; flex-direction: column; }
+.destino-fila {
+  display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  padding: 13px 0; border-bottom: 1px solid var(--line);
+}
+.destino-fila:last-child { border-bottom: 0; }
+.destino-interruptores { display: flex; gap: 18px; flex-wrap: wrap; }
+.destino-interruptores .switch-label { color: var(--text); }
+.switch.apagado { opacity: .45; cursor: not-allowed; }
+.destino-aviso {
+  display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  margin: 4px 0 8px; padding: 12px 14px; border-radius: 14px;
+  background: var(--accent-soft); border: 1px solid var(--line);
+  font-size: 13px; line-height: 1.5;
+}
+.destinos-otros { margin-top: 8px; }
+.destinos-otros > summary { cursor: pointer; padding: 6px 0; }
+
+/* casillas «Publicar en» de un clip */
+.publicar-en { display: flex; flex-direction: column; gap: 10px; }
+.publicar-en .destino {
+  display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center;
+  padding: 11px 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2);
+}
+.publicar-en .destino.off { opacity: .55; }
+.publicar-en .destino input[type="datetime-local"] { grid-column: 2; }
+.publicar-en .destino .help { grid-column: 2; }
+.publicar-en .plataforma { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+
+/* ------------------------------------------------------------ comunidad */
+.btn.xs { padding: 3px 9px; font-size: 11px; border-radius: 7px; }
+.com-intro { display: flex; gap: 24px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.com-progreso { min-width: 200px; display: flex; flex-direction: column; gap: 8px; }
+.com-progreso b { font-family: var(--font-title); font-size: 34px; font-weight: 600; letter-spacing: -.04em; }
+.meter { height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.meter > span {
+  display: block; height: 100%; border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width .8s var(--ease-out);
+}
+.com-seccion { margin: 26px 0 12px; font-size: 15px; font-weight: 500; letter-spacing: -.02em; }
+.com-icono { font-size: 18px; line-height: 1; }
+.com-texto {
+  margin-top: 10px; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-size: 13.5px; line-height: 1.6; font-weight: 300; color: var(--text);
+  padding: 11px 13px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line);
+}
+.com-opciones { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; counter-reset: op; }
+.com-opciones li {
+  counter-increment: op; display: flex; align-items: center; gap: 10px;
+  padding: 7px 8px 7px 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 13px;
+}
+.com-opciones li::before { content: counter(op); font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.com-opciones li span { flex: 1; min-width: 0; }
+.com-opciones li.correcta { border-color: rgba(64, 200, 140, .45); }
+.com-opciones li em { font-style: normal; font-size: 10.5px; color: var(--green, #40C88C); text-transform: uppercase; letter-spacing: .08em; }
+.com-imagenes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.com-imagenes img {
+  width: 92px; height: 92px; object-fit: cover; border-radius: 12px; border: 1px solid var(--line);
+  transition: transform .3s var(--ease-out);
+}
+.com-imagenes a:hover img { transform: scale(1.04); }
+.com-cuando { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.com-cuando input { width: auto; flex: 0 1 220px; }
+.com-hechas { margin-top: 26px; }
+.com-hechas > summary { cursor: pointer; }
+.com-panel { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.com-panel strong { display: block; margin-top: 3px; font-weight: 500; letter-spacing: -.01em; }

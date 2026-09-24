@@ -17,6 +17,7 @@ un corte de red no obliga a empezar de cero.
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -214,6 +215,57 @@ def fetch_video_stats(credentials: dict[str, Any], video_ids: list[str]) -> dict
                 "likes": int(stats.get("likeCount") or 0),
                 "comments": int(stats.get("commentCount") or 0),
                 "title": (item.get("snippet") or {}).get("title", ""),
+            }
+    return resultado
+
+
+def duracion_iso(texto: str) -> float:
+    """«PT1H2M3S» → 3723 segundos."""
+    encontrado = re.fullmatch(
+        r"P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?", texto or ""
+    )
+    if not encontrado:
+        return 0.0
+    dias, horas, minutos, segundos = (float(g or 0) for g in encontrado.groups())
+    return dias * 86400 + horas * 3600 + minutos * 60 + segundos
+
+
+def fetch_video_details(credentials: dict[str, Any], video_ids: list[str]) -> dict[str, dict]:
+    """Duración, si fue directo, descripción y miniatura de vídeos propios.
+
+    Una unidad de cuota por cada 50 vídeos.
+    """
+    resultado: dict[str, dict] = {}
+    for inicio in range(0, len(video_ids), 50):
+        lote = video_ids[inicio : inicio + 50]
+        with httpx.Client(timeout=TIMEOUT) as client:
+            response = client.get(
+                f"{API_BASE}/videos",
+                params={
+                    "part": "contentDetails,liveStreamingDetails,snippet,statistics",
+                    "id": ",".join(lote),
+                },
+                headers=_headers(credentials),
+            )
+        for item in _json(response).get("items") or []:
+            snippet = item.get("snippet") or {}
+            directo = item.get("liveStreamingDetails") or {}
+            stats = item.get("statistics") or {}
+            miniaturas = snippet.get("thumbnails") or {}
+            mejor = next(
+                (miniaturas[k]["url"] for k in ("maxres", "high", "medium", "default")
+                 if (miniaturas.get(k) or {}).get("url")),
+                "",
+            )
+            resultado[item["id"]] = {
+                "duration_s": duracion_iso((item.get("contentDetails") or {}).get("duration", "")),
+                "was_live": bool(directo),
+                # «live» o «upcoming»: aún no hay nada que cortar
+                "en_directo": snippet.get("liveBroadcastContent", "none") != "none",
+                "description": snippet.get("description", ""),
+                "thumbnail_url": mejor,
+                "views": int(stats.get("viewCount") or 0),
+                "likes": int(stats.get("likeCount") or 0),
             }
     return resultado
 

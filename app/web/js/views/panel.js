@@ -75,6 +75,24 @@ function contarHacia(root) {
   });
 }
 
+// Lo siguiente para la pestaña Comunidad: una línea y a un clic
+function comunidadHtml(com) {
+  if (!com || !com.siguiente) return '';
+  const idea = com.siguiente;
+  const cuando = idea.cuando ? fmt.date(idea.cuando, {
+    weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true,
+  }) : '';
+  return `<div class="card com-panel">
+    <span class="com-icono" aria-hidden="true">${idea.icono}</span>
+    <div class="grow" style="min-width:0">
+      <div class="muted tiny">Para tu comunidad${cuando ? ` · ${escapeHtml(cuando)}` : ''}
+        · ${com.hechas_semana} de ${com.objetivo_semana} esta semana</div>
+      <strong>${escapeHtml(idea.tipo_nombre)}: ${escapeHtml(idea.titulo)}</strong>
+    </div>
+    <a class="btn sm" href="#comunidad">Ver y copiar</a>
+  </div>`;
+}
+
 function graficasHtml(series) {
   const hoy = series.programados[0]?.dia;
   return `<div class="grid cols-2">
@@ -186,6 +204,8 @@ export default {
       </div>
 
       ${graficasHtml(series)}
+
+      ${comunidadHtml(data.comunidad)}
 
       <div class="grid side">
         <div style="display:flex;flex-direction:column;gap:20px">

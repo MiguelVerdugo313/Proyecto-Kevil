@@ -1,8 +1,8 @@
 """Routers de la API."""
 
 from app.api import (
-    accounts, analytics, clips, coach, diagnostico, flows, ia, schedule, sources, studio,
-    system, videos,
+    accounts, analytics, clips, coach, comunidad, destinos, diagnostico, flows, ia, schedule,
+    sources, studio, system, videos,
 )
 
 ROUTERS = [
@@ -18,6 +18,8 @@ ROUTERS = [
     coach.router,
     diagnostico.router,
     ia.router,
+    destinos.router,
+    comunidad.router,
 ]
 
 __all__ = ["ROUTERS"]
