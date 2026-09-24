@@ -82,6 +82,7 @@ def video_to_dict(video: Video, *, with_transcript: bool = False) -> dict[str, A
         "origin": video.origin,
         "views": video.views,
         "title": video.title,
+        "contexto": video.contexto or "",
         "url": video.url,
         "thumbnail_url": video.thumbnail_url,
         "duration_s": round(video.duration_s or 0, 1),
@@ -164,6 +165,9 @@ def post_to_dict(post: Post) -> dict[str, Any]:
         "slot_score": round(post.slot_score, 3),
         "slot_reason": post.slot_reason,
         "share_url": post.share_url,
+        "en_plataforma": bool(post.en_plataforma),
+        "external_post_id": post.external_post_id or "",
+        "subido_at": iso(post.subido_at),
         "error": post.error,
         "metrics": post.metrics or {},
     }

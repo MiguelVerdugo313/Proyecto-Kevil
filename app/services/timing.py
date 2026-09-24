@@ -502,6 +502,8 @@ def replanificar(session: Session, account: Account) -> int:
             Post.account_id == account.id,
             Post.status == PostStatus.scheduled.value,
             Post.slot_reason.not_in(PUESTOS_A_MANO),
+            # lo que ya está programado dentro de YouTube no se toca
+            Post.en_plataforma.is_(False),
         ).order_by(Post.scheduled_at)
     ).all()
     if not posts:

@@ -1459,3 +1459,44 @@ details:not(.ayuda)[open] > summary::before { content: "▾ "; }
 .com-hechas > summary { cursor: pointer; }
 .com-panel { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
 .com-panel strong { display: block; margin-top: 3px; font-weight: 500; letter-spacing: -.01em; }
+
+/* ---------------------------------------------- estudio: de qué va */
+.estado-punto.warn { background: var(--amber); box-shadow: 0 0 0 3px rgba(255, 179, 71, .18); }
+.pregunta-kit { border-color: rgba(255, 179, 71, .38); }
+.pregunta-kit textarea { width: 100%; }
+.de-que-va {
+  margin: 0 0 18px; padding: 12px 14px; border-radius: 14px;
+  border: 1px solid var(--line); background: var(--surface-2);
+}
+.de-que-va > summary { cursor: pointer; line-height: 1.5; }
+.de-que-va textarea { width: 100%; }
+.sin-miniaturas { padding: 14px 16px; border-radius: 14px; border: 1px dashed var(--line-strong); }
+.prompt-miniatura { margin-top: 16px; }
+.prompt-miniatura label { display: block; margin-bottom: 8px; }
+.prompt-miniatura textarea { width: 100%; font-family: var(--font-mono); font-size: 12px; line-height: 1.55; }
+
+/* ------------------------------------------------ agenda: cómo sale cada cosa */
+.como-sale-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.como-sale-item {
+  display: flex; flex-direction: column; gap: 7px; padding: 14px 16px; border-radius: 16px;
+  border: 1px solid var(--line); background: var(--surface-2);
+}
+.como-sale-item.ok { border-color: rgba(134, 211, 155, .35); }
+.como-sale-item.warn { border-color: rgba(255, 179, 71, .38); }
+.como-sale-item strong { font-weight: 500; letter-spacing: -.01em; }
+.como-sale-item p { line-height: 1.6; }
+.como-sale-opciones { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.plataforma-marca {
+  align-self: flex-start; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 99px; border: 1px solid var(--line);
+}
+.plataforma-marca.yt { color: #FF6B6B; }
+.plataforma-marca.tt { color: #6BE4E0; }
+.marca-plat {
+  font-style: normal; font-size: 9.5px; font-weight: 700; letter-spacing: .06em;
+  padding: 1px 5px; border-radius: 6px; border: 1px solid var(--line); margin-left: 3px;
+}
+.marca-plat.yt { color: #FF6B6B; }
+.marca-plat.tt { color: #6BE4E0; }
+:root[data-theme="light"] .plataforma-marca.yt, :root[data-theme="light"] .marca-plat.yt { color: #C8322F; }
+:root[data-theme="light"] .plataforma-marca.tt, :root[data-theme="light"] .marca-plat.tt { color: #0E7F7A; }

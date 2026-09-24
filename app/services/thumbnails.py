@@ -42,16 +42,19 @@ def score_frames(
     columns, rows = 48, 27
     fps = max(0.02, min(2.0, samples / duration))
 
+    # Sólo se decodifican los fotogramas clave: en un directo de dos horas
+    # decodificarlo entero tardaba más de diez minutos y se quedaba sin nada.
     command = [
         settings.ffmpeg_path,
         "-hide_banner", "-nostdin", "-loglevel", "error",
+        "-skip_frame", "nokey",
         "-i", str(video_path),
         "-vf", f"fps={fps:.5f},scale={columns}:{rows}",
-        "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+        "-an", "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
     ]
     try:
-        result = procesos.run(command, capture_output=True, timeout=600)
-    except (FileNotFoundError, subprocess.TimeoutExpired):  # pragma: no cover
+        result = procesos.run(command, capture_output=True, timeout=300)
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):  # pragma: no cover
         return []
 
     raw = result.stdout or b""
@@ -141,12 +144,13 @@ def _ass_for_style(
     negro_80 = "&HB4101014"
 
     texto = captions.escape_text((text or "").strip().upper())
+    fuente = captions.FUENTE_VIRAL          # viene con el programa: en Windows no hay DejaVu
     lineas = _wrap_words(texto, 14)
 
     if style == "bloque":
         # Texto grande abajo a la izquierda, sobre caja opaca, con barra de color
         estilos = [
-            f"Style: Big,DejaVu Sans,104,{blanco},{blanco},&H00101014,{negro_80},"
+            f"Style: Big,{fuente},96,{blanco},{blanco},&H00101014,{negro_80},"
             f"-1,0,0,0,100,100,0,0,3,20,0,1,60,60,70,1",
         ]
         eventos = [
@@ -157,7 +161,7 @@ def _ass_for_style(
     elif style == "banda":
         # Banda superior con el color de acento y el texto encima
         estilos = [
-            f"Style: Big,DejaVu Sans,92,&H00101014,&H00101014,{acento},&H00000000,"
+            f"Style: Big,{fuente},86,&H00101014,&H00101014,{acento},&H00000000,"
             f"-1,0,0,0,100,100,0,0,1,0,0,5,50,50,0,1",
         ]
         eventos = [
@@ -167,7 +171,7 @@ def _ass_for_style(
         ]
     else:  # "centro": degradado inferior y texto centrado con borde de color
         estilos = [
-            f"Style: Big,DejaVu Sans,112,{blanco},{blanco},{acento},&H00000000,"
+            f"Style: Big,{fuente},104,{blanco},{blanco},{acento},&H00000000,"
             f"-1,0,0,0,100,100,0,0,1,9,3,5,60,60,0,1",
         ]
         eventos = [
@@ -232,14 +236,17 @@ def compose(
     output.parent.mkdir(parents=True, exist_ok=True)
     settings.work_path.mkdir(parents=True, exist_ok=True)
 
-    ass_path = settings.work_path / f"{output.stem}.ass"
-    _ass_for_style(ass_path, text=text, style=style, accent=accent)
-
     filtros = (
         f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
         f"crop={WIDTH}:{HEIGHT},eq=contrast=1.12:saturation=1.25:brightness=0.02,"
-        f"unsharp=5:5:0.8,subtitles={ass_path.name}"
+        f"unsharp=5:5:0.8"
     )
+    if text.strip():
+        ass_path = settings.work_path / f"{output.stem}.ass"
+        _ass_for_style(ass_path, text=text, style=style, accent=accent)
+        captions.asegurar_tipografias(settings.fonts_path)
+        # igual que los clips: la tipografía sale de data/fonts, no del sistema
+        filtros += f",subtitles={ass_path.name}:fontsdir=../fonts"
 
     args: list[str] = []
     if from_video:
@@ -273,31 +280,44 @@ def generate(
 
     scored = score_frames(video_path, duration=duration)
     frames = pick_frames(scored, count=count)
+    if not frames:
+        # sin análisis (vídeo raro, ffmpeg lento): fotogramas repartidos a ojo
+        duracion = max(1.0, float(duration or 0))
+        frames = [
+            {"t": round(duracion * f, 2), "score": 0.5}
+            for f in (0.18, 0.42, 0.66, 0.3, 0.8)[:count]
+        ]
     estilos = ["centro", "bloque", "banda"]
     resultados: list[dict[str, Any]] = []
+    fallos: list[str] = []
 
     for index, frame in enumerate(frames):
         texto = textos[index % len(textos)]
         estilo = estilos[index % len(estilos)]
         acento = ACCENTS[index % len(ACCENTS)]
         destino = out_dir / f"{prefix}-{index + 1}.jpg"
+        con_texto = True
         try:
             compose(
-                background=video_path,
-                text=texto,
-                output=destino,
-                style=estilo,
-                accent=acento,
-                from_video=True,
-                timestamp=frame["t"],
+                background=video_path, text=texto, output=destino, style=estilo,
+                accent=acento, from_video=True, timestamp=frame["t"],
             )
-        except Exception:
-            continue
+        except Exception as exc:  # noqa: BLE001 - se intenta al menos el fotograma
+            fallos.append(_breve(exc))
+            try:
+                compose(
+                    background=video_path, text="", output=destino, style=estilo,
+                    accent=acento, from_video=True, timestamp=frame["t"],
+                )
+                con_texto = False
+            except Exception as otro:  # noqa: BLE001
+                fallos.append(_breve(otro))
+                continue
         resultados.append(
             {
                 "path": str(destino),
-                "text": texto,
-                "style": estilo,
+                "text": texto if con_texto else "",
+                "style": estilo if con_texto else "sin texto",
                 "accent": acento,
                 "source": "fotograma",
                 "timestamp": frame["t"],
@@ -336,7 +356,19 @@ def generate(
         except Exception as exc:
             resultados.append({"error": f"No se ha podido generar la imagen con IA: {exc}"})
 
+    if fallos:
+        hechas = len([r for r in resultados if r.get("path")])
+        resultados.append({"error": (
+            f"Alguna miniatura ha salido sin texto: {fallos[0]}"
+            if hechas else f"No se han podido sacar fotogramas del vídeo: {fallos[-1]}"
+        )})
     return resultados
+
+
+def _breve(exc: Exception) -> str:
+    """La última línea útil del error de ffmpeg, sin el volcado entero."""
+    lineas = [linea.strip() for linea in str(exc).splitlines() if linea.strip()]
+    return (lineas[-1] if lineas else type(exc).__name__)[:220]
 
 
 # --------------------------------------------------------------------------

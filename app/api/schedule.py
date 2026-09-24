@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.api.common import naive_utc, post_to_dict
 from app.db import get_db
 from app.models import Account, ClipStatus, Platform, Post, PostStatus, utcnow
-from app.services import events, timing
+from app.services import events, pipeline, timing
 from app.services.queue import enqueue
 
 router = APIRouter(prefix="/api", tags=["agenda"])
@@ -58,14 +58,17 @@ def patch_post(post_id: int, body: PostPatch, db: Session = Depends(get_db)):
         raise HTTPException(404, "Publicación no encontrada")
     if post.status not in {PostStatus.scheduled.value, PostStatus.failed.value}:
         raise HTTPException(400, "Sólo se pueden cambiar las publicaciones pendientes.")
+    aviso = ""
     if body.scheduled_at is not None:
         post.scheduled_at = naive_utc(body.scheduled_at)
         post.slot_reason = "Movido a mano"
         post.status = PostStatus.scheduled.value
+        # si ya estaba programado dentro de YouTube, se mueve también allí
+        aviso = pipeline.mover_en_plataforma(db, post)
     if body.caption is not None:
         post.caption = body.caption
     db.commit()
-    return post_to_dict(post)
+    return {**post_to_dict(post), "aviso": aviso}
 
 
 @router.post("/posts/{post_id}/publish-now")
@@ -75,6 +78,13 @@ def publish_now(post_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Publicación no encontrada")
     post.scheduled_at = utcnow()
     post.status = PostStatus.scheduled.value
+    if post.en_plataforma:
+        # ya está subido a YouTube: basta con hacerlo público
+        aviso = pipeline.mover_en_plataforma(db, post, ya=True)
+        if not aviso:
+            pipeline.marcar_salido_en_plataforma(db, post)
+        db.commit()
+        return {"job_id": None, "aviso": aviso}
     job = enqueue(db, "publish", {"post_id": post.id}, priority=10, message="Publicar ahora")
     db.commit()
     return {"job_id": job.id}
@@ -85,12 +95,14 @@ def cancel_post(post_id: int, db: Session = Depends(get_db)):
     post = db.get(Post, post_id)
     if not post:
         raise HTTPException(404, "Publicación no encontrada")
+    # si ya estaba programado dentro de YouTube, se queda privado allí
+    aviso = pipeline.mover_en_plataforma(db, post, cancelar=True)
     post.status = PostStatus.cancelled.value
     if post.clip and post.clip.status == ClipStatus.scheduled.value:
         post.clip.status = ClipStatus.rendered.value
     events.log(db, f"Publicación cancelada #{post.id}", level="info", scope="agenda")
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "aviso": aviso}
 
 
 @router.post("/schedule/plan")

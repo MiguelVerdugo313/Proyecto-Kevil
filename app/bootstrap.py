@@ -49,6 +49,7 @@ EDITABLE_SETTINGS = {
     "disk_budget_gb": float,
     # Ventana de la aplicación
     "window_mode": str,
+    "segundo_plano": bool,
     # YouTube: de dónde sacar tu sesión cuando pide «no soy un robot»
     "youtube_cookies": str,
     # Más proveedores de IA (se editan desde su propia pantalla)

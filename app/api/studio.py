@@ -31,6 +31,10 @@ class KitRequest(BaseModel):
     use_ai: bool = True
     ai_image: bool = False
     thumbnail_count: int = 3
+    # de qué va el vídeo, contado por ti (si viene, se guarda)
+    contexto: str | None = None
+    # escribir aunque no se sepa de qué va (sólo con el título)
+    forzar: bool = False
 
 
 class KitPatch(BaseModel):
@@ -64,6 +68,7 @@ def _safe_name(name: str) -> str:
 async def upload_video(
     file: UploadFile = File(...),
     title: str = Form(""),
+    contexto: str = Form(""),
     use_ai: bool = Form(True),
     ai_image: bool = Form(False),
     make_clips: bool = Form(False),
@@ -99,6 +104,7 @@ async def upload_video(
         external_id=identificador,
         origin="local",
         title=(title.strip() or Path(nombre).stem)[:400],
+        contexto=contexto.strip()[:2000],
         url="",
         local_path=str(destino),
         status=VideoStatus.ready.value,
@@ -153,6 +159,8 @@ def build_kit(video_id: int, body: KitRequest, db: Session = Depends(get_db)):
     video = db.get(Video, video_id)
     if not video:
         raise HTTPException(404, "Vídeo no encontrado")
+    if body.contexto is not None:
+        video.contexto = body.contexto.strip()[:2000]
     job = enqueue(
         db,
         "build_kit",
@@ -161,6 +169,7 @@ def build_kit(video_id: int, body: KitRequest, db: Session = Depends(get_db)):
             "use_ai": body.use_ai,
             "ai_image": body.ai_image,
             "thumbnail_count": max(1, min(5, body.thumbnail_count)),
+            "forzar": body.forzar,
         },
         priority=90,
         message=f"Kit de «{video.title[:50]}»",
@@ -262,7 +271,8 @@ def studio_videos(limit: int = 40, db: Session = Depends(get_db)):
             {
                 **video_to_dict(video),
                 "origin": video.origin,
-                "has_kit": bool(kit),
+                "has_kit": bool(kit) and not kit.get("falta_contexto"),
+                "falta_contexto": bool(kit.get("falta_contexto")),
                 "kit_titles": (kit.get("titles") or [])[:1],
                 "kit_thumbnails": len(kit.get("thumbnails") or []),
                 "kit_generated_by": kit.get("generated_by", ""),

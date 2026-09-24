@@ -37,6 +37,11 @@ function subirDialog(reload, archivos = null) {
         <input type="file" id="file" accept="video/*" hidden>
       </div>
       <div id="elegido" class="muted small"></div>
+      <div class="field"><label>¿De qué va el vídeo? <span class="muted tiny">(lo que más ayuda)</span></label>
+        <textarea id="u-contexto" style="min-height:74px"
+          placeholder="Ej.: Gameplay de Friday Night Funkin', jugué la actualización del mod Animania"></textarea>
+        <span class="help">Dilo con tus palabras: el juego, qué haces, si es directo. Kevil escribe el título, la
+          descripción, las etiquetas y las miniaturas <b>sólo con esto</b> y lo que se oiga en el vídeo; no se inventa nada.</span></div>
       <div class="field"><label>Título provisional</label>
         <input type="text" id="u-title" placeholder="Se usa el nombre del archivo si lo dejas vacío"></div>
       <div class="form-grid">
@@ -66,6 +71,7 @@ function subirDialog(reload, archivos = null) {
           const datos = new FormData();
           datos.append('file', input.files[0]);
           datos.append('title', root.querySelector('#u-title').value.trim());
+          datos.append('contexto', root.querySelector('#u-contexto').value.trim());
           datos.append('use_ai', root.querySelector('#u-ai').checked);
           datos.append('ai_image', root.querySelector('#u-img').checked);
           datos.append('make_clips', root.querySelector('#u-clips').checked);
@@ -138,8 +144,9 @@ function kitHtml(data) {
   const titulos = kit.titles || [];
   const elegido = kit.chosen_title || titulos[0] || '';
 
+  if (data.generando) return generandoHtml(video, data.generando);
+  if (kit.falta_contexto) return preguntaHtml(video, kit, data);
   if (!Object.keys(kit).length) {
-    if (data.generando) return generandoHtml(video, data.generando);
     return `<div class="card">
       <div class="kit-vacio">
         <div>
@@ -150,6 +157,11 @@ function kitHtml(data) {
             Kevil lee el vídeo y te deja listo todo lo que pide YouTube. Tarda un par de minutos
             y puedes seguir haciendo otras cosas mientras.
           </p>
+          <div class="field" style="margin-top:14px">
+            <label>¿De qué va el vídeo?</label>
+            <textarea id="g-contexto" style="min-height:70px"
+              placeholder="Ej.: Gameplay de Friday Night Funkin', jugué la actualización del mod Animania">${escapeHtml(video.contexto || '')}</textarea>
+          </div>
           <div style="display:flex;flex-direction:column;gap:10px;margin:16px 0 18px">
             <label class="switch"><input type="checkbox" id="g-ia" ${data.ai?.enabled ? 'checked' : ''} ${data.ai?.enabled ? '' : 'disabled'}>
               <span class="track"></span><span class="switch-label">Con IA ${data.ai?.enabled ? '' : '(añade una clave en Ajustes)'}</span></label>
@@ -199,6 +211,18 @@ function kitHtml(data) {
       </div>` : ''}
 
       ${kit.warning ? `<p class="small" style="color:var(--amber);margin-bottom:14px">${escapeHtml(kit.warning)}</p>` : ''}
+
+      <details class="de-que-va" ${video.contexto ? '' : 'open'}>
+        <summary><b>De qué va el vídeo</b> <span class="muted small">· ${video.contexto
+          ? escapeHtml(video.contexto.slice(0, 90)) + (video.contexto.length > 90 ? '…' : '')
+          : 'no lo has contado: cuéntalo y el kit sale mucho mejor'}</span></summary>
+        <textarea id="g-contexto" style="min-height:70px;margin-top:10px"
+          placeholder="Ej.: Gameplay de Friday Night Funkin', jugué la actualización del mod Animania">${escapeHtml(video.contexto || '')}</textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn sm primary" data-rehacer>Rehacer el kit con esto</button>
+          <span class="muted tiny">Kevil escribe sólo con esto y lo que se oiga en el vídeo.</span>
+        </div>
+      </details>
       ${kit.notes ? `<div class="tip"><b>Consejo:</b> ${escapeHtml(kit.notes)}</div>` : ''}
 
       <div class="kit-grid">
@@ -271,10 +295,42 @@ function kitHtml(data) {
                 <a class="btn sm ghost" href="/api/videos/${video.id}/kit/thumbnail/${index}?download=true" download>Descargar</a>
               </figcaption>
             </figure>`).join('')}
-        </div>` : '<p class="muted small">No se han generado miniaturas para este vídeo.</p>'}
-        ${(kit.thumbnail_errors || []).map((e) => `<p class="tiny" style="color:var(--amber);margin-top:8px">${escapeHtml(e)}</p>`).join('')}
+        </div>` : `<div class="sin-miniaturas">
+          <p class="small"><b>No han salido miniaturas de este vídeo.</b></p>
+          ${(kit.thumbnail_errors || []).map((e) => `<p class="tiny" style="color:var(--amber);margin-top:6px">${escapeHtml(e)}</p>`).join('')}
+          <button class="btn sm" style="margin-top:10px" data-miniaturas>Volver a intentarlo</button>
+        </div>`}
+        ${(kit.thumbnails || []).length ? (kit.thumbnail_errors || []).map((e) => `<p class="tiny" style="color:var(--amber);margin-top:8px">${escapeHtml(e)}</p>`).join('') : ''}
+        ${kit.thumbnail_prompt ? `<div class="prompt-miniatura">
+          <label class="muted small">Prompt para crear la miniatura con otra IA
+            <span class="tiny">(ChatGPT, Gemini, Ideogram, Leonardo… pega esto y pide la imagen)</span></label>
+          <textarea id="kit-prompt" readonly style="min-height:86px">${escapeHtml(kit.thumbnail_prompt)}</textarea>
+          <button class="btn sm" style="margin-top:8px" data-copiar="prompt">Copiar el prompt</button>
+        </div>` : ''}
       </div>
     </div>`;
+}
+
+// Sin voz en el vídeo y sin saber de qué va, lo que escriba la IA es inventado:
+// mejor preguntar. Una línea basta.
+function preguntaHtml(video, kit, data) {
+  return `<div class="card pregunta-kit">
+    <p class="nota-mano">antes de escribir nada…</p>
+    <h3 style="font-size:22px;margin-top:6px">¿De qué va <span class="acento">este vídeo</span>?</h3>
+    <p class="muted small" style="margin-top:10px;line-height:1.7;max-width:640px">
+      <b style="color:var(--text)">${escapeHtml(video.title)}</b> · ${fmt.duration(video.duration_s)}<br>
+      Kevil no puede saberlo solo: ${escapeHtml(kit.motivo || 'no hay voz que transcribir')}. Cuéntalo con tus
+      palabras (el juego, qué haces, si es un directo) y el título, la descripción, las etiquetas y las
+      miniaturas saldrán de eso, sin inventar.
+    </p>
+    <textarea id="g-contexto" style="min-height:90px;margin-top:14px"
+      placeholder="Ej.: Gameplay de Friday Night Funkin', jugué la actualización del mod Animania. Sin comentarios, solo jugando.">${escapeHtml(video.contexto || '')}</textarea>
+    <div style="display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap">
+      <button class="btn primary" data-rehacer>✦ Preparar el kit con esto</button>
+      <button class="btn ghost sm" data-forzar>Hazlo sólo con el título</button>
+      ${data.ai?.enabled ? '' : '<span class="muted tiny">Sin IA: se hará con tus palabras tal cual.</span>'}
+    </div>
+  </div>`;
 }
 
 function generandoHtml(video, trabajo) {
@@ -292,7 +348,7 @@ function generandoHtml(video, trabajo) {
 function pasosHtml(data) {
   const kit = data?.kit || {};
   const hayVideo = Boolean(data?.video);
-  const hayKit = Object.keys(kit).length > 0;
+  const hayKit = Object.keys(kit).length > 0 && !kit.falta_contexto;
   const subido = Boolean(kit.youtube?.url);
   const estado = (hecho, actual) => (hecho ? 'hecho' : (actual ? 'actual' : ''));
   return `<div class="pasos">
@@ -306,7 +362,9 @@ function pasosHtml(data) {
 }
 
 function filaVideo(video) {
-  const estado = video.has_kit
+  const estado = video.falta_contexto
+    ? { punto: 'warn', texto: 'dime de qué va' }
+    : video.has_kit
     ? { punto: 'ok', texto: `kit listo · ${video.kit_thumbnails} miniaturas` }
     : video.status === 'error'
       ? { punto: 'bad', texto: 'con error' }
@@ -586,25 +644,40 @@ function bind(root, data, ctx) {
     node.onclick = () => { selectedId = Number(node.dataset.video); ctx.reload(); };
   });
 
+  // Pedir el kit, con lo que hayas contado del vídeo
+  const pedirKit = async ({ preguntar = false, forzar = false } = {}) => {
+    const usarIA = data.ai?.enabled;
+    const conImagen = data.ai?.images_supported;
+    const hayKit = data.kit && Object.keys(data.kit).length && !data.kit.falta_contexto;
+    if (preguntar && hayKit
+      && !await confirmDialog('Regenerar el kit',
+        'Se sustituyen los títulos, la descripción y las miniaturas actuales.', 'Regenerar')) return;
+    const casillaIA = root.querySelector('#g-ia');
+    const casillaImg = root.querySelector('#g-img');
+    const contexto = root.querySelector('#g-contexto');
+    if (contexto && !contexto.value.trim() && !forzar && root.querySelector('.pregunta-kit')) {
+      toast('Escribe en una línea de qué va el vídeo', 'warn');
+      contexto.focus();
+      return;
+    }
+    await api.post(`/api/videos/${selectedId}/kit`, {
+      use_ai: casillaIA ? casillaIA.checked : Boolean(usarIA),
+      ai_image: casillaImg ? casillaImg.checked : Boolean(conImagen),
+      thumbnail_count: 3,
+      contexto: contexto ? contexto.value : null,
+      forzar,
+    });
+    toast('Preparando el kit…');
+    ctx.reload();
+  };
   const generar = root.querySelector('[data-generar]');
-  if (generar) {
-    generar.onclick = async () => {
-      const usarIA = data.ai?.enabled;
-      const conImagen = data.ai?.images_supported;
-      if (data.kit && Object.keys(data.kit).length
-        && !await confirmDialog('Regenerar el kit',
-          'Se sustituyen los títulos, la descripción y las miniaturas actuales.', 'Regenerar')) return;
-      const casillaIA = root.querySelector('#g-ia');
-      const casillaImg = root.querySelector('#g-img');
-      await api.post(`/api/videos/${selectedId}/kit`, {
-        use_ai: casillaIA ? casillaIA.checked : Boolean(usarIA),
-        ai_image: casillaImg ? casillaImg.checked : Boolean(conImagen),
-        thumbnail_count: 3,
-      });
-      toast('Generando el kit…');
-      ctx.reload();
-    };
-  }
+  if (generar) generar.onclick = () => pedirKit({ preguntar: true }).catch(toastError);
+  const rehacer = root.querySelector('[data-rehacer]');
+  if (rehacer) rehacer.onclick = () => pedirKit().catch(toastError);
+  const forzar = root.querySelector('[data-forzar]');
+  if (forzar) forzar.onclick = () => pedirKit({ forzar: true }).catch(toastError);
+  const reintentarMinis = root.querySelector('[data-miniaturas]');
+  if (reintentarMinis) reintentarMinis.onclick = () => pedirKit().catch(toastError);
 
   const kit = data.kit || {};
   const titulo = kit.chosen_title || (kit.titles || [])[0] || '';
@@ -649,6 +722,7 @@ function bind(root, data, ctx) {
       if (que === 'titulo') copiar(titulo, 'Título copiado');
       if (que === 'desc') copiar(root.querySelector('#kit-desc').value, 'Descripción copiada');
       if (que === 'tags') copiar((kit.tags || []).join(', '), 'Etiquetas copiadas');
+      if (que === 'prompt') copiar(kit.thumbnail_prompt || '', 'Prompt copiado: pégalo en tu IA de imágenes');
     };
   });
 

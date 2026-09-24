@@ -35,9 +35,13 @@ En **APIs y servicios → Pantalla de consentimiento de OAuth**:
 
 1. Tipo de usuario: **Externo**.
 2. Rellena el nombre de la aplicación y tu correo.
-3. En **Permisos**, añade estos dos:
+3. En **Permisos**, añade estos tres:
    * `.../auth/youtube.upload` — subir vídeos.
    * `.../auth/youtube.readonly` — leer los datos del canal y las estadísticas.
+   * `.../auth/youtube.force-ssl` — mover o cancelar un Short que ya está
+     programado en YouTube (desde la versión 1.7). Si conectaste antes, vuelve a
+     conectar YouTube una vez para concederlo; sin él todo funciona igual, pero
+     para cambiar la hora de un Short ya subido tendrás que hacerlo en YouTube Studio.
 4. En **Usuarios de prueba**, añade tu propia cuenta de Google.
 
 > Mientras la app esté «en pruebas», sólo funcionará con los usuarios de prueba que

@@ -4,6 +4,7 @@ import { api } from '../lib/api.js';
 import { cargarColores } from '../app.js';
 import { subirCookies, usarSesionYouTube } from '../lib/ayuda.js';
 import { activarProblemas, problemasHtml } from '../lib/problemas.js';
+import { activarSegundoPlano, estadoSegundoPlano } from '../lib/segundoPlano.js';
 import {
   confirmDialog, escapeHtml, modal, toast, toastError,
 } from '../lib/ui.js';
@@ -764,11 +765,12 @@ export default {
   subtitle: 'Lo esencial a la vista; el resto, cuando lo necesites',
 
   async render(root, ctx) {
-    const [config, status, ia, yt, tt, marca, disco, sesion, problemas] = await Promise.all([
+    const [config, status, ia, yt, tt, marca, disco, sesion, problemas, segundoPlano] = await Promise.all([
       api.settings(), api.status(),
       api.get('/api/ia'), api.get('/api/youtube/config'),
       api.get('/api/tiktok/config'), api.get('/api/branding'),
       api.get('/api/storage'), api.get('/api/youtube/sesion'), problemasHtml(),
+      estadoSegundoPlano(),
     ]);
     const valores = config.settings;
     const iaActivos = ia.proveedores.filter((p) => p.tiene_clave && p.activo);
@@ -885,6 +887,20 @@ export default {
         </div>
 
         <div style="display:flex;flex-direction:column;gap:22px">
+          ${segundoPlano ? `<div class="card">
+            <div class="card-head"><h3>Publicar sin estar pendiente</h3></div>
+            <p class="muted small" style="line-height:1.6;margin-bottom:12px">
+              Los Shorts quedan programados dentro de YouTube. TikTok no deja programar a otras apps: Kevil los
+              publica a su hora, así que conviene que siga en marcha aunque cierres la ventana.</p>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <label class="switch"><input type="checkbox" data-sp="segundo_plano" ${segundoPlano.segundo_plano ? 'checked' : ''}>
+                <span class="track"></span><span class="switch-label">Seguir en segundo plano al cerrar la ventana</span></label>
+              <label class="switch ${segundoPlano.arranque_disponible ? '' : 'apagado'}"><input type="checkbox" data-sp="arrancar_con_windows"
+                ${segundoPlano.arranca_con_windows ? 'checked' : ''} ${segundoPlano.arranque_disponible ? '' : 'disabled'}>
+                <span class="track"></span><span class="switch-label">Arrancar con Windows (en segundo plano)</span></label>
+            </div>
+            <button class="btn sm danger" style="margin-top:14px" data-salir-del-todo>Cerrar Kevil del todo</button>
+          </div>` : ''}
           <div class="card">
             <div class="card-head"><h3>Estado</h3></div>
             <div class="list">
@@ -941,6 +957,7 @@ export default {
     };
 
     activarProblemas(root, ctx.reload);
+    activarSegundoPlano(root, ctx.reload);
 
     // #ajustes?seccion=ia o =youtube abre directamente esa parte
     const seccion = new URLSearchParams(location.hash.split('?')[1] || '').get('seccion');
