@@ -19,7 +19,9 @@ from app.config import settings
 from app.db import init_db, session_scope
 from app.rutas import raiz_recursos
 from app.version import VERSION
-from app.services import events, pausa, pipeline, scheduler, studio  # noqa: F401  (registran trabajos)
+from app.services import (  # noqa: F401  (registran trabajos)
+    events, pausa, pipeline, repetidos, scheduler, studio,
+)
 from app.services.queue import runner
 
 # Dentro del .exe la interfaz vive en la carpeta que descomprime PyInstaller

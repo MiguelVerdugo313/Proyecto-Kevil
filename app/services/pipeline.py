@@ -577,6 +577,31 @@ def job_process(session: Session, ctx: JobContext) -> None:
         if old.status in {ClipStatus.draft.value, ClipStatus.failed.value}:
             session.delete(old)
     session.flush()
+    session.refresh(video)
+
+    # Lo que ya existe no se vuelve a crear: un trozo que ya es un clip
+    # (programado, publicado, por revisar o descartado por ti) se salta
+    from app.services import partes, repetidos
+
+    ya_hechos = [c for c in video.clips]
+    antes = len(candidates)
+    candidates = [
+        c for c in candidates
+        if not any(repetidos.mismo_trozo(c["start"], c["end"], h.start_s, h.end_s) for h in ya_hechos)
+    ]
+    saltados = antes - len(candidates)
+    if saltados:
+        ctx.log(f"{saltados} momento(s) ya eran clips: no se repiten")
+    if not candidates:
+        video.status = VideoStatus.done.value
+        events.log(
+            session,
+            f"«{video.title[:60]}»: sin clips nuevos (esos momentos ya estaban hechos)",
+            level="info",
+            scope="clips",
+        )
+        _borrar_temporal(ctx, audio_temporal)
+        return
 
     channel = video.source.name if video.source else ""
     total = len(candidates)
@@ -584,11 +609,7 @@ def job_process(session: Session, ctx: JobContext) -> None:
 
     # Un vídeo subido con nombre de archivo («2026-09-24 20-30») se titula con
     # lo que contaste de él, no con el nombre del archivo
-    from app.services import fidelidad, seo
-
-    titulo_base = video.title
-    if fidelidad.titulo_generico(video.title) and video.contexto:
-        titulo_base = seo._frase_principal(video.contexto) or video.title
+    titulo_base = partes.titulo_base(video)
 
     for index, candidate in enumerate(candidates, start=1):
         meta = metadata.build_metadata(
@@ -599,6 +620,8 @@ def job_process(session: Session, ctx: JobContext) -> None:
             text=f"{video.contexto or ''} {candidate.get('text', '')}".strip(),
             index=index,
             total=total,
+            entero=bool(video.duration_s)
+            and (candidate["end"] - candidate["start"]) >= 0.9 * float(video.duration_s),
         )
         clip = Clip(
             video_id=video.id,
@@ -625,6 +648,9 @@ def job_process(session: Session, ctx: JobContext) -> None:
         created.append(clip.id)
         ctx.progress(0.1 + 0.6 * index / total, f"{index}/{total} clips preparados")
 
+    # «Parte N» por orden dentro del vídeo, contando también los que ya había
+    session.refresh(video)
+    partes.numerar(session, video)
     session.commit()
 
     # todos los clips se renderizan; el modo de publicación sólo decide qué
@@ -913,6 +939,21 @@ def job_publish(session: Session, ctx: JobContext) -> None:
     es_youtube = account.platform == Platform.youtube.value
     destino = "YouTube Shorts" if es_youtube else "TikTok"
 
+    # ¿Ya existe de verdad en la plataforma (lo subió una versión anterior, o
+    # una subida que se cortó)? Entonces se enlaza en vez de subirlo otra vez.
+    from app.services import repetidos
+
+    encontrado = repetidos.ya_existe(account, clip, post)
+    if encontrado:
+        que = repetidos.enlazar(session, post, encontrado)
+        events.log(
+            session, f"«{clip.title[:50]}» {que}: no se sube otra vez",
+            level="info", scope="youtube" if es_youtube else "tiktok",
+            data={"post_id": post.id},
+        )
+        ctx.progress(1.0, que)
+        return
+
     # YouTube deja programar: el Short se sube ya, con su hora puesta dentro
     # de YouTube, y sale solo aunque el ordenador esté apagado.
     if ctx.payload.get("programar"):
@@ -980,6 +1021,7 @@ def job_publish(session: Session, ctx: JobContext) -> None:
 
     post.status = PostStatus.published.value
     post.published_at = utcnow()
+    repetidos.olvidar(account)
     if es_youtube and not result.get("dry_run"):
         post.subido_at = utcnow()
     post.publish_id = str(result.get("publish_id", ""))
@@ -1125,6 +1167,9 @@ def _programar_en_youtube(session, ctx, post, clip, account, publish_config) -> 
         )
         return
 
+    from app.services import repetidos
+
+    repetidos.olvidar(account)
     post.status = PostStatus.scheduled.value
     post.en_plataforma = True
     post.subido_at = utcnow()
