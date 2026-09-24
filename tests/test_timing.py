@@ -127,3 +127,64 @@ def test_el_historial_manda_cuando_hay_datos(session):
     mejores = timing.best_hours(session, account, top=3)
     assert len(mejores) == 3
     assert all("label" in hora for hora in mejores)
+
+
+# --------------------------------------------------------------------------
+# Horas de 12 y zona horaria del equipo
+# --------------------------------------------------------------------------
+def test_las_horas_se_leen_en_formato_de_12():
+    assert timing.hora_12(13, 31) == "1:31 p. m."
+    assert timing.hora_12(0) == "12:00 a. m."
+    assert timing.hora_12(12, 5) == "12:05 p. m."
+    assert timing.hora_12(9, 30) == "9:30 a. m."
+
+
+def test_la_zona_por_defecto_es_la_del_equipo(monkeypatch):
+    import tzlocal
+
+    monkeypatch.setattr(tzlocal, "get_localzone_name", lambda: "America/Bogota")
+    assert timing.zona_local() == "America/Bogota"
+    assert timing.default_strategy()["timezone"] == "America/Bogota"
+
+    # si Python no sabe, manda lo que diga la ventana
+    monkeypatch.setattr(tzlocal, "get_localzone_name", lambda: "Etc/UTC")
+    monkeypatch.setattr(timing, "_zona_del_navegador", "America/Mexico_City")
+    assert timing.zona_local() == "America/Mexico_City"
+
+
+def test_las_cuentas_de_madrid_pasan_a_tu_zona_y_se_recoloca_lo_programado(session, monkeypatch):
+    import tzlocal
+
+    monkeypatch.setattr(tzlocal, "get_localzone_name", lambda: "America/Bogota")
+    clip = _clip(session)
+    cuenta = _cuenta(session, timezone="Europe/Madrid", jitter_minutes=0)
+    # lo que eligió el motor con la hora de Madrid: jueves 20:30 allí = 13:30 aquí
+    auto = Post(clip_id=clip.id, account_id=cuenta.id, status=PostStatus.scheduled.value,
+                scheduled_at=utcnow() + timedelta(hours=10), slot_reason="Jueves 20:30 · franja 95%")
+    a_mano = Post(clip_id=clip.id, account_id=cuenta.id, status=PostStatus.scheduled.value,
+                  scheduled_at=utcnow() + timedelta(hours=30), slot_reason=timing.A_MANO)
+    session.add_all([auto, a_mano])
+    session.commit()
+    hora_a_mano = a_mano.scheduled_at
+
+    assert timing.poner_zona_del_equipo(session) == 1
+    session.commit()
+
+    assert cuenta.strategy["timezone"] == "America/Bogota"
+    assert a_mano.scheduled_at == hora_a_mano            # lo tuyo no se toca
+    assert auto.status == PostStatus.scheduled.value
+    assert "p. m." in auto.slot_reason or "a. m." in auto.slot_reason
+    local = timing.to_local(auto.scheduled_at, timing.get_zone("America/Bogota"))
+    assert local.hour not in range(1, 7)                  # nunca de madrugada
+
+    # y la segunda vez ya no hay nada que cambiar
+    assert timing.poner_zona_del_equipo(session) == 0
+
+
+def test_una_zona_elegida_a_mano_se_respeta(session, monkeypatch):
+    import tzlocal
+
+    monkeypatch.setattr(tzlocal, "get_localzone_name", lambda: "America/Bogota")
+    cuenta = _cuenta(session, timezone="America/Santiago")
+    assert timing.poner_zona_del_equipo(session) == 0
+    assert cuenta.strategy["timezone"] == "America/Santiago"

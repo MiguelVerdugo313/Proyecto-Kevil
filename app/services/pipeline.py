@@ -32,7 +32,7 @@ from app.services import (
 )
 from app.services import media as media_service
 from app.services import youtube as youtube_service
-from app.services.queue import JobContext, enqueue, register
+from app.services.queue import JobContext, enqueue, register, reprogramar
 
 
 # --------------------------------------------------------------------------
@@ -104,7 +104,7 @@ def _aplazar_por_limite(
     session: Session, ctx: JobContext, video: Video, flow: Flow, motivo: str
 ) -> None:
     """YouTube ha dicho «too many requests»: se vuelve a intentar más tarde."""
-    enqueue(
+    reprogramar(
         session,
         "ingest",
         {"video_id": video.id, "flow_id": flow.id},
@@ -122,6 +122,38 @@ def _aplazar_por_limite(
     )
     events.log(session, motivo, level="warn", scope="video", data={"video_id": video.id})
     ctx.progress(1.0, "Aplazado 45 minutos")
+
+
+# Cuántas veces se reintenta solo, una por hora, lo que YouTube frena con el
+# «no eres un robot» antes de dejarlo en tus manos.
+REINTENTOS_ROBOT = 6
+
+
+def _aplazar_por_robot(
+    session: Session, ctx: JobContext, kind: str, payload: dict[str, Any], titulo: str
+) -> bool:
+    """Reprograma dentro de una hora. Devuelve False si ya no quedan intentos."""
+    intentos = int(ctx.payload.get("reintentos_robot") or 0) + 1
+    notifications.notify(
+        session,
+        "YouTube pide comprobar que no eres un robot",
+        "Kevil lo reintenta solo cada hora. Para que no vuelva a pasar, deja que use "
+        "tu sesión de YouTube: Ajustes → YouTube → «Usar mi sesión de YouTube».",
+        kind="robot",
+        level="warn",
+        action_label="Arreglarlo",
+        action_url="#ajustes?seccion=youtube",
+        dedupe_hours=6,
+    )
+    if intentos > REINTENTOS_ROBOT:
+        return False
+    reprogramar(
+        session, kind, {**payload, "reintentos_robot": intentos},
+        priority=140, run_at=utcnow() + timedelta(minutes=60),
+        message=f"Reintentar «{titulo[:50]}» (YouTube pidió la comprobación)",
+    )
+    ctx.progress(1.0, "Aplazado una hora: YouTube pidió la comprobación")
+    return True
 
 
 def default_tiktok_account(session: Session) -> Account | None:
@@ -310,6 +342,15 @@ def job_ingest(session: Session, ctx: JobContext) -> None:
         video.error = str(exc)[:1000]
         _aplazar_por_limite(session, ctx, video, flow, str(exc))
         return
+    except youtube_service.RobotCheck as exc:
+        video.error = str(exc)[:1000]
+        if _aplazar_por_robot(
+            session, ctx, "ingest", {"video_id": video.id, "flow_id": flow.id}, video.title
+        ):
+            video.status = VideoStatus.queued.value
+            return
+        video.status = VideoStatus.error.value
+        raise
     except Exception as exc:
         video.status = VideoStatus.error.value
         video.error = youtube_service.traducir_error(exc)[:1000]
@@ -549,14 +590,33 @@ def job_render(session: Session, ctx: JobContext) -> None:
         except youtube_service.RateLimited as exc:
             clip.status = ClipStatus.draft.value
             clip.error = str(exc)[:1000]
-            enqueue(
+            reprogramar(
                 session, "render", {"clip_id": clip.id}, priority=140,
                 run_at=utcnow() + timedelta(minutes=45),
                 message="Reintentar el clip (YouTube nos frenó)",
             )
             ctx.progress(1.0, "Aplazado 45 minutos")
             return
+        except youtube_service.RobotCheck as exc:
+            clip.error = str(exc)[:1000]
+            if _aplazar_por_robot(session, ctx, "render", {"clip_id": clip.id}, clip.title):
+                clip.status = ClipStatus.draft.value
+                return
+            clip.status = ClipStatus.failed.value
+            raise RuntimeError(clip.error) from exc
         except Exception as exc:
+            if youtube_service.archivo_ocupado(exc):
+                # Windows tenía el archivo cogido (antivirus, indexador…): no es
+                # un fallo del vídeo. Se vuelve a intentar en un par de minutos.
+                clip.status = ClipStatus.draft.value
+                clip.error = ""
+                reprogramar(
+                    session, "render", {"clip_id": clip.id}, priority=135,
+                    run_at=utcnow() + timedelta(minutes=2),
+                    message="Reintentar el clip (archivo ocupado en Windows)",
+                )
+                ctx.progress(1.0, "Se reintenta en 2 minutos")
+                return
             clip.status = ClipStatus.failed.value
             clip.error = youtube_service.traducir_error(exc)[:1000]
             raise RuntimeError(clip.error) from exc
@@ -644,8 +704,14 @@ def schedule_clip(
     schedule_config: dict[str, Any] | None = None,
     *,
     when: datetime | None = None,
+    reason: str = "",
 ) -> Post:
-    """Crea la publicación programada de un clip en una cuenta."""
+    """Crea la publicación programada de un clip en una cuenta.
+
+    `reason` sirve para cuando la hora la propuso el motor y tú sólo la
+    aceptaste: sigue contando como suya (y se puede recolocar) y no como
+    puesta a mano.
+    """
     schedule_config = schedule_config or {}
 
     if when is None:
@@ -667,7 +733,7 @@ def schedule_clip(
                 "reason": "Sin hueco disponible en la ventana elegida",
             }
     else:
-        slot = {"utc": when, "score": 0.0, "reason": "Programado a mano"}
+        slot = {"utc": when, "score": 0.0, "reason": reason or timing.A_MANO}
 
     post = Post(
         clip_id=clip.id,
@@ -689,6 +755,29 @@ def schedule_clip(
         data={"post_id": post.id, "clip_id": clip.id},
     )
     return post
+
+
+def proponer_hora(
+    session: Session, account: Account, schedule_config: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """La hora que elegiría el motor ahora mismo para esta cuenta."""
+    schedule_config = schedule_config or {}
+    slots = timing.plan_slots(
+        session,
+        account,
+        1,
+        max_per_day=int(schedule_config.get("max_per_day") or 0) or None,
+        min_gap_hours=float(schedule_config.get("min_gap_hours") or 0) or None,
+        spread_days=int(schedule_config.get("spread_days", 7) or 7),
+        start_delay_hours=float(schedule_config.get("start_delay_hours", 2) or 0),
+    )
+    if slots:
+        return {"utc": slots[0]["utc"], "reason": slots[0]["reason"], "score": slots[0]["score"]}
+    return {
+        "utc": utcnow() + timedelta(days=1),
+        "reason": "Sin hueco disponible en la ventana elegida",
+        "score": 0.0,
+    }
 
 
 # --------------------------------------------------------------------------

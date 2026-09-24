@@ -205,22 +205,21 @@ def test_las_plantillas_se_ponen_al_dia_sin_pisar_lo_tuyo(session):
                 paso["config"]["mode"] = modo
         return Flow(name=nombre, description="", icon="", steps=pasos)
 
-    de_fabrica = con_modo("Cortes virales (recomendado)", "blur")
+    de_fabrica = con_modo("Cortes virales (recomendado)", "smart")   # como quedó en la 1.2
     tocado = con_modo("Clips a TikTok y Shorts", "split")     # elegido a mano
-    ajeno = con_modo("Mi flujo", "blur")                      # no es una plantilla
+    ajeno = con_modo("Mi flujo", "smart")                     # no es una plantilla
     session.add_all([de_fabrica, tocado, ajeno])
     session.flush()
 
-    assert bootstrap.actualizar_plantillas(session) == 1
+    assert bootstrap.actualizar_plantillas(session) >= 1
     session.flush()
 
     def modo(flow):
         return step_config(flow.steps, "reframe")["mode"]
 
-    assert modo(de_fabrica) == "smart"      # seguía con el valor de antes
-    assert step_config(de_fabrica.steps, "reframe")["follow"] is True
+    assert modo(de_fabrica) == "blur"       # vuelve al fondo borroso
     assert modo(tocado) == "split"          # lo eligió el usuario: no se toca
-    assert modo(ajeno) == "blur"            # no es una plantilla de las nuestras
+    assert modo(ajeno) == "smart"           # no es una plantilla de las nuestras
 
     # y no se repite en cada arranque
     assert bootstrap.actualizar_plantillas(session) == 0
@@ -321,3 +320,27 @@ def test_la_tipografia_viaja_con_el_programa(tmp_path):
     from pathlib import Path
     construir = (Path(__file__).parent.parent / "construir.py").read_text(encoding="utf-8")
     assert "app/assets" in construir      # y entra en el .exe
+
+
+def test_por_defecto_fondo_borroso_y_los_clips_sin_montar_tambien(session):
+    from app import bootstrap
+    from app.flow_schema import FLOW_PRESETS
+    from app.models import Clip, ClipStatus, Video
+
+    recomendado = next(p for p in FLOW_PRESETS if p["name"].startswith("Cortes virales"))
+    assert step_config(recomendado["steps"], "reframe")["mode"] == "blur"
+    assert default_config("reframe")["mode"] == "blur"
+
+    video = Video(external_id="fb1", title="V", url="x")
+    session.add(video)
+    session.flush()
+    fallido = Clip(video_id=video.id, index=1, title="a", start_s=0, end_s=30,
+                   status=ClipStatus.failed.value, render_config={"reframe": {"mode": "smart"}})
+    montado = Clip(video_id=video.id, index=2, title="b", start_s=40, end_s=70,
+                   status=ClipStatus.rendered.value, render_config={"reframe": {"mode": "smart"}})
+    session.add_all([fallido, montado])
+    session.flush()
+
+    bootstrap.actualizar_plantillas(session)
+    assert fallido.render_config["reframe"]["mode"] == "blur"   # se montará ya con fondo borroso
+    assert montado.render_config["reframe"]["mode"] == "smart"  # lo ya montado se queda como está

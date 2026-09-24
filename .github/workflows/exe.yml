@@ -68,6 +68,20 @@ jobs:
           "KEVIL_FFMPEG_DIR=$bin" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           Write-Host "ffmpeg en $bin"
 
+      - name: Traer deno (lo que YouTube exige para bajar bien los vídeos)
+        if: ${{ inputs.con_ffmpeg != false }}
+        shell: pwsh
+        run: |
+          # yt-dlp necesita un programa de JavaScript para resolver los retos de
+          # YouTube. Sin él faltan formatos y salta antes el «no eres un robot».
+          $url = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
+          Invoke-WebRequest $url -OutFile deno.zip
+          Expand-Archive deno.zip -DestinationPath deno-descargado
+          $exe = Get-ChildItem -Recurse -Filter "deno.exe" deno-descargado | Select-Object -First 1
+          if (-not $exe) { throw "No se ha encontrado deno.exe en el paquete" }
+          "KEVIL_DENO_DIR=$($exe.Directory.FullName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          & $exe.FullName --version
+
       - name: Comprobar que las pruebas pasan
         run: |
           pip install pytest

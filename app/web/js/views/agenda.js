@@ -2,7 +2,7 @@
 
 import { api } from '../lib/api.js';
 import {
-  confirmDialog, emptyState, escapeHtml, fmt, heatColor, modal,
+  LOCALE, confirmDialog, emptyState, escapeHtml, fmt, heatColor, modal,
   statusPill, toast, toastError,
 } from '../lib/ui.js';
 
@@ -75,7 +75,7 @@ async function previewSlots() {
     body: slots.length ? `<div class="list">${slots.map((slot) => `
       <div class="list-row">
         <div class="grow">
-          <strong>${escapeHtml(new Date(slot.utc).toLocaleString('es-ES', { weekday: 'long', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</strong>
+          <strong>${escapeHtml(new Date(slot.utc).toLocaleString(LOCALE, { weekday: 'long', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }))}</strong>
           <div class="muted tiny">${escapeHtml(slot.reason)}</div>
         </div>
         <div style="width:120px"><div class="bar"><i style="width:${Math.round(slot.score * 100)}%"></i></div></div>
@@ -125,8 +125,8 @@ export default {
         <div class="card-head">
           <div style="display:flex;gap:8px;align-items:center">
             <button class="btn sm ghost" data-week="-1">‹</button>
-            <strong>${escapeHtml(weekStart.toLocaleDateString('es-ES', { day: '2-digit', month: 'long' }))}
-              — ${escapeHtml(days[6].toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' }))}</strong>
+            <strong>${escapeHtml(weekStart.toLocaleDateString(LOCALE, { day: '2-digit', month: 'long' }))}
+              — ${escapeHtml(days[6].toLocaleDateString(LOCALE, { day: '2-digit', month: 'long', year: 'numeric' }))}</strong>
             <button class="btn sm ghost" data-week="1">›</button>
             ${weekOffset !== 0 ? '<button class="btn sm ghost" data-week="0">Hoy</button>' : ''}
           </div>
@@ -143,7 +143,7 @@ export default {
               .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
             return `<div class="cal-day ${date.toDateString() === today ? 'today' : ''}">
               <div class="d">
-                <span>${escapeHtml(date.toLocaleDateString('es-ES', { weekday: 'short' }))}</span>
+                <span>${escapeHtml(date.toLocaleDateString(LOCALE, { weekday: 'short' }))}</span>
                 <b>${date.getDate()}</b>
               </div>
               ${list.map((post) => `
@@ -171,11 +171,11 @@ export default {
         </div>
         <div class="heat">
           <span class="lbl"></span>
-          ${Array.from({ length: 24 }, (_, hour) => `<span class="hour">${hour % 3 === 0 ? hour : ''}</span>`).join('')}
+          ${Array.from({ length: 24 }, (_, hour) => `<span class="hour">${hour % 3 === 0 ? fmt.hourShort(hour) : ''}</span>`).join('')}
           ${heat.days.map((day, index) => `
             <span class="lbl">${escapeHtml(day.slice(0, 3))}</span>
             ${heat.matrix[index].map((value, hour) => `
-              <span class="cell" title="${escapeHtml(day)} ${hour}:00 · ${Math.round(value * 100)}%"
+              <span class="cell" title="${escapeHtml(day)} ${fmt.hour(hour)} · ${Math.round(value * 100)}%"
                 style="background:${heatColor(value)}"></span>`).join('')}`).join('')}
         </div>
       </div>` : ''}

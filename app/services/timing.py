@@ -42,13 +42,60 @@ _WEEKEND_BASE = [
 ]
 
 
+# Zona que ha dicho la ventana de la aplicación (el navegador sabe la del
+# equipo). Sólo se usa si Python no consigue averiguarla por su cuenta.
+_zona_del_navegador = ""
+ZONAS_SIN_DATO = {"", "UTC", "Etc/UTC", "GMT", "Etc/GMT", "Universal", "Zulu"}
+# La que venía de fábrica antes: las cuentas que siguen con ella se pasan a la
+# del equipo (Kevil se hizo en Madrid; tú no estás en Madrid).
+ZONA_ANTIGUA = "Europe/Madrid"
+
+
+def recordar_zona_del_navegador(nombre: str) -> None:
+    global _zona_del_navegador
+    try:
+        ZoneInfo(nombre)
+    except (ZoneInfoNotFoundError, ValueError):
+        return
+    _zona_del_navegador = nombre
+
+
+def zona_local() -> str:
+    """La zona horaria del ordenador, en formato IANA (America/Bogota…)."""
+    from app.config import settings
+
+    elegida = (getattr(settings, "timezone", "") or "").strip()
+    if elegida and elegida not in ZONAS_SIN_DATO:
+        return elegida
+    try:
+        import tzlocal
+
+        nombre = tzlocal.get_localzone_name() or ""
+    except Exception:  # noqa: BLE001 - sin tzlocal o sin registro legible
+        nombre = ""
+    if nombre in ZONAS_SIN_DATO and _zona_del_navegador:
+        nombre = _zona_del_navegador
+    try:
+        ZoneInfo(nombre or "UTC")
+    except (ZoneInfoNotFoundError, ValueError):
+        nombre = _zona_del_navegador or "UTC"
+    return nombre or "UTC"
+
+
+def hora_12(hour: int, minute: int = 0) -> str:
+    """13:30 → «1:30 p. m.», que es como se lee la hora en el día a día."""
+    sufijo = "a. m." if hour % 24 < 12 else "p. m."
+    h = hour % 12 or 12
+    return f"{h}:{minute:02d} {sufijo}"
+
+
 def default_heatmap() -> list[list[float]]:
     return [list(_WEEKDAY_BASE) for _ in range(5)] + [list(_WEEKEND_BASE) for _ in range(2)]
 
 
 def default_strategy() -> dict[str, Any]:
     return {
-        "timezone": "Europe/Madrid",
+        "timezone": zona_local(),
         "max_per_day": 3,
         "min_gap_hours": 3.0,
         "allowed_days": [0, 1, 2, 3, 4, 5, 6],
@@ -371,7 +418,10 @@ def plan_slots(
                 score -= 0.012 * day_offset
 
                 if best is None or score > best[0]:
-                    reason = f"{DAYS[weekday]} {hour:02d}:30 · franja {round(heat[weekday][hour] * 100)}%"
+                    reason = (
+                        f"{DAYS[weekday]} {hora_12(hour, 30)} · "
+                        f"franja {round(heat[weekday][hour] * 100)}%"
+                    )
                     best = (score, candidate_local, reason)
 
         if best is None:
@@ -409,7 +459,7 @@ def best_hours(session: Session, account: Account, top: int = 5) -> list[dict[st
         result.append(
             {
                 **item,
-                "label": f"{DAYS[item['day']]} · {item['hour']:02d}:00",
+                "label": f"{DAYS[item['day']]} · {hora_12(item['hour'])}",
                 "percent": round(item["score"] * 100),
             }
         )
@@ -426,3 +476,62 @@ def health_score(state: dict[str, Any]) -> int:
     if state.get("using_history"):
         score += 5
     return int(max(0, min(100, round(score))))
+
+
+# --------------------------------------------------------------------------
+# Volver a elegir hora para lo que ya estaba programado
+# --------------------------------------------------------------------------
+A_MANO = "Programado a mano"
+# lo que tú elegiste o moviste en la agenda no se toca nunca
+PUESTOS_A_MANO = (A_MANO, "Movido a mano")
+
+
+def replanificar(session: Session, account: Account) -> int:
+    """Recoloca las publicaciones que eligió el motor (no las puestas a mano).
+
+    Se usa al cambiar la zona horaria: lo que se programó pensando en las
+    20:30 de Madrid caía a la 1:30 de la tarde en Colombia.
+    """
+    posts = session.scalars(
+        select(Post).where(
+            Post.account_id == account.id,
+            Post.status == PostStatus.scheduled.value,
+            Post.slot_reason.not_in(PUESTOS_A_MANO),
+        ).order_by(Post.scheduled_at)
+    ).all()
+    if not posts:
+        return 0
+    # fuera del calendario mientras se buscan huecos nuevos, para no chocar
+    # consigo mismas
+    for post in posts:
+        post.status = PostStatus.cancelled.value
+    session.flush()
+    try:
+        huecos = plan_slots(session, account, len(posts), spread_days=14, start_delay_hours=1)
+    finally:
+        for post in posts:
+            post.status = PostStatus.scheduled.value
+    for post, hueco in zip(posts, huecos):
+        post.scheduled_at = hueco["utc"]
+        post.slot_score = float(hueco.get("score", 0))
+        post.slot_reason = str(hueco.get("reason", ""))[:300]
+    session.flush()
+    return min(len(posts), len(huecos))
+
+
+def poner_zona_del_equipo(session: Session) -> int:
+    """Pasa a la zona del equipo las cuentas que seguían con la de fábrica."""
+    zona = zona_local()
+    if zona in ZONAS_SIN_DATO or zona == ZONA_ANTIGUA:
+        return 0
+    cambiadas = 0
+    for account in session.scalars(select(Account)).all():
+        strategy = dict(account.strategy or {})
+        if strategy.get("timezone") not in (None, "", ZONA_ANTIGUA):
+            continue
+        strategy["timezone"] = zona
+        account.strategy = strategy
+        session.flush()
+        replanificar(session, account)
+        cambiadas += 1
+    return cambiadas

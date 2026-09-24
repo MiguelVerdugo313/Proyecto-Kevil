@@ -38,6 +38,8 @@ class ClipPatch(BaseModel):
 class ApproveIn(BaseModel):
     account_id: int | None = None
     scheduled_at: datetime | None = None
+    # la hora la propuso el motor y no se ha tocado: sigue siendo «suya»
+    slot_reason: str = ""
 
 
 @router.get("")
@@ -154,7 +156,8 @@ def approve_clip(clip_id: int, body: ApproveIn, db: Session = Depends(get_db)):
         if cuenta.id in ya_programadas:
             continue
         post = pipeline.schedule_clip(
-            db, clip, cuenta, schedule_config, when=naive_utc(body.scheduled_at)
+            db, clip, cuenta, schedule_config, when=naive_utc(body.scheduled_at),
+            reason=body.slot_reason[:300],
         )
         creados.append(post.id)
 
@@ -163,6 +166,24 @@ def approve_clip(clip_id: int, body: ApproveIn, db: Session = Depends(get_db)):
         "clip": clip_to_dict(clip),
         "post_ids": creados,
         "post_id": creados[0] if creados else None,
+    }
+
+
+@router.get("/{clip_id}/propuesta")
+def propuesta(clip_id: int, account_id: int, db: Session = Depends(get_db)):
+    """Cuándo publicaría el motor este clip en esa cuenta, para enseñarlo ya."""
+    clip = db.get(Clip, clip_id)
+    cuenta = db.get(Account, account_id)
+    if not clip or not cuenta:
+        raise HTTPException(404, "Clip o cuenta no encontrados")
+    from app.flow_schema import step_config
+
+    flow = pipeline.resolve_flow(db, clip.flow_id)
+    hueco = pipeline.proponer_hora(db, cuenta, step_config(flow.steps, "schedule"))
+    return {
+        "scheduled_at": hueco["utc"].isoformat() + "Z",
+        "reason": hueco["reason"],
+        "score": hueco["score"],
     }
 
 

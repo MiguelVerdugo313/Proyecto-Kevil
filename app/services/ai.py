@@ -1,14 +1,19 @@
 """Conector de inteligencia artificial, con respaldo automático.
 
-Puedes tener configurados **los dos proveedores a la vez**:
+Puedes tener configurados **varios proveedores a la vez**, y varias claves del
+mismo si quieres:
 
-* **OpenRouter** — https://openrouter.ai  (una clave, cientos de modelos).
-* **NVIDIA NIM** — https://build.nvidia.com  (créditos gratuitos).
+* **OpenRouter** y **NVIDIA NIM**, los de siempre;
+* y los que añadas de la lista: Groq, Google Gemini, Mistral, Cerebras,
+  DeepSeek, OpenAI, Together, Hugging Face, Ollama en tu propio PC o cualquier
+  servicio compatible con la API de OpenAI.
 
 Se usa el que hayas marcado como principal y, si falla (se acaban los créditos,
-te limitan por peticiones, se cae el servicio…), se pasa solo al otro y lo
-apunta en el registro. Si no hay ninguno configurado, cada función tiene una
-alternativa local: peor, pero la aplicación nunca se queda bloqueada.
+te limitan por peticiones, se cae el servicio…), se pasa solo al siguiente y lo
+apunta en el registro. Si el modelo elegido se retira (como le pasó a
+«meta/llama-3.1-8b-instruct» en NVIDIA), se busca otro disponible en ese mismo
+proveedor, se queda guardado y se sigue. Sin ninguno configurado, cada función
+tiene una alternativa local: peor, pero la aplicación nunca se queda bloqueada.
 """
 
 from __future__ import annotations
@@ -17,7 +22,9 @@ import base64
 import json
 import re
 import threading
-from dataclasses import dataclass, field
+import time
+import uuid
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
 import httpx
@@ -49,8 +56,11 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "keys_url": "https://build.nvidia.com",
         "text_models": [
             "meta/llama-3.3-70b-instruct",
-            "meta/llama-3.1-8b-instruct",
-            "mistralai/mistral-large-2-instruct",
+            "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            "qwen/qwen3-235b-a22b",
+            "deepseek-ai/deepseek-v3.1",
+            "openai/gpt-oss-120b",
+            "mistralai/mistral-medium-3-instruct",
         ],
         "image_models": [
             "black-forest-labs/flux.1-dev",
@@ -59,8 +69,90 @@ PROVIDERS: dict[str, dict[str, Any]] = {
     },
 }
 
+# Los que se pueden añadir a la lista. Todos hablan la API de OpenAI
+# (/chat/completions y /models), así que basta con la dirección y la clave.
+CATALOGO: dict[str, dict[str, Any]] = {
+    "openrouter": {**PROVIDERS["openrouter"], "nota": "Una clave, cientos de modelos (muchos gratis)."},
+    "nvidia": {**PROVIDERS["nvidia"], "nota": "Créditos gratuitos al registrarte."},
+    "groq": {
+        "label": "Groq", "base_url": "https://api.groq.com/openai/v1",
+        "keys_url": "https://console.groq.com/keys",
+        "text_models": ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "qwen/qwen3-32b",
+                        "llama-3.1-8b-instant"],
+        "nota": "Gratis con límites generosos y muy rápido.",
+    },
+    "gemini": {
+        "label": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "keys_url": "https://aistudio.google.com/apikey",
+        "text_models": ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
+        "nota": "Clave gratuita en Google AI Studio.",
+    },
+    "mistral": {
+        "label": "Mistral", "base_url": "https://api.mistral.ai/v1",
+        "keys_url": "https://console.mistral.ai/api-keys",
+        "text_models": ["mistral-small-latest", "mistral-medium-latest", "open-mistral-nemo"],
+        "nota": "Tiene un plan gratuito para pruebas.",
+    },
+    "cerebras": {
+        "label": "Cerebras", "base_url": "https://api.cerebras.ai/v1",
+        "keys_url": "https://cloud.cerebras.ai",
+        "text_models": ["llama-3.3-70b", "gpt-oss-120b", "qwen-3-32b", "llama3.1-8b"],
+        "nota": "Gratis con límite diario, rapidísimo.",
+    },
+    "deepseek": {
+        "label": "DeepSeek", "base_url": "https://api.deepseek.com/v1",
+        "keys_url": "https://platform.deepseek.com/api_keys",
+        "text_models": ["deepseek-chat"],
+        "nota": "De pago, muy barato.",
+    },
+    "openai": {
+        "label": "OpenAI", "base_url": "https://api.openai.com/v1",
+        "keys_url": "https://platform.openai.com/api-keys",
+        "text_models": ["gpt-4.1-mini", "gpt-4o-mini"],
+        "nota": "De pago.",
+    },
+    "together": {
+        "label": "Together AI", "base_url": "https://api.together.xyz/v1",
+        "keys_url": "https://api.together.ai/settings/api-keys",
+        "text_models": ["meta-llama/Llama-3.3-70B-Instruct-Turbo"],
+        "nota": "Da un saldo inicial gratis.",
+    },
+    "huggingface": {
+        "label": "Hugging Face", "base_url": "https://router.huggingface.co/v1",
+        "keys_url": "https://huggingface.co/settings/tokens",
+        "text_models": ["meta-llama/Llama-3.3-70B-Instruct", "Qwen/Qwen3-32B"],
+        "nota": "Saldo gratuito cada mes.",
+    },
+    "ollama": {
+        "label": "Ollama (en tu PC)", "base_url": "http://localhost:11434/v1",
+        "keys_url": "https://ollama.com/download", "sin_clave": True,
+        "text_models": ["llama3.2", "qwen3", "gemma3"],
+        "nota": "Gratis y sin internet: los modelos corren en tu ordenador.",
+    },
+    "personalizado": {
+        "label": "Otro compatible con OpenAI", "base_url": "", "keys_url": "",
+        "text_models": [],
+        "nota": "Cualquier servicio con la API de OpenAI: pon su dirección y su clave.",
+    },
+}
+
+# Modelos que sus dueños ya han retirado: si alguien los tenía elegidos, se
+# olvidan y se usa el recomendado.
+RETIRADOS = {"meta/llama-3.1-8b-instruct", "meta/llama3-70b-instruct", "meta/llama3-8b-instruct"}
+
+# Lo que no sirve para escribir texto y aparece en las listas de /models.
+NO_ES_DE_CHAT = (
+    "embed", "rerank", "guard", "safety", "reward", "whisper", "tts", "asr", "ocr",
+    "retriever", "parakeet", "clip", "flux", "stable-diffusion", "sdxl", "cosmos",
+    "detector", "segment", "moderation", "dall-e", "image", "audio", "transcribe",
+    "vision-only", "bge", "e5-", "nv-embed", "canary", "riva", "fastpitch",
+)
+
 # Se recuerda cuál se usó por última vez y cuántas veces hubo que cambiar
-_estado: dict[str, Any] = {"ultimo": "", "ultimo_modelo": "", "fallos": {}, "cambios": 0}
+_estado: dict[str, Any] = {
+    "ultimo": "", "ultimo_modelo": "", "fallos": {}, "cambios": 0,
+    "modelos_cambiados": {},      # proveedor → «X se retiró; ahora usa Y»
+}
 _lock = threading.Lock()
 
 
@@ -81,6 +173,12 @@ class Provider:
     base_url: str
     label: str = ""
     meta: dict[str, Any] = field(default_factory=dict)
+    tipo: str = ""                  # openrouter, nvidia, groq… (para los añadidos)
+    imagenes: bool = False
+
+
+class ModeloRetirado(AIError):
+    """El modelo elegido ya no existe en ese proveedor."""
 
 
 # --------------------------------------------------------------------------
@@ -89,28 +187,70 @@ class Provider:
 def _provider(key: str) -> Provider | None:
     meta = PROVIDERS.get(key)
     if not meta:
-        return None
+        return _extra(key)
     api_key = (getattr(settings, f"{key}_api_key", "") or "").strip()
     if not api_key:
         return None
+    modelo = (getattr(settings, f"{key}_text_model", "") or "").strip()
+    if modelo in RETIRADOS:
+        modelo = ""
     return Provider(
         key=key,
         api_key=api_key,
-        text_model=(getattr(settings, f"{key}_text_model", "") or "").strip()
-        or meta["text_models"][0],
+        text_model=modelo or meta["text_models"][0],
         image_model=(getattr(settings, f"{key}_image_model", "") or "").strip()
         or meta["image_models"][0],
         base_url=(getattr(settings, f"{key}_base_url", "") or "").strip() or meta["base_url"],
         label=meta["label"],
         meta=meta,
+        tipo=key,
+        imagenes=True,
     )
+
+
+def extras() -> list[dict[str, Any]]:
+    """Los proveedores añadidos desde la lista (además de OpenRouter y NVIDIA)."""
+    lista = getattr(settings, "ia_proveedores", None) or []
+    return [dict(item) for item in lista if isinstance(item, dict) and item.get("id")]
+
+
+def _extra(key: str) -> Provider | None:
+    for item in extras():
+        if item["id"] != key or not item.get("activo", True):
+            continue
+        meta = CATALOGO.get(item.get("tipo", ""), CATALOGO["personalizado"])
+        api_key = (item.get("api_key") or "").strip()
+        if not api_key and not meta.get("sin_clave"):
+            return None
+        base = (item.get("base_url") or meta.get("base_url") or "").strip().rstrip("/")
+        if not base:
+            return None
+        modelo = (item.get("modelo") or "").strip()
+        if modelo in RETIRADOS:
+            modelo = ""
+        return Provider(
+            key=key,
+            api_key=api_key or "sin-clave",
+            text_model=modelo or (meta.get("text_models") or [""])[0],
+            image_model="",
+            base_url=base,
+            label=item.get("nombre") or meta["label"],
+            meta=meta,
+            tipo=item.get("tipo", "personalizado"),
+            imagenes=False,
+        )
+    return None
+
+
+def orden_de_proveedores() -> list[str]:
+    principal = (settings.ai_primary or "openrouter").strip()
+    todos = list(PROVIDERS) + [item["id"] for item in extras()]
+    return [principal] + [k for k in todos if k != principal] if principal in todos else todos
 
 
 def configured_providers() -> list[Provider]:
     """Los proveedores disponibles, en orden de preferencia."""
-    principal = (settings.ai_primary or "openrouter").strip().lower()
-    orden = [principal] + [k for k in PROVIDERS if k != principal]
-    return [p for p in (_provider(key) for key in orden) if p]
+    return [p for p in (_provider(key) for key in orden_de_proveedores()) if p]
 
 
 def is_enabled() -> bool:
@@ -143,6 +283,7 @@ def status() -> dict[str, Any]:
         "last_used": _estado["ultimo"],
         "failovers": _estado["cambios"],
         "failures": dict(_estado["fallos"]),
+        "model_changes": dict(_estado["modelos_cambiados"]),
         "images_supported": bool(disponibles),
         "providers": {
             key: {
@@ -154,6 +295,7 @@ def status() -> dict[str, Any]:
             }
             for key, value in PROVIDERS.items()
         },
+        "extra_count": len(extras()),
     }
 
 
@@ -165,13 +307,28 @@ def _headers(provider: Provider) -> dict[str, str]:
         "Authorization": f"Bearer {provider.api_key}",
         "Content-Type": "application/json",
     }
-    if provider.key == "openrouter":
+    if provider.tipo == "openrouter" or provider.key == "openrouter":
         headers["HTTP-Referer"] = "http://localhost/kevil-studio"
         headers["X-Title"] = "Kevil Studio"
     return headers
 
 
-def _describe_error(response: httpx.Response) -> str:
+def _es_modelo_retirado(response: httpx.Response) -> bool:
+    if response.status_code in (404, 410):
+        return True
+    texto = response.text.lower()[:600]
+    return response.status_code in (400, 422) and "model" in texto and any(
+        marca in texto for marca in (
+            "not found", "does not exist", "end of life", "no longer available",
+            "not supported", "invalid model", "unknown model", "decommissioned",
+        )
+    )
+
+
+def _describe_error(response: httpx.Response, modelo: str = "") -> str:
+    if _es_modelo_retirado(response):
+        return f"el modelo «{modelo}» ya no existe o lo han retirado" if modelo else (
+            "el modelo elegido ya no existe o lo han retirado")
     if response.status_code in (401, 403):
         return "la clave no es válida o no tiene permisos"
     if response.status_code == 402:
@@ -194,7 +351,16 @@ def _con_respaldo(operacion: Callable[[Provider], Any], que: str) -> Any:
     errores: list[str] = []
     for indice, provider in enumerate(disponibles):
         try:
-            resultado = operacion(provider)
+            try:
+                resultado = operacion(provider)
+            except ModeloRetirado:
+                # El modelo se retiró: se busca otro en ese mismo proveedor, se
+                # guarda para la próxima y se vuelve a intentar una vez.
+                nuevo = reparar_modelo(provider)
+                if not nuevo:
+                    raise
+                provider = replace(provider, text_model=nuevo)
+                resultado = operacion(provider)
         except AIError as exc:
             errores.append(f"{provider.label}: {exc}")
             with _lock:
@@ -243,7 +409,9 @@ def chat(
             raise AIError(f"no se ha podido conectar ({exc})") from exc
 
         if response.status_code >= 400:
-            raise AIError(_describe_error(response))
+            if _es_modelo_retirado(response):
+                raise ModeloRetirado(_describe_error(response, provider.text_model))
+            raise AIError(_describe_error(response, provider.text_model))
 
         data = response.json()
         choices = data.get("choices") or []
@@ -319,21 +487,24 @@ def test_connection(only: str = "") -> dict[str, Any]:
     resultados = []
     for provider in disponibles:
         try:
-            with httpx.Client(timeout=TIMEOUT) as client:
-                response = client.post(
-                    f"{provider.base_url}/chat/completions",
-                    headers=_headers(provider),
-                    json={
-                        "model": provider.text_model,
-                        "messages": [{"role": "user", "content": "Responde: LISTO"}],
-                        "max_tokens": 10,
-                        "temperature": 0,
-                    },
-                )
+            response = _prueba(provider)
+            reparado = ""
+            if response.status_code >= 400 and _es_modelo_retirado(response):
+                reparado = reparar_modelo(provider) or ""
+                if reparado:
+                    provider = replace(provider, text_model=reparado)
+                    response = _prueba(provider)
             if response.status_code >= 400:
                 resultados.append(
                     {"provider": provider.key, "label": provider.label,
-                     "ok": False, "detail": _describe_error(response)}
+                     "ok": False, "detail": _describe_error(response, provider.text_model)}
+                )
+                continue
+            if reparado:
+                resultados.append(
+                    {"provider": provider.key, "label": provider.label, "ok": True,
+                     "model": provider.text_model,
+                     "detail": f"el modelo anterior se retiró; ahora usa {reparado}"}
                 )
                 continue
             texto = (
@@ -352,6 +523,136 @@ def test_connection(only: str = "") -> dict[str, Any]:
     return {"ok": any(r["ok"] for r in resultados), "results": resultados}
 
 
+def _prueba(provider: Provider) -> httpx.Response:
+    with httpx.Client(timeout=TIMEOUT) as client:
+        return client.post(
+            f"{provider.base_url}/chat/completions",
+            headers=_headers(provider),
+            json={
+                "model": provider.text_model,
+                "messages": [{"role": "user", "content": "Responde: LISTO"}],
+                "max_tokens": 10,
+                "temperature": 0,
+            },
+        )
+
+
+# --------------------------------------------------------------------------
+# Modelos: la lista de verdad de cada proveedor
+# --------------------------------------------------------------------------
+_cache_modelos: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+CACHE_MODELOS_S = 600
+
+
+def _parece_de_chat(nombre: str) -> bool:
+    bajo = nombre.lower()
+    return not any(marca in bajo for marca in NO_ES_DE_CHAT)
+
+
+def listar_modelos(provider: Provider, *, refrescar: bool = False) -> list[dict[str, Any]]:
+    """Los modelos de texto que ese proveedor ofrece AHORA (no una lista fija).
+
+    Por eso al elegir modelo salía sólo el básico: la lista era la de fábrica.
+    Ahora se pregunta al proveedor y se marcan los gratuitos.
+    """
+    guardado = _cache_modelos.get(provider.key)
+    if guardado and not refrescar and time.monotonic() - guardado[0] < CACHE_MODELOS_S:
+        return guardado[1]
+    try:
+        with httpx.Client(timeout=httpx.Timeout(20.0)) as client:
+            response = client.get(f"{provider.base_url}/models", headers=_headers(provider))
+    except httpx.HTTPError as exc:
+        raise AIError(f"no se ha podido pedir la lista de modelos ({exc})") from exc
+    if response.status_code >= 400:
+        raise AIError(_describe_error(response))
+    try:
+        datos = response.json()
+    except ValueError as exc:
+        raise AIError("la lista de modelos no se entiende") from exc
+    crudos = datos.get("data") if isinstance(datos, dict) else datos
+    modelos: list[dict[str, Any]] = []
+    for item in crudos or []:
+        if not isinstance(item, dict):
+            continue
+        nombre = str(item.get("id") or item.get("name") or "").strip()
+        if not nombre or not _parece_de_chat(nombre):
+            continue
+        precio = item.get("pricing") or {}
+        gratis = nombre.endswith(":free") or (
+            bool(precio) and str(precio.get("prompt")) in {"0", "0.0"}
+            and str(precio.get("completion")) in {"0", "0.0"}
+        )
+        modelos.append({"id": nombre, "gratis": gratis,
+                        "nombre": item.get("name") or nombre})
+    preferidos = list(provider.meta.get("text_models") or [])
+    modelos.sort(key=lambda m: (
+        m["id"] not in preferidos,
+        preferidos.index(m["id"]) if m["id"] in preferidos else 0,
+        not m["gratis"],
+        m["id"].lower(),
+    ))
+    _cache_modelos[provider.key] = (time.monotonic(), modelos)
+    return modelos
+
+
+def recomendado(provider: Provider, modelos: list[dict[str, Any]], evitar: set[str]) -> str:
+    """El mejor modelo disponible: uno de los preferidos o, si no, uno «instruct»."""
+    ids = [m["id"] for m in modelos if m["id"] not in evitar and m["id"] not in RETIRADOS]
+    for preferido in provider.meta.get("text_models") or []:
+        if preferido in ids:
+            return preferido
+    for marca in ("instruct", "chat", "versatile", "flash", "turbo"):
+        for modelo in ids:
+            if marca in modelo.lower():
+                return modelo
+    return ids[0] if ids else ""
+
+
+def reparar_modelo(provider: Provider) -> str | None:
+    """Busca otro modelo que funcione en ese proveedor y lo deja guardado."""
+    try:
+        modelos = listar_modelos(provider, refrescar=True)
+    except AIError:
+        return None
+    nuevo = recomendado(provider, modelos, {provider.text_model})
+    if not nuevo:
+        return None
+    guardar_modelo(provider.key, nuevo)
+    with _lock:
+        _estado["modelos_cambiados"][provider.key] = (
+            f"«{provider.text_model}» se retiró; ahora usa «{nuevo}»"
+        )
+    return nuevo
+
+
+def guardar_modelo(key: str, modelo: str) -> None:
+    """Deja elegido el modelo de un proveedor (también para próximos arranques)."""
+    try:
+        from app.bootstrap import save_settings
+        from app.db import session_scope
+    except Exception:  # noqa: BLE001
+        return
+    if key in PROVIDERS:
+        setattr(settings, f"{key}_text_model", modelo)
+        cambios: dict[str, Any] = {f"{key}_text_model": modelo}
+    else:
+        lista = extras()
+        for item in lista:
+            if item["id"] == key:
+                item["modelo"] = modelo
+        settings.ia_proveedores = lista
+        cambios = {"ia_proveedores": lista}
+    try:
+        with session_scope() as session:
+            save_settings(session, cambios)
+    except Exception:  # noqa: BLE001 - en pruebas puede no haber base de datos
+        pass
+
+
+def nuevo_id(tipo: str) -> str:
+    return f"{tipo}-{uuid.uuid4().hex[:6]}"
+
+
 # --------------------------------------------------------------------------
 # Imagen
 # --------------------------------------------------------------------------
@@ -359,6 +660,8 @@ def generate_image(prompt: str, *, width: int = 1280, height: int = 720) -> byte
     """Genera una imagen; también cambia de proveedor si el primero falla."""
 
     def pedir(provider: Provider) -> bytes:
+        if not provider.imagenes:
+            raise AIError("este proveedor no genera imágenes")
         if provider.key == "nvidia":
             return _nvidia_image(provider, prompt, width, height)
         return _openrouter_image(provider, prompt)

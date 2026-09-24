@@ -76,7 +76,7 @@ class YouTubeAccountIn(BaseModel):
     include_lives: bool = True
     include_shorts: bool = False
     backfill_limit: int = 20
-    min_duration_s: int = 120
+    min_duration_s: int = 20
     flow_id: int | None = None
     target_account_id: int | None = None
 

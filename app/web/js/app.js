@@ -262,6 +262,12 @@ document.addEventListener('click', (event) => {
 window.addEventListener('hashchange', navigate);
 window.kevilFmt = fmt;   // cómodo para depurar desde la consola
 cargarColores();
+// La zona horaria del equipo, por si Python no la pudo leer (Windows a veces no
+// la da en el formato que hace falta). Con eso las horas buenas son las tuyas.
+try {
+  const zona = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (zona) api.post('/api/zona-horaria', { zona }).catch(() => {});
+} catch { /* navegador sin Intl */ }
 navigate();
 heartbeat();
 setInterval(heartbeat, 4000);

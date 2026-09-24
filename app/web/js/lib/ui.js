@@ -1,6 +1,9 @@
 // Utilidades de interfaz: formato, avisos, ventanas modales y campos de formulario.
 
 /* ----------------------------------------------------------------- formato */
+// Español de Latinoamérica: horas de 12 con a. m. / p. m.
+export const LOCALE = 'es-CO';
+
 export const fmt = {
   number(value) {
     const n = Number(value || 0);
@@ -18,20 +21,35 @@ export const fmt = {
     return `${m}:${String(s).padStart(2, '0')}`;
   },
 
+  // Fechas y horas como se leen en el día a día: «24 sept, 1:31 p. m.».
   date(value, options) {
     if (!value) return '—';
-    return new Date(value).toLocaleString('es-ES',
-      options || { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    return new Date(value).toLocaleString(LOCALE,
+      options || { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
   },
 
   day(value) {
     if (!value) return '—';
-    return new Date(value).toLocaleDateString('es-ES', { weekday: 'short', day: '2-digit', month: 'short' });
+    return new Date(value).toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric', month: 'short' });
   },
 
   time(value) {
     if (!value) return '—';
-    return new Date(value).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    return new Date(value).toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit', hour12: true });
+  },
+
+  // Para ejes estrechos: 0 → «12a», 15 → «3p».
+  hourShort(hour) {
+    const h = ((Number(hour) % 24) + 24) % 24;
+    return `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`;
+  },
+
+  // Una hora suelta del día (0-23) en formato de 12 h: 13 → «1 p. m.».
+  hour(hour, minute = 0) {
+    const h = ((Number(hour) % 24) + 24) % 24;
+    const sufijo = h < 12 ? 'a. m.' : 'p. m.';
+    const doce = h % 12 || 12;
+    return minute ? `${doce}:${String(minute).padStart(2, '0')} ${sufijo}` : `${doce} ${sufijo}`;
   },
 
   relative(value) {

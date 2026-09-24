@@ -248,7 +248,12 @@ def test_plantilla_de_republicar_shorts():
     doble = next(p for p in FLOW_PRESETS if p["name"] == "Clips a TikTok y Shorts")
     publish = step_config(doble["steps"], "publish")
     assert publish["publish_tiktok"] and publish["publish_youtube_shorts"]
-    assert step_config(doble["steps"], "segment")["max_duration"] < 60
+    # YouTube acepta Shorts de hasta 3 minutos: los clips caben de sobra
+    from app.services.youtube_api import SHORT_MAX_SECONDS
+
+    segment = step_config(doble["steps"], "segment")
+    assert segment["max_duration"] <= SHORT_MAX_SECONDS
+    assert segment["entero_hasta"] <= SHORT_MAX_SECONDS
 
 
 def test_el_video_entero_como_un_solo_clip():

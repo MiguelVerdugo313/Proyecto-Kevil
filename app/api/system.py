@@ -43,6 +43,7 @@ from app.services import (
     youtube_api,
 )
 from app.services.queue import enqueue
+from app.services import scheduler as scheduler_service
 from app.version import VERSION
 
 router = APIRouter(prefix="/api", tags=["sistema"])
@@ -107,7 +108,27 @@ def status(db: Session = Depends(get_db)):
         "jobs_pending": _count(db, Job, Job.status == JobStatus.pending.value),
         "clips_ready": _count(db, Clip, Clip.status == ClipStatus.rendered.value),
         "paused": pausa.activa(),
+        "timezone": timing.zona_local(),
+        "motor": scheduler_service.agenda_del_motor(db),
     }
+
+
+class ZonaIn(BaseModel):
+    zona: str
+
+
+@router.post("/zona-horaria")
+def zona_horaria(body: ZonaIn, db: Session = Depends(get_db)):
+    """La ventana dice en qué zona está el equipo (el navegador lo sabe seguro).
+
+    Python casi siempre la averigua solo; esto cubre el caso en que no pueda.
+    Si cambia algo, las cuentas que seguían con la de fábrica se pasan a esta y
+    lo que el motor había programado se recoloca en tus horas buenas.
+    """
+    timing.recordar_zona_del_navegador(body.zona.strip())
+    cambiadas = timing.poner_zona_del_equipo(db)
+    db.commit()
+    return {"zona": timing.zona_local(), "cuentas_cambiadas": cambiadas}
 
 
 # --------------------------------------------------------------------------

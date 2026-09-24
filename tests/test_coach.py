@@ -142,3 +142,68 @@ def test_ideas_locales_sin_ia(session):
     assert all(idea.topic for idea in creadas)
     assert all(idea.source == "canal" for idea in creadas)
     assert all(0 <= idea.score <= 1 for idea in creadas)
+
+
+# --------------------------------------------------------------------------
+# Fechas reales del canal (antes el coach se quedaba a cero)
+# --------------------------------------------------------------------------
+FEED_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015"
+      xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+ <entry>
+  <yt:videoId>AAA</yt:videoId><title>FNAF 2 PLUS</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=AAA"/>
+  <published>2026-09-20T23:00:00+00:00</published>
+  <media:group><media:community><media:statistics views="1500"/></media:community></media:group>
+ </entry>
+ <entry>
+  <yt:videoId>SSS</yt:videoId><title>Un short</title>
+  <link rel="alternate" href="https://www.youtube.com/shorts/SSS"/>
+  <published>2026-09-21T10:00:00+00:00</published>
+ </entry>
+ <entry>
+  <yt:videoId>BBB</yt:videoId><title>Dibujando</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=BBB"/>
+  <published>2026-09-16T23:00:00+00:00</published>
+  <media:group><media:community><media:statistics views="900"/></media:community></media:group>
+ </entry>
+</feed>"""
+
+
+def test_el_feed_del_canal_da_las_fechas_sin_shorts():
+    import httpx
+
+    from app.services import coach
+
+    cliente = httpx.Client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, text=FEED_XML)))
+    subidas = coach.leer_feed("UCxxxxxxxxxxxxxxxxxxxxxx", client=cliente)
+    assert [s["id"] for s in subidas] == ["AAA", "BBB"]     # el Short no cuenta
+    assert subidas[0]["views"] == 1500
+    assert subidas[0]["published_at"].startswith("2026-09-20T23:00")
+
+
+def test_con_el_canal_conectado_el_coach_ya_tiene_datos(session, monkeypatch):
+    from app.models import Source
+    from app.services import coach
+
+    session.add(Source(name="Kevil", url="https://www.youtube.com/@kevil",
+                       channel_id="UCxxxxxxxxxxxxxxxxxxxxxx"))
+    session.commit()
+
+    # recién conectado y sin fechas: no dice «conecta tu canal», dice que lo lee
+    assert coach.recommendation(session)["state"] == "leyendo"
+
+    monkeypatch.setattr(coach, "leer_feed", lambda canal: [
+        {"id": f"V{i}", "title": f"Vídeo {i}", "views": 100 * i,
+         "published_at": (utcnow() - timedelta(days=3 * i + 1)).isoformat()}
+        for i in range(8)
+    ])
+    assert coach.actualizar_historial(session) == 8
+    datos = coach.recommendation(session)
+    stats = datos["stats"]
+    assert stats["has_data"] and stats["known_uploads"] == 8
+    assert stats["cadence_days"] == 3.0                 # tu ritmo real
+    assert stats["days_since_last"] is not None          # tu último vídeo
+    assert datos["next_upload_at"]                       # y cuándo toca el siguiente
+    assert len(stats["timeline"]) == 8

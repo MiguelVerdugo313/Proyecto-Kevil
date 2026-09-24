@@ -94,6 +94,33 @@ def enqueue(
     return job
 
 
+def reprogramar(
+    session: Session,
+    kind: str,
+    payload: dict[str, Any],
+    *,
+    run_at: datetime,
+    priority: int = 130,
+    message: str = "",
+) -> Job:
+    """Vuelve a poner en cola un trabajo desde dentro de sí mismo.
+
+    `enqueue` descarta los duplicados mirando también los que están en marcha,
+    y el que llama a esto ES el que está en marcha: se tomaba por duplicado de
+    sí mismo y el reintento no llegaba a crearse nunca. Aquí sólo cuentan los
+    que esperan turno.
+    """
+    for job in session.scalars(
+        select(Job).where(Job.kind == kind, Job.status == JobStatus.pending.value)
+    ).all():
+        if (job.payload or {}) == payload:
+            return job
+    return enqueue(
+        session, kind, payload, priority=priority, message=message,
+        dedupe=False, run_at=run_at,
+    )
+
+
 class Worker(threading.Thread):
     def __init__(self, index: int, stop_event: threading.Event):
         super().__init__(name=f"kevil-worker-{index}", daemon=True)
@@ -163,6 +190,11 @@ class Worker(threading.Thread):
                     job.error = f"{exc}\n{traceback.format_exc()}"[:4000]
                     job.message = str(exc)[:400]
                     job.finished_at = utcnow()
+                    # Lo pasajero (red, un archivo ocupado…) no se da por
+                    # perdido: vuelve a la cola dentro de un rato.
+                    from app.services import diagnostico
+
+                    diagnostico.reintentar_solo_si_toca(job)
 
 
 def _devolver_a_la_cola(session: Session, job_id: int) -> None:
