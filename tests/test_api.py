@@ -422,3 +422,64 @@ def test_las_claves_de_tiktok_en_sus_dos_casillas(client):
         client.put(
             "/api/settings", json={"tiktok_client_key": "", "tiktok_client_secret": ""}
         )
+
+
+def test_el_motor_propone_la_hora_del_clip_y_se_respeta(client):
+    """En la ficha del clip la fecha viene ya puesta con la hora que elige el motor."""
+    from app.models import Account, AccountStatus, Clip, Platform, Post, Video
+
+    with SessionLocal() as db:
+        cuenta = Account(platform=Platform.tiktok.value, display_name="K", handle="k",
+                         external_id="prop-1", status=AccountStatus.connected.value,
+                         strategy={"timezone": "America/Bogota"})
+        video = Video(external_id="prop-v", title="V", url="x")
+        db.add_all([cuenta, video])
+        db.flush()
+        clip = Clip(video_id=video.id, index=1, title="C", start_s=0, end_s=30,
+                    status="rendered")
+        db.add(clip)
+        db.commit()
+        clip_id, cuenta_id = clip.id, cuenta.id
+
+    datos = client.get(f"/api/clips/{clip_id}/propuesta?account_id={cuenta_id}").json()
+    assert datos["scheduled_at"].endswith("Z")
+    assert "m." in datos["reason"]                  # «8:30 p. m.», en formato de 12 h
+
+    r = client.post(f"/api/clips/{clip_id}/approve", json={
+        "account_id": cuenta_id, "scheduled_at": datos["scheduled_at"],
+        "slot_reason": datos["reason"],
+    })
+    assert r.status_code == 200, r.text
+    with SessionLocal() as db:
+        post = db.query(Post).filter(Post.clip_id == clip_id).one()
+        assert post.slot_reason == datos["reason"]   # sigue siendo del motor, no «a mano»
+        assert post.scheduled_at.isoformat()[:16] == datos["scheduled_at"][:16]
+
+
+def test_el_motor_dice_que_toca_despues(client):
+    """«Sin tareas activas» no puede parecer que está parado: dice qué viene."""
+    from datetime import timedelta
+
+    from app.models import Account, AccountStatus, Clip, Platform, Post, Source, Video, utcnow
+
+    with SessionLocal() as db:
+        db.add(Source(name="Kevil", url="https://www.youtube.com/@kevil",
+                      last_checked_at=utcnow() - timedelta(minutes=5)))
+        cuenta = Account(platform=Platform.tiktok.value, display_name="K", handle="k2",
+                         external_id="motor-1", status=AccountStatus.connected.value)
+        video = Video(external_id="motor-v", title="V", url="x")
+        db.add_all([cuenta, video])
+        db.flush()
+        clip = Clip(video_id=video.id, index=1, title="El clip que sale luego",
+                    start_s=0, end_s=30)
+        db.add(clip)
+        db.flush()
+        db.add(Post(clip_id=clip.id, account_id=cuenta.id,
+                    scheduled_at=utcnow() + timedelta(hours=3)))
+        db.commit()
+
+    motor = client.get("/api/status").json()["motor"]
+    assert motor["canales"] >= 1
+    assert motor["proxima_revision"]                    # cuándo vuelve a mirar el canal
+    assert motor["proxima_publicacion"]
+    assert motor["proxima_publicacion_titulo"]

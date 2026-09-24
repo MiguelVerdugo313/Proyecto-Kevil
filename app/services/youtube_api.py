@@ -218,6 +218,46 @@ def fetch_video_stats(credentials: dict[str, Any], video_ids: list[str]) -> dict
     return resultado
 
 
+def fetch_uploads(credentials: dict[str, Any], limit: int = 50) -> list[dict[str, Any]]:
+    """Tus últimos vídeos publicados con su fecha exacta y sus visitas.
+
+    Cuesta 3 unidades de cuota (canal, lista de subidas y estadísticas): nada
+    comparado con las 10.000 diarias.
+    """
+    with httpx.Client(timeout=TIMEOUT) as client:
+        canal = _json(client.get(
+            f"{API_BASE}/channels",
+            params={"part": "contentDetails", "mine": "true"},
+            headers=_headers(credentials),
+        ))
+        items = canal.get("items") or []
+        if not items:
+            return []
+        lista = (((items[0].get("contentDetails") or {}).get("relatedPlaylists") or {})
+                 .get("uploads", ""))
+        if not lista:
+            return []
+        datos = _json(client.get(
+            f"{API_BASE}/playlistItems",
+            params={"part": "snippet,contentDetails", "playlistId": lista,
+                    "maxResults": max(1, min(50, limit))},
+            headers=_headers(credentials),
+        ))
+    subidas: list[dict[str, Any]] = []
+    for item in datos.get("items") or []:
+        detalles = item.get("contentDetails") or {}
+        snippet = item.get("snippet") or {}
+        video_id = detalles.get("videoId") or ""
+        fecha = detalles.get("videoPublishedAt") or snippet.get("publishedAt") or ""
+        if video_id and fecha:
+            subidas.append({"id": video_id, "title": snippet.get("title", ""),
+                            "published_at": fecha.replace("Z", "")})
+    visitas = fetch_video_stats(credentials, [s["id"] for s in subidas])
+    for subida in subidas:
+        subida["views"] = (visitas.get(subida["id"]) or {}).get("views", 0)
+    return subidas
+
+
 # --------------------------------------------------------------------------
 # Subida
 # --------------------------------------------------------------------------

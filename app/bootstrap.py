@@ -11,6 +11,7 @@ from app.config import settings
 from app.db import session_scope
 from app.flow_schema import FLOW_PRESETS, normalize_steps
 from app.models import Flow, Setting
+from app.services import diagnostico, timing
 
 # Ajustes que se pueden cambiar desde la interfaz y se guardan en la base de datos
 EDITABLE_SETTINGS = {
@@ -48,7 +49,15 @@ EDITABLE_SETTINGS = {
     "disk_budget_gb": float,
     # Ventana de la aplicación
     "window_mode": str,
+    # YouTube: de dónde sacar tu sesión cuando pide «no soy un robot»
+    "youtube_cookies": str,
+    # Más proveedores de IA (se editan desde su propia pantalla)
+    "ia_proveedores": list,
 }
+
+# Se guardan como los demás, pero no salen en la lista general de ajustes:
+# llevan claves dentro y tienen su propia pantalla, que las enseña tapadas.
+AJUSTES_APARTE = {"ia_proveedores"}
 
 SECRET_SETTINGS = {
     "tiktok_client_secret", "youtube_api_key", "youtube_client_secret",
@@ -101,6 +110,23 @@ MEJORAS: dict[str, dict[str, dict[str, dict[str, tuple[Any, Any]]]]] = {
             },
         },
     },
+    # Clips con contexto: de 30 a 90 s en vez de 21 a 59. Los cortos se
+    # quedaban a media idea.
+    "clips-con-contexto-1": {
+        "*": {"segment": {"min_duration": (21, 30), "max_duration": (59, 90)}},
+        "Directos largos": {"segment": {"min_duration": (25, 30), "max_duration": (75, 90)}},
+        "Clips a TikTok y Shorts": {"segment": {"max_duration": (58, 90)}},
+        "Tutoriales y gameplay": {
+            "segment": {"min_duration": (20, 30), "max_duration": (55, 90)},
+        },
+    },
+    # Vuelta al fondo borroso: el vídeo entero centrado y, detrás, él mismo
+    # desenfocado. No corta nada de la pantalla y es el que más te gusta.
+    "fondo-borroso-1": {
+        "Cortes virales (recomendado)": {"reframe": {"mode": ("smart", "blur")}},
+        "Clips a TikTok y Shorts": {"reframe": {"mode": ("smart", "blur")}},
+        "Podcast / entrevistas": {"reframe": {"mode": ("smart", "blur")}},
+    },
 }
 
 
@@ -118,6 +144,38 @@ def _coincide(actual: Any, antes: Any) -> bool:
     return actual in antes if isinstance(antes, list) else actual == antes
 
 
+def _clips_sin_montar_a_fondo_borroso(session: Session) -> int:
+    """Los clips que aún no se han montado cogen también el fondo borroso."""
+    from app.models import Clip, ClipStatus
+
+    cambiados = 0
+    pendientes = {ClipStatus.draft.value, ClipStatus.failed.value}
+    for clip in session.scalars(select(Clip).where(Clip.status.in_(pendientes))).all():
+        config = dict(clip.render_config or {})
+        encuadre = dict(config.get("reframe") or {})
+        if encuadre.get("mode") == "smart":
+            encuadre["mode"] = "blur"
+            config["reframe"] = encuadre
+            clip.render_config = config
+            cambiados += 1
+    return cambiados
+
+
+def _canales_sin_saltar_cortos(session: Session) -> int:
+    """Los canales que se saltaban los vídeos de menos de 2 minutos ya no.
+
+    Ahora un vídeo corto se publica entero en vez de trocearlo, así que no hay
+    motivo para dejarlo fuera.
+    """
+    from app.models import Source
+
+    cambiados = 0
+    for source in session.scalars(select(Source).where(Source.min_duration_s == 120)).all():
+        source.min_duration_s = 20
+        cambiados += 1
+    return cambiados
+
+
 def actualizar_plantillas(session: Session) -> int:
     """Pone al día las plantillas que siguen con los valores de fábrica."""
     registro = session.get(Setting, MEJORAS_KEY)
@@ -128,6 +186,10 @@ def actualizar_plantillas(session: Session) -> int:
         if clave in aplicadas:
             continue
         aplicadas.append(clave)
+        if clave == "fondo-borroso-1":
+            _clips_sin_montar_a_fondo_borroso(session)
+        if clave == "clips-con-contexto-1":
+            _canales_sin_saltar_cortos(session)
         for flow in session.scalars(select(Flow)).all():
             cambios = _cambios_para(por_nombre, flow.name)
             if not cambios:
@@ -233,6 +295,8 @@ def save_settings(session: Session, values: dict[str, Any]) -> dict[str, Any]:
 def current_settings(session: Session) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key in EDITABLE_SETTINGS:
+        if key in AJUSTES_APARTE:
+            continue
         value = getattr(settings, key, None)
         if key in SECRET_SETTINGS and value:
             value = "••••••••"
@@ -267,9 +331,24 @@ def migrate_ai_settings(session: Session) -> None:
     )
 
 
+def olvidar_modelos_retirados(session: Session) -> None:
+    """El modelo de NVIDIA que ya no existe se olvida: se usa el recomendado."""
+    from app.services import ai
+
+    for proveedor in ai.PROVIDERS:
+        clave = f"{proveedor}_text_model"
+        if (getattr(settings, clave, "") or "") in ai.RETIRADOS:
+            save_settings(session, {clave: ""})
+
+
 def run() -> None:
     with session_scope() as session:
         load_setting_overrides(session)
         migrate_ai_settings(session)
+        olvidar_modelos_retirados(session)
         seed_flows(session)
         actualizar_plantillas(session)
+        # las cuentas que seguían con la hora de Madrid pasan a la del equipo
+        timing.poner_zona_del_equipo(session)
+        # lo que falló por algo pasajero se vuelve a intentar al abrir
+        diagnostico.reintentar_pasajeros_al_arrancar(session)

@@ -124,6 +124,30 @@ def copiar_ffmpeg(destino: Path) -> list[Path]:
     return copiados
 
 
+def copiar_deno(destino: Path) -> list[Path]:
+    """Copia deno, el programa de JavaScript que yt-dlp necesita para YouTube.
+
+    Desde finales de 2025 YouTube esconde parte de los vídeos tras un código en
+    JavaScript. Sin algo que lo ejecute, faltan formatos y salta antes el «no
+    eres un robot». Se busca en KEVIL_DENO_DIR o en el sistema.
+    """
+    sufijo = ".exe" if platform.system() == "Windows" else ""
+    origen = ""
+    carpeta = (os.environ.get("KEVIL_DENO_DIR") or "").strip()
+    if carpeta and (Path(carpeta) / f"deno{sufijo}").is_file():
+        origen = str(Path(carpeta) / f"deno{sufijo}")
+    else:
+        origen = shutil.which("deno") or ""
+    if not origen:
+        print("  !  No se encuentra deno: YouTube irá con menos formatos. Indica KEVIL_DENO_DIR.")
+        return []
+    destino.mkdir(parents=True, exist_ok=True)
+    final = destino / Path(origen).name
+    shutil.copy2(origen, final)
+    print(f"  · deno incluido ({final.stat().st_size / 1024 / 1024:.0f} MB)")
+    return [final]
+
+
 def construir(un_archivo: bool = True, con_ffmpeg: bool = False) -> Path | None:
     if not comprobar_pyinstaller():
         print("No se ha podido instalar PyInstaller.")
@@ -157,11 +181,18 @@ def construir(un_archivo: bool = True, con_ffmpeg: bool = False) -> Path | None:
 
     # yt-dlp trae cientos de extractores que se cargan por su nombre
     args += ["--collect-submodules", "yt_dlp"]
+    # y el JavaScript que resuelve los retos de YouTube va en archivos sueltos
+    try:
+        import yt_dlp_ejs  # noqa: F401
+
+        args += ["--collect-all", "yt_dlp_ejs"]
+    except ImportError:
+        print("  !  Falta yt-dlp-ejs: instala con  pip install \"yt-dlp[default]\"")
 
     temporales: list[Path] = []
     if con_ffmpeg:
         carpeta = BASE_DIR / "build" / "bin"
-        temporales = copiar_ffmpeg(carpeta)
+        temporales = copiar_ffmpeg(carpeta) + copiar_deno(carpeta)
         if temporales:
             args += ["--add-binary", f"{carpeta}{sep}bin"]
 

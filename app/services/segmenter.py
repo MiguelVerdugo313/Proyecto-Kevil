@@ -41,6 +41,12 @@ MAX_SALTO = 0.15
 # Por poco que dure el vídeo, se buscan al menos estos clips (si caben).
 CLIPS_MINIMOS = 8
 
+# Hasta esta duración (s) el vídeo se publica entero en vez de partirlo.
+ENTERO_HASTA = 180
+
+# Una pausa de al menos esto (s) entre frases marca un corte natural.
+PAUSA_NATURAL = 0.45
+
 
 def _usable_range(duration: float, config: dict[str, Any]) -> tuple[float, float]:
     intro = min(float(config.get("skip_intro", 0) or 0), duration * MAX_SALTO)
@@ -312,6 +318,20 @@ def segment_smart(
 
     usable = [s for s in segments if s["end"] > start_limit and s["start"] < end_limit]
     candidates: list[dict[str, Any]] = []
+    # ¿Hay una pausa antes / después de cada frase? Ahí es donde un clip empieza
+    # y acaba con sentido, en vez de a media idea.
+    pausa_antes = [
+        i == 0 or s["start"] - usable[i - 1]["end"] >= PAUSA_NATURAL
+        or _cierra_frase(usable[i - 1]["text"])
+        for i, s in enumerate(usable)
+    ]
+    pausa_despues = {
+        round(min(end_limit, s["end"]), 2): (
+            i == len(usable) - 1 or usable[i + 1]["start"] - s["end"] >= PAUSA_NATURAL
+            or _cierra_frase(s["text"])
+        )
+        for i, s in enumerate(usable)
+    }
 
     for index, segment in enumerate(usable):
         window_start = max(start_limit, segment["start"])
@@ -324,6 +344,8 @@ def segment_smart(
                     pieces, window_start, window_end,
                     start_limit=start_limit, min_len=min_len, max_len=max_len,
                     boost=boost, avoid=avoid, prefer_questions=prefer_questions,
+                    empieza_limpio=pausa_antes[index],
+                    acaba_limpio=pausa_despues.get(round(window_end, 2), False),
                 )
             )
 
@@ -334,10 +356,15 @@ def segment_smart(
     )
 
 
+def _cierra_frase(texto: str) -> bool:
+    return (texto or "").rstrip().endswith((".", "!", "?", "…"))
+
+
 def _score_window(
     pieces: list[dict[str, Any]], window_start: float, window_end: float, *,
     start_limit: float, min_len: float, max_len: float,
     boost: list[str], avoid: list[str], prefer_questions: bool,
+    empieza_limpio: bool = True, acaba_limpio: bool = True,
 ) -> dict[str, Any]:
     text = " ".join(p["text"] for p in pieces)
     normalized = _normalize(text)
@@ -367,6 +394,11 @@ def _score_window(
     avoid_hits = sum(1 for keyword in avoid if keyword in normalized)
     score -= avoid_hits * 0.25
 
+    # Contexto: un clip que empieza y acaba en una pausa se entiende solo. Uno
+    # que arranca a media frase llega «sin contexto» y se abandona antes.
+    score += 0.08 if empieza_limpio else -0.08
+    score += 0.06 if acaba_limpio else -0.06
+
     if window_start < start_limit + 20:
         score -= 0.05
 
@@ -378,6 +410,8 @@ def _score_window(
         reasons.append("pregunta directa")
     if density > 2.6:
         reasons.append("ritmo alto")
+    if empieza_limpio and acaba_limpio and len(reasons) < 3:
+        reasons.append("idea completa")
     if not reasons:
         reasons.append("frase completa")
 
@@ -410,6 +444,16 @@ def find_segments(
     # El vídeo entero se devuelve tal cual, sin márgenes ni recortes por duración
     if strategy == "completo":
         return segment_whole(duration, config)
+
+    # Un vídeo que ya es corto se publica entero: partido en trozos pierde el
+    # contexto (el principio explica el final). Hasta 3 minutos entra como Short
+    # en YouTube y de sobra en TikTok.
+    entero_hasta = float(config.get("entero_hasta", ENTERO_HASTA) or 0)
+    if 0 < duration <= entero_hasta:
+        enteros = segment_whole(duration, config)
+        for candidate in enteros:
+            candidate["reason"] = "Vídeo corto: se publica entero para no perder el contexto"
+        return _con_textos(enteros, transcript)
 
     candidates: list[dict[str, Any]] = []
     if strategy == "smart":
@@ -444,10 +488,16 @@ def find_segments(
         candidate["end"] = round(end, 2)
         final.append(candidate)
 
-    # completa el texto y el gancho a partir de la transcripción si faltan
+    return _con_textos(final, transcript)
+
+
+def _con_textos(
+    candidates: list[dict[str, Any]], transcript: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Completa el texto y el gancho a partir de la transcripción si faltan."""
     words = transcript.get("words") or []
     if words:
-        for candidate in final:
+        for candidate in candidates:
             if candidate.get("hook"):
                 continue
             text = " ".join(
@@ -456,8 +506,7 @@ def find_segments(
             )
             candidate["text"] = text[:1200]
             candidate["hook"] = _make_hook(text)
-
-    return final
+    return candidates
 
 
 def shuffle_order(items: list[Any], order: str) -> list[Any]:

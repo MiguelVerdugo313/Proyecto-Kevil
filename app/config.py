@@ -43,6 +43,17 @@ class Settings(BaseSettings):
     ffmpeg_path: str = ffmpeg_incluido("ffmpeg") or "ffmpeg"
     ffprobe_path: str = ffmpeg_incluido("ffprobe") or "ffprobe"
 
+    # --- YouTube ---------------------------------------------------------
+    # De dónde sacar tu sesión de YouTube cuando pide «no soy un robot»:
+    # «auto» (tu cookies.txt si lo hay; si no, prueba tus navegadores),
+    # el nombre de un navegador, «archivo» o «no».
+    youtube_cookies: str = "auto"
+
+    # --- Hora ------------------------------------------------------------
+    # Vacío = la del ordenador. Sólo hace falta si quieres forzar otra
+    # (por ejemplo KEVIL_TIMEZONE=America/Bogota).
+    timezone: str = ""
+
     # --- Motor de trabajos ----------------------------------------------
     workers: int = 2
     watch_interval_minutes: int = 15
@@ -73,6 +84,8 @@ class Settings(BaseSettings):
     nvidia_image_model: str = ""
     nvidia_base_url: str = ""
     nvidia_image_base_url: str = ""
+    # Los demás proveedores que añadas (Groq, Gemini, Ollama…), con su clave
+    ia_proveedores: list[dict] = []
 
     # --- Datos del canal (contexto para el asistente) --------------------
     channel_topic: str = ""          # de qué va tu canal

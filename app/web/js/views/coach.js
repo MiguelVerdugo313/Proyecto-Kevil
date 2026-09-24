@@ -1,6 +1,7 @@
 // Coach: cada cuánto publicar, cuándo, y sobre qué grabar el próximo vídeo.
 
 import { api } from '../lib/api.js';
+import { barras } from '../lib/graficas.js';
 import { emptyState, escapeHtml, fmt, toast, toastError } from '../lib/ui.js';
 
 let reloadView = () => location.reload();
@@ -10,7 +11,30 @@ const ESTADOS = {
   retrasado: { pill: 'warn', texto: 'Te toca publicar' },
   parado: { pill: 'bad', texto: 'Canal parado' },
   sin_datos: { pill: '', texto: 'Sin datos' },
+  leyendo: { pill: 'info', texto: 'Leyendo tu canal…' },
 };
+
+// Tus subidas agrupadas por semana (las últimas 12): así se ve el ritmo de verdad
+function porSemana(timeline) {
+  const lunes = (fecha) => {
+    const d = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return d;
+  };
+  const esta = lunes(new Date());
+  const semanas = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(esta);
+    d.setDate(d.getDate() - (11 - i) * 7);
+    return { inicio: d, n: 0 };
+  });
+  (timeline || []).forEach((t) => {
+    const l = lunes(new Date(t.published_at)).getTime();
+    const semana = semanas.find((s) => s.inicio.getTime() === l);
+    if (semana) semana.n += 1;
+  });
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return semanas.map((s) => ({ dia: iso(s.inicio), n: s.n }));
+}
 
 function barraRegularidad(valor) {
   if (valor === null || valor === undefined) {
@@ -99,7 +123,7 @@ export default {
     root.innerHTML = `
       <div class="grid side">
         <div style="display:flex;flex-direction:column;gap:20px">
-          <div class="card" style="border-color:${data.state === 'parado' ? 'rgba(255,107,129,.35)' : 'var(--line)'}">
+          <div class="card" ${data.state === 'leyendo' ? 'data-leyendo' : ''} style="border-color:${data.state === 'parado' ? 'rgba(255,98,89,.35)' : 'var(--line)'}">
             <div class="card-head">
               <div>
                 <h3>${escapeHtml(data.headline)}</h3>
@@ -137,6 +161,17 @@ export default {
                       : fmt.relative(data.next_upload_at))}</div>
               </div>
             </div>
+
+            ${data.state === 'leyendo' ? `<div class="tip" style="margin:16px 0 0">
+              <b>Leyendo las fechas de tus vídeos…</b> Tarda unos segundos; esta pantalla se actualiza sola.
+            </div>` : ''}
+
+            ${(stats.timeline || []).length ? `<div style="margin-top:20px">
+              <div class="muted tiny" style="letter-spacing:.18em;text-transform:uppercase;font-weight:700;margin-bottom:8px">
+                Vídeos por semana · últimas 12</div>
+              ${barras(porSemana(stats.timeline), { unidad: ['vídeo', 'vídeos'], titulo: 'Vídeos por semana',
+                vacio: 'Ningún vídeo en las últimas 12 semanas.' })}
+            </div>` : ''}
 
             ${data.actions.length ? `<div class="acciones">
               ${data.actions.map((a) => `<div class="accion">→ ${escapeHtml(a)}</div>`).join('')}
@@ -240,10 +275,10 @@ export default {
     });
   },
 
-  async onRefresh() {
-    const activos = await api.jobs('?status=running&limit=3');
-    if (activos.some((job) => ['generate_ideas', 'coach_check'].includes(job.kind))) {
-      reloadView();
-    }
+  async onRefresh(root) {
+    const activos = await api.jobs('?limit=8');
+    const enMarcha = activos.some((job) => ['generate_ideas', 'coach_check'].includes(job.kind)
+      && ['running', 'pending'].includes(job.status));
+    if (enMarcha || root.querySelector('[data-leyendo]')) reloadView();
   },
 };

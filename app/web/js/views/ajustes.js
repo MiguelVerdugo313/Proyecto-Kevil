@@ -2,8 +2,10 @@
 
 import { api } from '../lib/api.js';
 import { cargarColores } from '../app.js';
+import { subirCookies, usarSesionYouTube } from '../lib/ayuda.js';
+import { activarProblemas, problemasHtml } from '../lib/problemas.js';
 import {
-  confirmDialog, escapeHtml, jobPill, modal, toast, toastError,
+  confirmDialog, escapeHtml, modal, toast, toastError,
 } from '../lib/ui.js';
 
 /* ------------------------------------------------------------ una conexión */
@@ -21,101 +23,241 @@ function fila({ nombre, descripcion, estado, tono, accion, boton = 'Editar' }) {
 }
 
 /* --------------------------------------------------------------- diálogos */
-function editarIA(valores, ia, reload) {
-  const proveedor = (clave) => {
-    const meta = ia.providers[clave];
-    return `
-      <div class="bloque">
-        <div class="bloque-head">
-          <div>
-            <strong style="font-size:14px">${escapeHtml(meta.label)}</strong>
-            <p class="muted tiny" style="margin-top:4px">
-              Clave gratuita en
-              <a href="${escapeHtml(meta.keys_url)}" target="_blank" rel="noreferrer"
-                 style="color:var(--accent)">${escapeHtml(meta.keys_url.replace('https://', ''))}</a>
-            </p>
-          </div>
-          ${meta.configured ? '<span class="pill ok">lista</span>' : '<span class="pill">vacía</span>'}
-        </div>
-        <div class="field"><label>Clave de API</label>
-          <input type="password" id="${clave}-key" value="${escapeHtml(valores[`${clave}_api_key`] || '')}"
-            placeholder="${meta.configured ? '••••••••' : 'pega aquí tu clave'}"></div>
-        <details style="margin-top:12px">
-          <summary class="muted tiny" style="cursor:pointer">Elegir modelos</summary>
-          <div class="form-grid" style="margin-top:12px">
-            <div class="field"><label>Texto</label>
-              <input type="text" id="${clave}-text" list="${clave}-lt"
-                value="${escapeHtml(valores[`${clave}_text_model`] || '')}"
-                placeholder="${escapeHtml(meta.text_models[0])}">
-              <datalist id="${clave}-lt">${meta.text_models.map((m) => `<option value="${escapeHtml(m)}">`).join('')}</datalist></div>
-            <div class="field"><label>Imagen</label>
-              <input type="text" id="${clave}-img" list="${clave}-li"
-                value="${escapeHtml(valores[`${clave}_image_model`] || '')}"
-                placeholder="${escapeHtml(meta.image_models[0])}">
-              <datalist id="${clave}-li">${meta.image_models.map((m) => `<option value="${escapeHtml(m)}">`).join('')}</datalist></div>
-          </div>
-        </details>
-      </div>`;
-  };
+/* Inteligencia artificial: una lista de claves de varios sitios. La primera
+   manda; si falla (sin créditos, límite, modelo retirado…), pasa a la
+   siguiente. Los modelos se piden a cada proveedor: la lista es la de verdad. */
+async function editarIA(reload) {
+  let datos = await api.get('/api/ia');
+  let elegido = '';
 
-  modal({
+  const filaProveedor = (p, i) => `
+    <div class="proveedor ${p.principal && p.tiene_clave ? 'principal' : ''}" data-prov="${escapeHtml(p.id)}">
+      <div class="proveedor-head">
+        <span class="orden">${i + 1}</span>
+        <strong>${escapeHtml(p.nombre)}</strong>
+        ${!p.tiene_clave ? '<span class="pill">sin clave</span>'
+          : !p.activo ? '<span class="pill">apagado</span>'
+          : p.principal ? '<span class="pill ok">principal</span>' : '<span class="pill violet">reserva</span>'}
+        ${p.keys_url ? `<a class="muted tiny" href="${escapeHtml(p.keys_url)}" target="_blank" rel="noreferrer"
+          style="text-decoration:underline">conseguir clave</a>` : ''}
+        <span class="grow"></span>
+        ${p.tiene_clave && !p.principal ? '<button class="btn sm ghost" data-principal>Usar primero</button>' : ''}
+        ${p.tiene_clave ? `<button class="btn sm ghost" data-quitar>${p.fijo ? 'Quitar clave' : 'Quitar'}</button>` : ''}
+      </div>
+      ${p.aviso ? `<div class="small" style="color:var(--amber)">↻ ${escapeHtml(p.aviso)}</div>` : ''}
+      ${p.fallo ? `<div class="small" style="color:var(--red)">× Último fallo: ${escapeHtml(p.fallo)}</div>` : ''}
+      <div class="proveedor-fila">
+        <div class="field"><label>Clave</label>
+          <input type="password" data-clave placeholder="${escapeHtml(p.clave || 'pega aquí tu clave')}"
+            autocomplete="off"></div>
+        <div class="field"><label>Modelo</label>
+          <div style="display:flex;gap:6px">
+            <select data-modelo><option value="${escapeHtml(p.modelo)}">${escapeHtml(p.modelo || 'el recomendado')}</option></select>
+            <button class="btn sm" data-ver-modelos title="Pedir a ${escapeHtml(p.nombre)} la lista de sus modelos">Ver todos</button>
+          </div></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn sm" data-probar>Probar</button>
+          <button class="btn sm primary" data-guardar>Guardar</button>
+        </div>
+      </div>
+      <div class="tiny muted" data-salida></div>
+    </div>`;
+
+  const catalogoHtml = () => `
+    <div class="bloque">
+      <div class="bloque-head"><div>
+        <strong style="font-size:14px">Añadir otra clave</strong>
+        <p class="muted tiny" style="margin-top:4px">Puedes poner varias, incluso dos del mismo sitio: se usan en orden y se pasa sola a la siguiente.</p>
+      </div></div>
+      <div class="catalogo">${datos.catalogo.map((c) => `
+        <button type="button" data-tipo="${escapeHtml(c.tipo)}" class="${elegido === c.tipo ? 'sel' : ''}">
+          <strong>${escapeHtml(c.nombre)}</strong><span>${escapeHtml(c.nota)}</span></button>`).join('')}
+      </div>
+      ${elegido ? (() => {
+        const c = datos.catalogo.find((x) => x.tipo === elegido);
+        return `<div class="form-grid" style="margin-top:14px">
+          ${c.sin_clave ? '' : `<div class="field"><label>Clave de ${escapeHtml(c.nombre)}</label>
+            <input type="password" id="nueva-clave" placeholder="pega aquí tu clave" autocomplete="off">
+            ${c.keys_url ? `<span class="help">Se consigue en <a href="${escapeHtml(c.keys_url)}" target="_blank" rel="noreferrer" style="text-decoration:underline">${escapeHtml(c.keys_url.replace('https://', ''))}</a></span>` : ''}</div>`}
+          <div class="field"><label>Dirección del servicio</label>
+            <input type="text" id="nueva-url" value="${escapeHtml(c.base_url)}" placeholder="https://…/v1">
+            <span class="help">${c.tipo === 'ollama' ? 'Ollama tiene que estar abierto en tu PC.' : 'Normalmente no hay que tocarla.'}</span></div>
+          <div class="full" style="display:flex;justify-content:flex-end">
+            <button class="btn primary" data-anadir>Añadir ${escapeHtml(c.nombre)}</button></div>
+        </div>`;
+      })() : ''}
+    </div>`;
+
+  const cuerpo = () => `
+    <p class="muted small" style="line-height:1.7">
+      Sirve para los títulos, la descripción, los hashtags y las ideas. Pon las claves que quieras:
+      <b>la primera manda</b> y si falla (sin créditos, límite de peticiones o un modelo retirado)
+      Kevil pasa sola a la siguiente. Sin ninguna, los textos se generan en local.
+    </p>
+    <div class="proveedores">${datos.proveedores.map(filaProveedor).join('')}</div>
+    ${catalogoHtml()}
+    <div id="ia-resultado" class="small"></div>`;
+
+  const { root } = modal({
     title: 'Inteligencia artificial',
     wide: true,
-    body: `
-      <p class="muted small" style="line-height:1.7">
-        Sirve para los títulos, la descripción, los hashtags y las ideas.
-        <b>Puedes poner las dos claves</b>: si a una se le acaban los créditos o te limita
-        por peticiones, Kevil pasa a la otra automáticamente. Sin ninguna, todo se
-        genera en local.
-      </p>
-      <div class="grid cols-2" style="gap:14px">
-        ${proveedor('openrouter')}
-        ${proveedor('nvidia')}
-      </div>
-      <div class="field">
-        <label>Cuál se intenta primero</label>
-        <select id="ia-primary">
-          ${Object.entries(ia.providers).map(([clave, meta]) =>
-            `<option value="${clave}" ${valores.ai_primary === clave ? 'selected' : ''}>${escapeHtml(meta.label)}</option>`).join('')}
-        </select>
-        <span class="help">El otro queda de reserva.</span>
-      </div>
-      <div id="ia-resultado" class="small"></div>`,
+    body: '<div id="ia-cuerpo"></div>',
     actions: [
-      { label: 'Probar las claves', onClick: async (root) => {
-        const salida = root.querySelector('#ia-resultado');
+      { label: 'Probar todas', onClick: async (raiz) => {
+        const salida = raiz.querySelector('#ia-resultado');
         salida.innerHTML = '<span class="muted">Probando…</span>';
         try {
-          await guardarIA(root);
-          const resultado = await api.post('/api/ai/test');
-          salida.innerHTML = resultado.results.map((r) => `
-            <div style="margin-top:6px;color:${r.ok ? 'var(--green)' : 'var(--red)'}">
-              ${r.ok ? '✓' : '×'} ${escapeHtml(r.label)}: ${escapeHtml(r.ok ? (r.model || 'responde') : r.detail)}
+          const r = await api.post('/api/ia/probar', {});
+          datos = r;
+          pintar();
+          raiz.querySelector('#ia-resultado').innerHTML = r.results.map((x) => `
+            <div style="margin-top:6px;color:${x.ok ? 'var(--green)' : 'var(--red)'}">
+              ${x.ok ? '✓' : '×'} ${escapeHtml(x.label)}: ${escapeHtml(x.ok ? `${x.model || ''} ${x.detail && x.detail.includes('retiró') ? `(${x.detail})` : ''}` : x.detail)}
             </div>`).join('');
         } catch (error) {
           salida.innerHTML = `<span style="color:var(--red)">${escapeHtml(error.message)}</span>`;
         }
-        return false;   // el diálogo se queda abierto
+        return false;
       } },
-      { label: 'Guardar', variant: 'primary', onClick: async (root) => {
-        await guardarIA(root);
-        toast('Claves guardadas');
-        reload();
-      } },
+      { label: 'Listo', variant: 'primary', onClick: () => { reload(); } },
     ],
   });
+
+  function pintar() {
+    const caja = root.querySelector('#ia-cuerpo');
+    caja.innerHTML = cuerpo();
+    caja.querySelectorAll('[data-prov]').forEach(conectarFila);
+    caja.querySelectorAll('[data-tipo]').forEach((b) => {
+      b.onclick = () => { elegido = elegido === b.dataset.tipo ? '' : b.dataset.tipo; pintar(); };
+    });
+    const anadir = caja.querySelector('[data-anadir]');
+    if (anadir) {
+      anadir.onclick = async () => {
+        try {
+          datos = await api.post('/api/ia/proveedores', {
+            tipo: elegido,
+            api_key: caja.querySelector('#nueva-clave')?.value.trim() || '',
+            base_url: caja.querySelector('#nueva-url')?.value.trim() || '',
+          });
+          toast('Añadido. Pulsa «Probar» para comprobar la clave.');
+          elegido = '';
+          pintar();
+        } catch (error) { toastError(error); }
+      };
+    }
+  }
+
+  function conectarFila(fila) {
+    const id = fila.dataset.prov;
+    const salida = fila.querySelector('[data-salida]');
+    const selector = fila.querySelector('[data-modelo]');
+    fila.querySelector('[data-ver-modelos]').onclick = async (e) => {
+      const boton = e.currentTarget;
+      boton.disabled = true;
+      salida.textContent = 'Pidiendo la lista de modelos…';
+      try {
+        const r = await api.get(`/api/ia/modelos?id=${encodeURIComponent(id)}&refrescar=true`);
+        if (r.error) { salida.textContent = r.error; return; }
+        selector.innerHTML = r.modelos.map((m) => `<option value="${escapeHtml(m.id)}" ${m.id === r.actual ? 'selected' : ''}>
+          ${escapeHtml(m.id)}${m.gratis ? '  · gratis' : ''}${m.id === r.recomendado ? '  ★ recomendado' : ''}</option>`).join('');
+        salida.textContent = `${r.modelos.length} modelos disponibles ahora mismo.`;
+      } catch (error) {
+        salida.textContent = error.message;
+      } finally { boton.disabled = false; }
+    };
+    fila.querySelector('[data-guardar]').onclick = async () => {
+      try {
+        datos = await api.patch(`/api/ia/proveedores/${encodeURIComponent(id)}`, {
+          api_key: fila.querySelector('[data-clave]').value.trim() || null,
+          modelo: selector.value,
+        });
+        toast('Guardado');
+        pintar();
+      } catch (error) { toastError(error); }
+    };
+    fila.querySelector('[data-probar]').onclick = async () => {
+      salida.textContent = 'Probando…';
+      try {
+        const clave = fila.querySelector('[data-clave]').value.trim();
+        if (clave || selector.value) {
+          await api.patch(`/api/ia/proveedores/${encodeURIComponent(id)}`, { api_key: clave || null, modelo: selector.value });
+        }
+        const r = await api.post('/api/ia/probar', { id });
+        datos = r;
+        const x = r.results[0];
+        pintar();
+        const nueva = root.querySelector(`[data-prov="${CSS.escape(id)}"] [data-salida]`);
+        if (nueva) {
+          nueva.innerHTML = x && x.ok
+            ? `<span style="color:var(--green)">✓ Responde con ${escapeHtml(x.model || '')}</span>`
+            : `<span style="color:var(--red)">× ${escapeHtml(x ? x.detail : 'sin respuesta')}</span>`;
+        }
+      } catch (error) { salida.innerHTML = `<span style="color:var(--red)">× ${escapeHtml(error.message)}</span>`; }
+    };
+    const principal = fila.querySelector('[data-principal]');
+    if (principal) {
+      principal.onclick = async () => { datos = await api.post('/api/ia/principal', { id }); pintar(); };
+    }
+    const quitar = fila.querySelector('[data-quitar]');
+    if (quitar) {
+      quitar.onclick = async () => {
+        if (!await confirmDialog('Quitar la clave', 'Kevil dejará de usar este proveedor.', 'Quitar')) return;
+        datos = await api.del(`/api/ia/proveedores/${encodeURIComponent(id)}`);
+        editarIA(reload);
+      };
+    }
+  }
+
+  pintar();
 }
 
-async function guardarIA(root) {
-  const limpio = (valor) => (valor === '••••••••' ? undefined : valor);
-  await api.put('/api/settings', {
-    openrouter_api_key: limpio(root.querySelector('#openrouter-key').value.trim()),
-    openrouter_text_model: root.querySelector('#openrouter-text').value.trim(),
-    openrouter_image_model: root.querySelector('#openrouter-img').value.trim(),
-    nvidia_api_key: limpio(root.querySelector('#nvidia-key').value.trim()),
-    nvidia_text_model: root.querySelector('#nvidia-text').value.trim(),
-    nvidia_image_model: root.querySelector('#nvidia-img').value.trim(),
-    ai_primary: root.querySelector('#ia-primary').value,
+/* Tu sesión de YouTube: lo que evita el «demuestra que no eres un robot» */
+async function editarSesion(reload) {
+  const estado = await api.get('/api/youtube/sesion');
+  modal({
+    title: 'Tu sesión de YouTube',
+    wide: true,
+    body: `
+      <p class="muted small" style="line-height:1.7">
+        Cuando se bajan muchos vídeos seguidos, YouTube pide «demuestra que no eres un robot».
+        Con tu sesión (las cookies de tu navegador) Kevil baja como si fueras tú y deja de pedirlo.
+        <b>Kevil ya lo intenta solo</b> la primera vez que pasa; aquí puedes hacerlo a mano.
+      </p>
+      <div class="bloque">
+        <div class="list">
+          <div class="list-row"><span class="grow">Ahora mismo usa</span><b>${escapeHtml(estado.usando)}</b></div>
+          <div class="list-row"><span class="grow">Navegadores encontrados</span>
+            <b>${estado.navegadores.map((n) => escapeHtml(n.nombre)).join(', ') || 'ninguno'}</b></div>
+          <div class="list-row"><span class="grow">Motor de JavaScript para YouTube</span>
+            ${estado.motor_js ? '<span class="pill ok">incluido</span>' : '<span class="pill warn">no encontrado</span>'}</div>
+        </div>
+      </div>
+      <div class="guia">
+        ${paso(1, 'Abre YouTube en tu navegador y entra con tu cuenta', 'Mejor en <b>Firefox</b>: es el único cuya sesión se lee siempre bien. Con Edge o Chrome también suele valer.')}
+        ${paso(2, 'Cierra ese navegador del todo', 'Chrome y Edge no dejan leer su sesión mientras están abiertos (mira también el icono junto al reloj).')}
+        ${paso(3, 'Pulsa «Usar mi sesión de YouTube»', 'Kevil prueba tus navegadores, se queda con el que funcione y vuelve a poner en marcha lo que falló.')}
+        ${paso(4, 'Si ninguno vale: sube un cookies.txt', 'En Chrome instala la extensión «Get cookies.txt LOCALLY», entra en youtube.com, pulsa «Export» y sube aquí el archivo.')}
+      </div>
+      <div class="field">
+        <label>Qué sesión usar</label>
+        <select id="sesion-modo">
+          <option value="auto" ${estado.modo === 'auto' ? 'selected' : ''}>Automático: cookies.txt si hay; si no, probar navegadores cuando haga falta</option>
+          ${estado.navegadores.map((n) => `<option value="${escapeHtml(n.id)}" ${estado.modo === n.id ? 'selected' : ''}>Siempre la de ${escapeHtml(n.nombre)}</option>`).join('')}
+          ${estado.archivo ? `<option value="archivo" ${estado.modo === 'archivo' ? 'selected' : ''}>Siempre mi cookies.txt</option>` : ''}
+          <option value="no" ${estado.modo === 'no' ? 'selected' : ''}>No usar ninguna</option>
+        </select>
+      </div>`,
+    actions: [
+      ...(estado.archivo ? [{ label: 'Borrar cookies.txt', variant: 'danger', onClick: async () => {
+        await api.del('/api/youtube/sesion/archivo'); toast('Borrado'); reload();
+      } }] : []),
+      { label: 'Subir cookies.txt', onClick: async () => { if (await subirCookies()) reload(); return false; } },
+      { label: 'Guardar', onClick: async (raiz) => {
+        await api.post('/api/youtube/sesion/modo', { modo: raiz.querySelector('#sesion-modo').value });
+        toast('Guardado'); reload();
+      } },
+      { label: 'Usar mi sesión de YouTube', variant: 'primary', onClick: async () => { await usarSesionYouTube(); } },
+    ],
   });
 }
 
@@ -622,14 +764,14 @@ export default {
   subtitle: 'Lo esencial a la vista; el resto, cuando lo necesites',
 
   async render(root, ctx) {
-    const [config, status, jobs, ia, yt, tt, marca, disco] = await Promise.all([
-      api.settings(), api.status(), api.jobs('?limit=12'),
-      api.get('/api/ai/status'), api.get('/api/youtube/config'),
+    const [config, status, ia, yt, tt, marca, disco, sesion, problemas] = await Promise.all([
+      api.settings(), api.status(),
+      api.get('/api/ia'), api.get('/api/youtube/config'),
       api.get('/api/tiktok/config'), api.get('/api/branding'),
-      api.get('/api/storage'),
+      api.get('/api/storage'), api.get('/api/youtube/sesion'), problemasHtml(),
     ]);
     const valores = config.settings;
-    const fallidas = jobs.filter((job) => job.status === 'failed');
+    const iaActivos = ia.proveedores.filter((p) => p.tiene_clave && p.activo);
 
     root.innerHTML = `
       <div class="grid side">
@@ -669,12 +811,21 @@ export default {
             <div class="conexiones">
               ${fila({
                 nombre: 'Inteligencia artificial',
-                descripcion: ia.enabled
-                  ? `${ia.active.map((p) => escapeHtml(p.label)).join(' + ')}${ia.has_backup ? ' · con respaldo automático' : ''}`
+                descripcion: iaActivos.length
+                  ? `${iaActivos.map((p) => escapeHtml(p.nombre)).join(' → ')}${iaActivos.length > 1 ? ' · se pasa sola a la siguiente si una falla' : ''}`
                   : 'Sin clave: los textos se generan en local',
-                estado: ia.enabled ? (ia.has_backup ? 'con respaldo' : 'activa') : 'sin clave',
-                tono: ia.enabled ? 'ok' : '',
+                estado: iaActivos.length ? `${iaActivos.length} clave(s)` : 'sin clave',
+                tono: iaActivos.some((p) => p.fallo) ? 'warn' : (iaActivos.length ? 'ok' : ''),
                 accion: 'ia',
+                boton: iaActivos.length ? 'Editar' : 'Añadir clave',
+              })}
+              ${fila({
+                nombre: 'Descargas de YouTube',
+                descripcion: `Sesión: ${escapeHtml(sesion.usando)}${sesion.motor_js ? '' : ' · falta el motor de JavaScript'}`,
+                estado: sesion.modo === 'auto' && !sesion.archivo ? 'automático' : 'con tu sesión',
+                tono: 'ok',
+                accion: 'sesion',
+                boton: 'Revisar',
               })}
               ${fila({
                 nombre: 'YouTube',
@@ -730,22 +881,7 @@ export default {
             </div>
           </div>
 
-          ${fallidas.length ? `<div class="card">
-            <div class="card-head">
-              <h3>Tareas con problemas</h3>
-              <button class="btn sm ghost" data-clear>Limpiar historial</button>
-            </div>
-            <table class="table">
-              <tbody>${fallidas.map((job) => `
-                <tr>
-                  <td><strong class="small">${escapeHtml(job.message || job.kind)}</strong>
-                    <div class="tiny" style="color:var(--red)">${escapeHtml((job.error || '').split('\n')[0].slice(0, 140))}</div></td>
-                  <td style="width:110px">${jobPill(job.status)}</td>
-                  <td class="right" style="width:110px">
-                    <button class="btn sm" data-retry="${job.id}">Reintentar</button></td>
-                </tr>`).join('')}</tbody>
-            </table>
-          </div>` : ''}
+          ${problemas.html}
         </div>
 
         <div style="display:flex;flex-direction:column;gap:22px">
@@ -781,7 +917,8 @@ export default {
       </div>`;
 
     const abrir = {
-      ia: () => editarIA(valores, ia, ctx.reload),
+      ia: () => editarIA(ctx.reload),
+      sesion: () => editarSesion(ctx.reload),
       disco: () => editarDisco(valores, disco, ctx.reload),
       youtube: () => editarYouTube(valores, yt, ctx.reload),
       tiktok: () => editarTikTok(valores, tt, ctx.reload),
@@ -803,23 +940,11 @@ export default {
       } catch (error) { toastError(error); }
     };
 
-    const limpiar = root.querySelector('[data-clear]');
-    if (limpiar) {
-      limpiar.onclick = async () => {
-        if (!await confirmDialog('Limpiar historial',
-          'Se borran las tareas terminadas, fallidas y canceladas.', 'Limpiar')) return;
-        await api.del('/api/jobs/finished');
-        toast('Historial limpio');
-        ctx.reload();
-      };
-    }
+    activarProblemas(root, ctx.reload);
 
-    root.querySelectorAll('[data-retry]').forEach((boton) => {
-      boton.onclick = async () => {
-        await api.post(`/api/jobs/${boton.dataset.retry}/retry`);
-        toast('Tarea reencolada');
-        ctx.reload();
-      };
-    });
+    // #ajustes?seccion=ia o =youtube abre directamente esa parte
+    const seccion = new URLSearchParams(location.hash.split('?')[1] || '').get('seccion');
+    if (seccion === 'ia') abrir.ia();
+    else if (seccion === 'youtube') abrir.sesion();
   },
 };

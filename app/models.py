@@ -143,7 +143,8 @@ class Source(Base):
     auto_ingest: Mapped[bool] = mapped_column(Boolean, default=True)
     include_lives: Mapped[bool] = mapped_column(Boolean, default=True)
     include_shorts: Mapped[bool] = mapped_column(Boolean, default=False)
-    min_duration_s: Mapped[int] = mapped_column(Integer, default=120)
+    # los vídeos cortos ya no se saltan: se publican enteros (ver segmenter)
+    min_duration_s: Mapped[int] = mapped_column(Integer, default=20)
     backfill_limit: Mapped[int] = mapped_column(Integer, default=20)
 
     flow_id: Mapped[int | None] = mapped_column(

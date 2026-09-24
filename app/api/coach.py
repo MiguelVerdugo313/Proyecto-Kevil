@@ -69,6 +69,11 @@ def notification_to_dict(item: Notification) -> dict:
 @router.get("/coach")
 def get_coach(db: Session = Depends(get_db)):
     data = coach.recommendation(db)
+    if data["state"] == "leyendo":
+        # hay canal pero aún no se saben las fechas: se leen ya, sin esperar al
+        # repaso de cada 12 horas
+        enqueue(db, "coach_check", {}, priority=50, message="Leer las fechas de tu canal")
+        db.commit()
     data["days"] = coach.DAYS
     data["ai"] = ai.status()
     return data

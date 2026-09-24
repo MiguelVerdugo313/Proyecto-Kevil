@@ -59,18 +59,22 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
             },
             {
                 "key": "cookies_from_browser",
-                "label": "Cookies del navegador",
+                "label": "Tu sesión de YouTube",
                 "type": "select",
                 "default": "",
                 "options": [
-                    {"value": "", "label": "No usar"},
-                    {"value": "chrome", "label": "Chrome"},
-                    {"value": "edge", "label": "Edge"},
+                    {"value": "", "label": "La de Ajustes → YouTube (recomendado)"},
                     {"value": "firefox", "label": "Firefox"},
+                    {"value": "edge", "label": "Edge"},
+                    {"value": "chrome", "label": "Chrome"},
                     {"value": "brave", "label": "Brave"},
-                    {"value": "safari", "label": "Safari"},
+                    {"value": "opera", "label": "Opera"},
+                    {"value": "vivaldi", "label": "Vivaldi"},
                 ],
-                "help": "Necesario sólo para vídeos privados o no listados.",
+                "help": (
+                    "Sólo si este flujo necesita otra cuenta. Lo normal es dejarlo así: "
+                    "Kevil prueba tus navegadores solo cuando YouTube pide «no soy un robot»."
+                ),
             },
         ],
     },
@@ -146,7 +150,7 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "key": "min_duration",
                 "label": "Duración mínima (s)",
                 "type": "number",
-                "default": 21,
+                "default": 30,
                 "min": 5,
                 "max": 180,
             },
@@ -154,10 +158,25 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "key": "max_duration",
                 "label": "Duración máxima (s)",
                 "type": "number",
-                "default": 59,
+                "default": 90,
                 "min": 10,
                 "max": 600,
-                "help": "Por debajo de 60 s el clip entra en el formato corto clásico.",
+                "help": (
+                    "Entre 30 y 90 s el clip tiene contexto y aguanta la atención. "
+                    "YouTube acepta Shorts de hasta 3 minutos."
+                ),
+            },
+            {
+                "key": "entero_hasta",
+                "label": "Publicar entero si el vídeo dura menos de (s)",
+                "type": "number",
+                "default": 180,
+                "min": 0,
+                "max": 600,
+                "help": (
+                    "Un vídeo que ya es corto no se trocea: se publica entero para no "
+                    "perder el contexto. 0 = trocear siempre."
+                ),
             },
             {
                 "key": "clips_per_hour",
@@ -834,12 +853,12 @@ FLOW_PRESETS: list[dict[str, Any]] = [
         "name": "Cortes virales (recomendado)",
         "icon": "⚡",
         "description": (
-            "Momentos con más gancho, encuadre que sigue a la acción, rótulos "
+            "Momentos con más gancho, vídeo entero sobre fondo borroso, rótulos "
             "virales y publicación repartida."
         ),
-        # El vertical a pantalla completa siguiendo lo que pasa es el formato que
-        # mejor funciona en TikTok; para gameplay está la plantilla de al lado.
-        "steps": _preset({"reframe": {"mode": "smart", "follow": True, "zoom": 1.0}}),
+        # El vídeo entero sobre su propio fondo desenfocado: no se pierde nada
+        # de la pantalla (ni el HUD del juego) y es el que prefieres.
+        "steps": _preset({"reframe": {"mode": "blur", "zoom": 1.0}}),
     },
     {
         "name": "Directos largos",
@@ -853,8 +872,8 @@ FLOW_PRESETS: list[dict[str, Any]] = [
                     "clips_per_hour": 15,
                     "max_clips": 30,
                     "min_gap": 120,
-                    "min_duration": 25,
-                    "max_duration": 75,
+                    "min_duration": 30,
+                    "max_duration": 90,
                 },
                 "schedule": {"max_per_day": 4, "spread_days": 14},
             }
@@ -866,7 +885,7 @@ FLOW_PRESETS: list[dict[str, Any]] = [
         "description": "Encuadre a la cara y clips algo más largos.",
         "steps": _preset(
             {
-                "reframe": {"mode": "smart", "follow": True, "zoom": 1.1},
+                "reframe": {"mode": "blur", "zoom": 1.1},
                 "subtitles": {"position_y": 70},   # un poco más abajo: la cara, arriba
                 "segment": {"min_duration": 30, "max_duration": 90, "clips_per_hour": 12},
             }
@@ -897,8 +916,8 @@ FLOW_PRESETS: list[dict[str, Any]] = [
         "description": "Cada corte sale a la vez en TikTok y en YouTube Shorts.",
         "steps": _preset(
             {
-                "reframe": {"mode": "smart", "follow": True},
-                "segment": {"max_duration": 58},   # por debajo de 60 s en ambas
+                "reframe": {"mode": "blur"},
+                # YouTube ya acepta Shorts de hasta 3 minutos
                 "publish": {"publish_tiktok": True, "publish_youtube_shorts": True},
                 "schedule": {"max_per_day": 2},
             }
@@ -912,7 +931,7 @@ FLOW_PRESETS: list[dict[str, Any]] = [
             {
                 "reframe": {"mode": "split"},
                 "overlays": {"progress_bar": True},
-                "segment": {"strategy": "smart", "min_duration": 20, "max_duration": 55},
+                "segment": {"strategy": "smart"},
             }
         ),
     },

@@ -7,8 +7,10 @@ privados o no listados se pueden reutilizar las cookies del navegador.
 from __future__ import annotations
 
 import re
+import shutil
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -54,9 +56,211 @@ def _base_opts(cookies_from_browser: str = "") -> dict[str, Any]:
         "socket_timeout": 30,
         "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
     }
-    if cookies_from_browser:
-        opts["cookiesfrombrowser"] = (cookies_from_browser,)
+    opts |= opciones_de_cookies(cookies_from_browser)
+    runtimes = motores_js()
+    if runtimes:
+        opts["js_runtimes"] = runtimes
     return opts
+
+
+def motores_js() -> dict[str, dict[str, str]]:
+    """El programa de JavaScript que YouTube obliga a usar desde finales de 2025.
+
+    Sin él yt-dlp sólo ve una parte de los formatos y falla más. El .exe trae
+    `deno` dentro; si no, se usa el que haya instalado (deno o node).
+    """
+    from app.rutas import ffmpeg_incluido
+
+    runtimes: dict[str, dict[str, str]] = {}
+    deno = ffmpeg_incluido("deno") or shutil.which("deno") or ""
+    if deno:
+        runtimes["deno"] = {"path": deno}
+    node = shutil.which("node") or ""
+    if node:
+        runtimes["node"] = {"path": node}
+    return runtimes
+
+
+# --------------------------------------------------------------------------
+# Tu sesión de YouTube (las cookies del navegador)
+#
+# Cuando YouTube ve muchas descargas seguidas desde la misma conexión, pide
+# «demuestra que no eres un robot». Con las cookies de un navegador donde
+# tengas YouTube abierto, yt-dlp va como tú y deja de pedirlo. Kevil prueba
+# solo los navegadores que tengas y se queda con el primero que funcione.
+# --------------------------------------------------------------------------
+# Firefox primero: es el único cuyas cookies se leen siempre bien. Chrome y
+# Edge las bloquean mientras están abiertos y las versiones nuevas las cifran.
+NAVEGADORES = ("firefox", "edge", "chrome", "brave", "opera", "vivaldi", "chromium")
+NOMBRES_NAVEGADOR = {
+    "firefox": "Firefox", "edge": "Edge", "chrome": "Chrome", "brave": "Brave",
+    "opera": "Opera", "vivaldi": "Vivaldi", "chromium": "Chromium", "safari": "Safari",
+}
+_probando = threading.Lock()
+
+
+def ruta_cookies_txt() -> Path:
+    return settings.data_path / "cookies.txt"
+
+
+def cookies_txt_valido(texto: str) -> bool:
+    """¿Parece un cookies.txt de verdad y trae las de YouTube?"""
+    lineas = [l for l in texto.splitlines() if l.strip() and not l.startswith("#")]
+    return any(".youtube.com" in l and len(l.split("\t")) >= 7 for l in lineas)
+
+
+def opciones_de_cookies(del_flujo: str = "") -> dict[str, Any]:
+    """Qué cookies usar: las del flujo, tu cookies.txt o el navegador que funcionó."""
+    if del_flujo:
+        return {"cookiesfrombrowser": (del_flujo,)}
+    modo = (getattr(settings, "youtube_cookies", "auto") or "auto").strip().lower()
+    if modo == "no":
+        return {}
+    archivo = ruta_cookies_txt()
+    if modo in {"auto", "archivo"} and archivo.is_file():
+        return {"cookiefile": str(archivo)}
+    if modo in NOMBRES_NAVEGADOR:
+        return {"cookiesfrombrowser": (modo,)}
+    return {}
+
+
+def navegadores_instalados() -> list[str]:
+    """Los navegadores que tienen perfil en este ordenador, en orden de prueba."""
+    import os
+    import sys
+
+    casa = Path.home()
+    if sys.platform == "win32":
+        local = Path(os.environ.get("LOCALAPPDATA") or casa / "AppData/Local")
+        roaming = Path(os.environ.get("APPDATA") or casa / "AppData/Roaming")
+        rutas = {
+            "firefox": roaming / "Mozilla/Firefox/Profiles",
+            "edge": local / "Microsoft/Edge/User Data",
+            "chrome": local / "Google/Chrome/User Data",
+            "brave": local / "BraveSoftware/Brave-Browser/User Data",
+            "opera": roaming / "Opera Software/Opera Stable",
+            "vivaldi": local / "Vivaldi/User Data",
+            "chromium": local / "Chromium/User Data",
+        }
+    elif sys.platform == "darwin":
+        soporte = casa / "Library/Application Support"
+        rutas = {
+            "firefox": soporte / "Firefox/Profiles",
+            "edge": soporte / "Microsoft Edge",
+            "chrome": soporte / "Google/Chrome",
+            "brave": soporte / "BraveSoftware/Brave-Browser",
+            "opera": soporte / "com.operasoftware.Opera",
+            "vivaldi": soporte / "Vivaldi",
+            "chromium": soporte / "Chromium",
+        }
+    else:
+        config = casa / ".config"
+        rutas = {
+            "firefox": casa / ".mozilla/firefox",
+            "edge": config / "microsoft-edge",
+            "chrome": config / "google-chrome",
+            "brave": config / "BraveSoftware/Brave-Browser",
+            "opera": config / "opera",
+            "vivaldi": config / "vivaldi",
+            "chromium": config / "chromium",
+        }
+    return [nombre for nombre in NAVEGADORES if rutas.get(nombre) and rutas[nombre].exists()]
+
+
+def es_robot(exc: BaseException | str) -> bool:
+    bajo = str(exc).lower()
+    return (
+        "sign in to confirm" in bajo
+        or "not a bot" in bajo
+        or ("bot" in bajo and "confirm" in bajo)
+        or "no eres un robot" in bajo
+    )
+
+
+def _explicar_fallo_de_cookies(navegador: str, exc: BaseException) -> str:
+    bajo = str(exc).lower()
+    nombre = NOMBRES_NAVEGADOR.get(navegador, navegador)
+    if "could not copy" in bajo or "permission" in bajo or "locked" in bajo:
+        return f"{nombre} está abierto y no deja leer sus cookies: ciérralo del todo y vuelve a probar."
+    if "decrypt" in bajo or "dpapi" in bajo or "app-bound" in bajo:
+        return f"{nombre} cifra sus cookies y no se pueden leer: usa Firefox o sube un cookies.txt."
+    if "could not find" in bajo or "no such file" in bajo or "profile" in bajo:
+        return f"No se encuentra el perfil de {nombre}."
+    if es_robot(exc):
+        return f"Con la sesión de {nombre} YouTube sigue pidiendo la comprobación: ¿has iniciado sesión en YouTube ahí?"
+    return f"{nombre}: {str(exc)[:160]}"
+
+
+def probar_navegadores(url: str, navegadores: list[str] | None = None) -> dict[str, Any]:
+    """Prueba la sesión de YouTube de cada navegador hasta que uno sirva.
+
+    Devuelve qué navegador funcionó (y lo deja guardado) y, de los demás, por
+    qué no, en cristiano.
+    """
+    ydl = _require_ytdlp()
+    candidatos = navegadores if navegadores is not None else navegadores_instalados()
+    intentos: list[dict[str, str]] = []
+    for navegador in candidatos:
+        opts = _base_opts() | {"skip_download": True, "ignoreerrors": False}
+        opts.pop("cookiefile", None)
+        opts["cookiesfrombrowser"] = (navegador,)
+        try:
+            _esperar_turno()
+            with ydl.YoutubeDL(opts) as dl:
+                info = dl.extract_info(url, download=False)
+            if not info:
+                raise YouTubeError("sin respuesta")
+        except Exception as exc:                            # noqa: BLE001
+            intentos.append({"navegador": navegador,
+                             "resultado": _explicar_fallo_de_cookies(navegador, exc)})
+            continue
+        intentos.append({"navegador": navegador, "resultado": "Funciona"})
+        guardar_modo_cookies(navegador)
+        return {"ok": True, "navegador": navegador, "intentos": intentos}
+    return {"ok": False, "navegador": "", "intentos": intentos}
+
+
+def guardar_modo_cookies(modo: str) -> None:
+    """Deja elegido el origen de las cookies, también para los próximos arranques."""
+    settings.youtube_cookies = modo
+    try:
+        from app.bootstrap import save_settings
+        from app.db import session_scope
+
+        with session_scope() as session:
+            save_settings(session, {"youtube_cookies": modo})
+    except Exception:  # noqa: BLE001 - en pruebas puede no haber base de datos
+        pass
+
+
+def _extraer(opts: dict[str, Any], url: str, *, download: bool) -> Any:
+    """`extract_info` que, si YouTube pide la comprobación, prueba tu sesión.
+
+    La primera vez que salta el «no eres un robot» y no hay cookies puestas,
+    se prueban los navegadores del equipo; si uno funciona se queda guardado
+    y la descarga sigue como si nada.
+    """
+    ydl = _require_ytdlp()
+    try:
+        with ydl.YoutubeDL(opts) as dl:
+            return dl.extract_info(url, download=download)
+    except Exception as exc:                                # noqa: BLE001
+        con_cookies = "cookiefile" in opts or "cookiesfrombrowser" in opts
+        modo = (getattr(settings, "youtube_cookies", "auto") or "auto").lower()
+        if not es_robot(exc) or con_cookies or modo == "no":
+            raise
+        with _probando:
+            # otro trabajo puede haberlo resuelto mientras esperábamos
+            ya = opciones_de_cookies()
+            if not ya:
+                ya = (
+                    {"cookiesfrombrowser": (resultado["navegador"],)}
+                    if (resultado := probar_navegadores(url))["ok"] else {}
+                )
+        if not ya:
+            raise
+        with ydl.YoutubeDL(opts | ya) as dl:
+            return dl.extract_info(url, download=download)
 
 
 # Entre llamada y llamada a YouTube se deja pasar un momento. Es la diferencia
@@ -75,10 +279,32 @@ def _esperar_turno() -> None:
         _ultima_llamada = time.monotonic()
 
 
+# Windows no deja renombrar ni borrar un archivo que otro proceso tiene abierto
+# (WinError 32). Pasa cuando dos trabajos escriben el mismo temporal o cuando el
+# antivirus o el indexador de Windows se ponen a mirarlo justo en ese momento.
+MARCAS_ARCHIVO_OCUPADO = (
+    "winerror 32",
+    "being used by another process",
+    "siendo utilizado por otro proceso",
+    "unable to rename file",
+)
+
+
+def archivo_ocupado(exc: BaseException | str) -> bool:
+    bajo = str(exc).lower()
+    return any(marca in bajo for marca in MARCAS_ARCHIVO_OCUPADO)
+
+
 def traducir_error(exc: Exception) -> str:
     """Convierte el ladrillo de yt-dlp en algo que se entienda."""
     texto = str(exc)
     bajo = texto.lower()
+    if archivo_ocupado(bajo):
+        return (
+            "Windows no dejó terminar de guardar el trozo de vídeo porque otro "
+            "programa lo tenía abierto (suele ser el antivirus mirándolo). Kevil "
+            "lo reintenta solo con otro nombre de archivo."
+        )
     if "429" in bajo or "too many requests" in bajo:
         return (
             "YouTube ha cortado las peticiones por un rato («too many requests»). "
@@ -88,10 +314,12 @@ def traducir_error(exc: Exception) -> str:
             "antiguos a traer» y activa las cookies de tu navegador en el paso "
             "«Descarga del original»."
         )
-    if "sign in to confirm" in bajo or "bot" in bajo and "confirm" in bajo:
+    if es_robot(bajo):
         return (
-            "YouTube pide comprobar que no eres un robot. Activa las cookies de "
-            "tu navegador en el paso «Descarga del original» del flujo."
+            "YouTube pide comprobar que no eres un robot. Kevil ha probado la "
+            "sesión de YouTube de tus navegadores y ninguna ha servido todavía. "
+            "Abre «Qué hago» para arreglarlo en un minuto; mientras, lo reintenta "
+            "solo cada hora."
         )
     if "private video" in bajo:
         return "El vídeo es privado. Con las cookies de tu navegador sí se puede leer."
@@ -106,11 +334,17 @@ class RateLimited(YouTubeError):
     """YouTube ha dicho «too many requests»: hay que esperar, no reintentar ya."""
 
 
+class RobotCheck(YouTubeError):
+    """YouTube pide la comprobación de «no soy un robot» y no hay cookies que valgan."""
+
+
 def _lanzar_bonito(exc: Exception) -> None:
     mensaje = traducir_error(exc)
     bajo = str(exc).lower()
     if "429" in bajo or "too many requests" in bajo:
         raise RateLimited(mensaje) from exc
+    if es_robot(bajo):
+        raise RobotCheck(mensaje) from exc
     raise YouTubeError(mensaje) from exc
 
 
@@ -294,8 +528,11 @@ def fetch_video_info(url: str, cookies_from_browser: str = "") -> dict[str, Any]
     """Metadatos completos de un vídeo suelto."""
     ydl = _require_ytdlp()
     opts = _base_opts(cookies_from_browser) | {"skip_download": True}
-    with ydl.YoutubeDL(opts) as dl:
-        info = dl.extract_info(url, download=False)
+    try:
+        info = _extraer(opts, url, download=False)
+    except Exception as exc:                    # noqa: BLE001
+        _lanzar_bonito(exc)
+        raise
     if not info:
         raise YouTubeError("No se ha podido leer el vídeo.")
     if info.get("_type") == "playlist":
@@ -376,8 +613,7 @@ def download_video(
 
     _esperar_turno()
     try:
-        with ydl.YoutubeDL(opts) as dl:
-            info = dl.extract_info(url, download=True)
+        info = _extraer(opts, url, download=True)
     except Exception as exc:                    # noqa: BLE001
         _lanzar_bonito(exc)
         raise
@@ -461,8 +697,7 @@ def fetch_subtitles_only(
 
     _esperar_turno()
     try:
-        with ydl.YoutubeDL(opts) as dl:
-            info = dl.extract_info(url, download=True)
+        info = _extraer(opts, url, download=True)
     except Exception as exc:                    # noqa: BLE001
         _lanzar_bonito(exc)
         raise
@@ -496,7 +731,8 @@ def download_audio_only(
     opts = _base_opts(cookies_from_browser) | {
         "ignoreerrors": False,
         "format": "ba[ext=m4a]/ba/worstaudio",
-        "outtmpl": str(dest / "audio-%(id)s.%(ext)s"),
+        # nombre propio por descarga: dos trabajos nunca comparten archivo
+        "outtmpl": str(dest / f"audio-%(id)s-{uuid.uuid4().hex[:8]}.%(ext)s"),
         "progress_hooks": [_hook_progreso(on_progress, "Analizando el audio")],
         "overwrites": False,
         "continuedl": True,
@@ -504,8 +740,7 @@ def download_audio_only(
 
     _esperar_turno()
     try:
-        with ydl.YoutubeDL(opts) as dl:
-            info = dl.extract_info(url, download=True)
+        info = _extraer(opts, url, download=True)
     except Exception as exc:                    # noqa: BLE001
         _lanzar_bonito(exc)
         raise
@@ -517,7 +752,7 @@ def download_audio_only(
     descargas = info.get("requested_downloads") or []
     if descargas and descargas[0].get("filepath"):
         return str(descargas[0]["filepath"])
-    candidatos = sorted(dest.glob(f"audio-{info.get('id', '')}.*"))
+    candidatos = sorted(dest.glob(f"audio-{info.get('id', '')}-*.*"))
     if not candidatos:
         raise YouTubeError("No se encuentra el audio descargado.")
     return str(candidatos[0])
@@ -531,12 +766,18 @@ def download_sections(
     cookies_from_browser: str = "",
     destination: Path | None = None,
     on_progress: Callable[[float, str], None] | None = None,
+    intentos: int = 3,
 ) -> str:
     """Baja **sólo** los tramos indicados, no el vídeo entero.
 
     Para sacar tres clips de treinta segundos de un directo de dos horas se
     bajan noventa segundos, no dos horas. Es la diferencia entre unos megas y
     varios gigas en el disco.
+
+    Cada descarga usa un nombre de archivo propio. Antes todos los clips de un
+    mismo vídeo bajaban a `tramo-<id>.mp4`: con dos trabajos a la vez, uno
+    pisaba el archivo que el otro estaba renombrando y Windows contestaba
+    «WinError 32: el archivo está siendo utilizado por otro proceso».
     """
     if not ranges:
         raise YouTubeError("No hay ningún tramo que descargar.")
@@ -554,46 +795,70 @@ def download_sections(
             "Actualízala con: pip install -U yt-dlp"
         ) from None
 
-    opts = _base_opts(cookies_from_browser) | {
-        "ignoreerrors": False,
-        "outtmpl": str(dest / "tramo-%(id)s.%(ext)s"),
-        "format": (
-            f"bv*[height<={height}][ext=mp4]+ba[ext=m4a]/"
-            f"bv*[height<={height}]+ba/b[height<={height}]/b"
-        ),
-        "merge_output_format": "mp4",
-        "download_ranges": rango,
-        "force_keyframes_at_cuts": True,     # cortes limpios en los extremos
-        "progress_hooks": [_hook_progreso(on_progress, "Bajando el tramo")],
-        "concurrent_fragment_downloads": 2,
-        "overwrites": True,
-        "continuedl": False,
-    }
+    ultimo: Exception | None = None
+    for intento in range(1, max(1, intentos) + 1):
+        marca = uuid.uuid4().hex[:8]
+        opts = _base_opts(cookies_from_browser) | {
+            "ignoreerrors": False,
+            "outtmpl": str(dest / f"tramo-%(id)s-{marca}.%(ext)s"),
+            "format": (
+                f"bv*[height<={height}][ext=mp4]+ba[ext=m4a]/"
+                f"bv*[height<={height}]+ba/b[height<={height}]/b"
+            ),
+            "merge_output_format": "mp4",
+            "download_ranges": rango,
+            "force_keyframes_at_cuts": True,     # cortes limpios en los extremos
+            "progress_hooks": [_hook_progreso(on_progress, "Bajando el tramo")],
+            "concurrent_fragment_downloads": 2,
+            "overwrites": True,
+            "continuedl": False,
+        }
 
-    _esperar_turno()
-    try:
-        with ydl.YoutubeDL(opts) as dl:
-            info = dl.extract_info(url, download=True)
-    except Exception as exc:                    # noqa: BLE001
-        _lanzar_bonito(exc)
-        raise
-    if not info:
-        raise YouTubeError("La descarga del tramo no ha devuelto nada.")
-    if info.get("_type") == "playlist":
-        info = (info.get("entries") or [None])[0] or {}
+        _esperar_turno()
+        try:
+            info = _extraer(opts, url, download=True)
+        except pausa.Pausado:
+            _limpiar_tramo(dest, marca)
+            raise
+        except Exception as exc:                    # noqa: BLE001
+            _limpiar_tramo(dest, marca)
+            if archivo_ocupado(exc) and intento < intentos:
+                # Otro proceso tenía el archivo: se espera un poco y se repite
+                # con un nombre nuevo, que ése seguro que no lo tiene nadie.
+                ultimo = exc
+                time.sleep(3 * intento)
+                continue
+            _lanzar_bonito(exc)
+            raise
+        if not info:
+            raise YouTubeError("La descarga del tramo no ha devuelto nada.")
+        if info.get("_type") == "playlist":
+            info = (info.get("entries") or [None])[0] or {}
 
-    descargas = info.get("requested_downloads") or []
-    if descargas and descargas[0].get("filepath"):
-        ruta = Path(descargas[0]["filepath"])
-        if ruta.exists():
-            return str(ruta)
-    candidatos = [
-        p for p in sorted(dest.glob(f"tramo-{info.get('id', '')}.*"))
-        if p.suffix.lower() in {".mp4", ".mkv", ".webm"}
-    ]
-    if not candidatos:
-        raise YouTubeError("No se encuentra el tramo descargado.")
-    return str(candidatos[0])
+        descargas = info.get("requested_downloads") or []
+        if descargas and descargas[0].get("filepath"):
+            ruta = Path(descargas[0]["filepath"])
+            if ruta.exists():
+                return str(ruta)
+        candidatos = [
+            p for p in sorted(dest.glob(f"tramo-*-{marca}.*"))
+            if p.suffix.lower() in {".mp4", ".mkv", ".webm"}
+        ]
+        if not candidatos:
+            raise YouTubeError("No se encuentra el tramo descargado.")
+        return str(candidatos[0])
+
+    _lanzar_bonito(ultimo or YouTubeError("No se pudo bajar el tramo."))
+    raise YouTubeError("No se pudo bajar el tramo.")  # pragma: no cover
+
+
+def _limpiar_tramo(carpeta: Path, marca: str) -> None:
+    """Quita los restos (.part, pistas sueltas) de una descarga que falló."""
+    for resto in carpeta.glob(f"tramo-*-{marca}*"):
+        try:
+            resto.unlink()
+        except OSError:
+            pass
 
 
 def _hook_progreso(

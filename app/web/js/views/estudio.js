@@ -3,7 +3,7 @@
 
 import { api } from '../lib/api.js';
 import {
-  confirmDialog, emptyState, escapeHtml, fmt, modal, toast, toastError,
+  STATUS_LABELS, confirmDialog, escapeHtml, fmt, modal, toast, toastError,
 } from '../lib/ui.js';
 
 let selectedId = null;
@@ -22,7 +22,7 @@ function marcaRevision(nivel) {
 }
 
 /* --------------------------------------------------------------- subida */
-function subirDialog(reload) {
+function subirDialog(reload, archivos = null) {
   modal({
     title: 'Subir un vídeo tuyo',
     body: `
@@ -44,8 +44,8 @@ function subirDialog(reload) {
           <span class="track"></span><span class="switch-label">Generar con IA</span></label></div>
         <div class="field"><label class="switch"><input type="checkbox" id="u-img">
           <span class="track"></span><span class="switch-label">Miniatura con imagen de IA</span></label></div>
-        <div class="field full"><label class="switch"><input type="checkbox" id="u-clips">
-          <span class="track"></span><span class="switch-label">Sacar también clips verticales para TikTok</span></label></div>
+        <div class="field full"><label class="switch"><input type="checkbox" id="u-clips" checked>
+          <span class="track"></span><span class="switch-label">Sacar también clips verticales para TikTok y Shorts</span></label></div>
       </div>
       <div id="progreso" hidden>
         <div class="bar"><i id="barra" style="width:0%"></i></div>
@@ -118,6 +118,7 @@ function subirDialog(reload) {
       };
       zona.onclick = () => input.click();
       input.onchange = mostrar;
+      if (archivos && archivos.length) { input.files = archivos; mostrar(); }
       zona.ondragover = (event) => { event.preventDefault(); zona.classList.add('over'); };
       zona.ondragleave = () => zona.classList.remove('over');
       zona.ondrop = (event) => {
@@ -138,9 +139,37 @@ function kitHtml(data) {
   const elegido = kit.chosen_title || titulos[0] || '';
 
   if (!Object.keys(kit).length) {
-    return `<div class="card">${emptyState('✨', 'Este vídeo aún no tiene kit',
-      'Genera títulos, descripción, etiquetas y miniaturas en un clic.',
-      '<button class="btn primary" data-generar>Generar el kit</button>')}</div>`;
+    if (data.generando) return generandoHtml(video, data.generando);
+    return `<div class="card">
+      <div class="kit-vacio">
+        <div>
+          <p class="nota-mano">paso 2 de 3</p>
+          <h3 style="font-size:24px;margin-top:6px">Prepara el kit de <span class="acento">este vídeo</span></h3>
+          <p class="muted small" style="margin-top:10px;line-height:1.7">
+            <b style="color:var(--text)">${escapeHtml(video.title)}</b> · ${fmt.duration(video.duration_s)}<br>
+            Kevil lee el vídeo y te deja listo todo lo que pide YouTube. Tarda un par de minutos
+            y puedes seguir haciendo otras cosas mientras.
+          </p>
+          <div style="display:flex;flex-direction:column;gap:10px;margin:16px 0 18px">
+            <label class="switch"><input type="checkbox" id="g-ia" ${data.ai?.enabled ? 'checked' : ''} ${data.ai?.enabled ? '' : 'disabled'}>
+              <span class="track"></span><span class="switch-label">Con IA ${data.ai?.enabled ? '' : '(añade una clave en Ajustes)'}</span></label>
+            <label class="switch"><input type="checkbox" id="g-img" ${data.ai?.images_supported ? '' : 'disabled'}>
+              <span class="track"></span><span class="switch-label">Fondo de miniatura hecho con IA</span></label>
+          </div>
+          <button class="btn primary" data-generar>✦ Generar el kit</button>
+        </div>
+        <div class="que-sale">
+          ${[
+            ['Títulos', '5 opciones, pensadas para que hagan clic'],
+            ['Descripción', 'con capítulos y enlaces'],
+            ['Etiquetas y hashtags', 'para que YouTube lo entienda'],
+            ['Miniaturas', 'varias en 1280×720 para elegir'],
+            ['Revisión', 'lo que falta antes de publicar'],
+            ['Clips', 'verticales para TikTok y Shorts'],
+          ].map(([t, d]) => `<div class="item"><strong>${t}</strong><span>${d}</span></div>`).join('')}
+        </div>
+      </div>
+    </div>`;
   }
 
   return `
@@ -156,6 +185,9 @@ function kitHtml(data) {
         </div>
         <div style="display:flex;gap:7px;flex-wrap:wrap">
           <button class="btn sm ghost" data-generar>Regenerar</button>
+          ${video.clips_count
+            ? `<a class="btn sm" href="#clips?video=${video.id}">${video.clips_count === 1 ? 'Ver su clip' : `Ver sus ${video.clips_count} clips`}</a>`
+            : (video.downloaded ? '<button class="btn sm" data-sacar-clips>Sacar clips</button>' : '')}
           <button class="btn sm primary" data-subir-youtube>Subir a YouTube</button>
         </div>
       </div>
@@ -243,6 +275,53 @@ function kitHtml(data) {
         ${(kit.thumbnail_errors || []).map((e) => `<p class="tiny" style="color:var(--amber);margin-top:8px">${escapeHtml(e)}</p>`).join('')}
       </div>
     </div>`;
+}
+
+function generandoHtml(video, trabajo) {
+  const porcentaje = Math.round((trabajo.progress || 0) * 100);
+  return `<div class="card">
+    <p class="nota-mano">un momento…</p>
+    <h3 style="font-size:22px;margin-top:6px">Preparando el kit de «${escapeHtml(video.title.slice(0, 70))}»</h3>
+    <p class="muted small" style="margin:10px 0 16px">${escapeHtml(trabajo.message || 'Leyendo el vídeo…')}</p>
+    <div class="bar" style="height:7px"><i style="width:${porcentaje}%"></i></div>
+    <p class="muted tiny" style="margin-top:8px">${porcentaje}% · esta pantalla se actualiza sola</p>
+  </div>`;
+}
+
+/* Los tres pasos, siempre a la vista: dónde estás y qué toca */
+function pasosHtml(data) {
+  const kit = data?.kit || {};
+  const hayVideo = Boolean(data?.video);
+  const hayKit = Object.keys(kit).length > 0;
+  const subido = Boolean(kit.youtube?.url);
+  const estado = (hecho, actual) => (hecho ? 'hecho' : (actual ? 'actual' : ''));
+  return `<div class="pasos">
+    <div class="paso ${estado(hayVideo, !hayVideo)}"><span class="n">${hayVideo ? '✓' : '1'}</span>
+      <div><strong>Sube tu vídeo</strong><span>Arrástralo aquí abajo o pulsa «Subir vídeo». También sirven los de tu canal.</span></div></div>
+    <div class="paso ${estado(hayKit, hayVideo && !hayKit)}"><span class="n">${hayKit ? '✓' : '2'}</span>
+      <div><strong>Kevil prepara el kit</strong><span>Títulos, descripción, hashtags, miniaturas y clips.</span></div></div>
+    <div class="paso ${estado(subido, hayKit && !subido)}"><span class="n">${subido ? '✓' : '3'}</span>
+      <div><strong>Publica</strong><span>Súbelo a YouTube desde aquí y deja los clips en la agenda.</span></div></div>
+  </div>`;
+}
+
+function filaVideo(video) {
+  const estado = video.has_kit
+    ? { punto: 'ok', texto: `kit listo · ${video.kit_thumbnails} miniaturas` }
+    : video.status === 'error'
+      ? { punto: 'bad', texto: 'con error' }
+      : ['downloading', 'processing', 'queued'].includes(video.status)
+        ? { punto: 'run', texto: STATUS_LABELS[video.status] || video.status }
+        : { punto: '', texto: 'sin kit todavía' };
+  return `<button class="video-fila ${video.id === selectedId ? 'sel' : ''}" data-video="${video.id}" type="button">
+    ${video.thumbnail_url
+      ? `<img src="${escapeHtml(video.thumbnail_url)}" alt="" loading="lazy">`
+      : `<span class="sin-imagen">${video.origin === 'local' ? '📁' : '▶'}</span>`}
+    <span class="meta">
+      <strong>${escapeHtml(video.title)}</strong>
+      <span><i class="estado-punto ${estado.punto}"></i>${escapeHtml(estado.texto)}${video.duration_s ? ` · ${fmt.duration(video.duration_s)}` : ''}</span>
+    </span>
+  </button>`;
 }
 
 /* -------------------------------------------------------------- vista */
@@ -405,18 +484,29 @@ export default {
 
   async render(root, ctx) {
     reloadView = ctx.reload;
-    const [videos, aiStatus] = await Promise.all([
-      api.get('/api/studio/videos?limit=60'),
+    const [videos, aiStatus, trabajos] = await Promise.all([
+      api.get('/api/studio/videos?limit=80'),
       api.get('/api/ai/status'),
+      api.jobs('?limit=20'),
     ]);
+
+    if (new URLSearchParams(location.hash.split('?')[1] || '').get('subir')) {
+      setTimeout(() => subirDialog(ctx.reload), 200);
+    }
 
     if (!videos.length) {
       root.innerHTML = `
+        ${pasosHtml(null)}
         ${aiStatus.enabled ? '' : avisoSinIA(aiStatus)}
-        <div class="card">${emptyState('🎬', 'Todavía no hay vídeos en el estudio',
-          'Sube un vídeo desde tu ordenador (o importa uno de YouTube) y Kevil te prepara el título, la descripción, las etiquetas y las miniaturas.',
-          '<button class="btn primary" data-subir>Subir mi primer vídeo</button>')}</div>`;
-      root.querySelector('[data-subir]').onclick = () => subirDialog(ctx.reload);
+        <div class="card">
+          <div class="dropzone" data-soltar>
+            <div class="big">⬆️</div>
+            <p class="nota-mano">empieza aquí</p>
+            <strong style="font-size:17px">Arrastra tu vídeo aquí</strong>
+            <span class="muted small">o pulsa para elegirlo · mp4, mov, mkv, webm…</span>
+          </div>
+        </div>`;
+      activarSoltar(root, ctx);
       return;
     }
 
@@ -424,40 +514,56 @@ export default {
       selectedId = (videos.find((v) => v.has_kit) || videos[0]).id;
     }
     const data = await api.get(`/api/videos/${selectedId}/kit`);
+    data.generando = trabajos.find((job) => ['build_kit', 'analyze_local'].includes(job.kind)
+      && ['running', 'pending'].includes(job.status) && Number(job.payload?.video_id) === selectedId);
 
     root.innerHTML = `
+      ${pasosHtml(data)}
       ${aiStatus.enabled ? '' : avisoSinIA(aiStatus)}
-      <div class="grid" style="grid-template-columns:minmax(0,270px) minmax(0,1fr);gap:20px;align-items:start">
-        <div class="card">
-          <div class="card-head"><h3>Mis vídeos</h3></div>
-          <div class="flow-list">
-            ${videos.map((video) => `
-              <div class="flow-card ${video.id === selectedId ? 'active' : ''}" data-video="${video.id}">
-                <span class="emoji">${video.origin === 'local' ? '📁' : '▶️'}</span>
-                <div class="meta">
-                  <strong>${escapeHtml(video.title)}</strong>
-                  <span>${video.has_kit
-                    ? `kit listo · ${video.kit_thumbnails} miniaturas`
-                    : (video.status === 'ready' ? 'sin kit' : escapeHtml(video.status))}</span>
-                </div>
-              </div>`).join('')}
+      <div class="estudio">
+        <div class="card" style="padding:18px">
+          <div class="dropzone" data-soltar style="padding:18px 14px;margin-bottom:14px">
+            <strong>⬆ Subir vídeo</strong>
+            <span class="muted tiny">arrástralo aquí o pulsa</span>
           </div>
-          <button class="btn" style="width:100%;justify-content:center;margin-top:14px" data-subir>⬆ Subir vídeo</button>
+          <input type="text" id="buscar-video" placeholder="Buscar en mis vídeos…" style="margin-bottom:10px">
+          <div class="videos-lista">${videos.map(filaVideo).join('')}</div>
         </div>
 
         <div id="kit">${kitHtml(data)}</div>
       </div>`;
 
+    activarSoltar(root, ctx);
+    root.querySelector('#buscar-video').oninput = (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      root.querySelectorAll('.video-fila').forEach((fila) => {
+        fila.hidden = q && !fila.textContent.toLowerCase().includes(q);
+      });
+    };
     bind(root, data, ctx);
   },
 
   async onRefresh(root) {
-    const activos = await api.jobs('?status=running&limit=3');
-    if (activos.some((job) => ['build_kit', 'analyze_local'].includes(job.kind))) {
-      reloadView();
-    }
+    const activos = await api.jobs('?limit=10');
+    const enMarcha = activos.some((job) => ['build_kit', 'analyze_local'].includes(job.kind)
+      && ['running', 'pending'].includes(job.status));
+    if (enMarcha || root.querySelector('.bar')) reloadView();
   },
 };
+
+/* Arrastrar un vídeo a la página abre la subida con él ya puesto */
+function activarSoltar(root, ctx) {
+  root.querySelectorAll('[data-soltar]').forEach((zona) => {
+    zona.onclick = () => subirDialog(ctx.reload);
+    zona.ondragover = (e) => { e.preventDefault(); zona.classList.add('over'); };
+    zona.ondragleave = () => zona.classList.remove('over');
+    zona.ondrop = (e) => {
+      e.preventDefault();
+      zona.classList.remove('over');
+      subirDialog(ctx.reload, e.dataTransfer.files);
+    };
+  });
+}
 
 function avisoSinIA(aiStatus) {
   const proveedores = Object.entries(aiStatus.providers || {})
@@ -468,7 +574,7 @@ function avisoSinIA(aiStatus) {
     <p class="muted small" style="margin-top:7px;line-height:1.7">
       El kit se genera igual a partir de tu transcripción, pero con ${proveedores}
       los títulos y la descripción salen mucho mejor (y puedes crear fondos de miniatura).
-      Se configura en <a href="#ajustes" style="color:var(--accent)">Ajustes</a>.
+      <a href="#ajustes?seccion=ia" style="color:var(--accent-2);text-decoration:underline">Añadir una clave</a> (las hay gratis: Groq, Gemini, OpenRouter…).
     </p>
   </div>`;
 }
@@ -488,8 +594,12 @@ function bind(root, data, ctx) {
       if (data.kit && Object.keys(data.kit).length
         && !await confirmDialog('Regenerar el kit',
           'Se sustituyen los títulos, la descripción y las miniaturas actuales.', 'Regenerar')) return;
+      const casillaIA = root.querySelector('#g-ia');
+      const casillaImg = root.querySelector('#g-img');
       await api.post(`/api/videos/${selectedId}/kit`, {
-        use_ai: Boolean(usarIA), ai_image: Boolean(conImagen), thumbnail_count: 3,
+        use_ai: casillaIA ? casillaIA.checked : Boolean(usarIA),
+        ai_image: casillaImg ? casillaImg.checked : Boolean(conImagen),
+        thumbnail_count: 3,
       });
       toast('Generando el kit…');
       ctx.reload();
@@ -517,6 +627,16 @@ function bind(root, data, ctx) {
       toast('Miniatura elegida');
     };
   });
+
+  const sacarClips = root.querySelector('[data-sacar-clips]');
+  if (sacarClips) {
+    sacarClips.onclick = async () => {
+      try {
+        await api.post(`/api/videos/${selectedId}/process`, {});
+        toast('Cortando… los clips aparecerán en Clips en unos minutos');
+      } catch (error) { toastError(error); }
+    };
+  }
 
   const botonSubir = root.querySelector('[data-subir-youtube]');
   if (botonSubir) {

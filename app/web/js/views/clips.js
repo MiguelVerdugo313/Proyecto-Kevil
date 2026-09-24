@@ -1,6 +1,7 @@
 // Clips: revisar, retocar, aprobar y programar.
 
 import { api } from '../lib/api.js';
+import { activarAyuda, ayudaHtml } from '../lib/ayuda.js';
 import {
   confirmDialog, emptyState, escapeHtml, fmt, modal,
   statusPill, toast, toastError,
@@ -51,7 +52,7 @@ async function openClip(clipId, reload) {
             Del original: ${fmt.duration(clip.start_s)} → ${fmt.duration(clip.end_s)}<br>
             ${escapeHtml(clip.reason || '')}
           </p>
-          ${clip.error ? `<p class="small" style="color:var(--red);margin-top:8px">${escapeHtml(clip.error.slice(0, 260))}</p>` : ''}
+          ${clip.error ? `<div style="margin-top:10px" data-ayuda-clip>${ayudaHtml(clip.diagnostico, { detalle: clip.error, abierto: true })}</div>` : ''}
         </div>
 
         <div style="display:flex;flex-direction:column;gap:14px">
@@ -69,7 +70,7 @@ async function openClip(clipId, reload) {
               <input type="number" id="c-end" step="0.1" value="${clip.end_s}"></div>
             <div class="field"><label>Encuadre</label>
               <select id="c-mode">
-                ${[['blur', 'Fondo desenfocado'], ['crop', 'Recorte completo'], ['smart', 'Recorte con seguimiento'], ['split', 'Arriba + zoom abajo']]
+                ${[['blur', 'Fondo borroso (recomendado)'], ['crop', 'Recorte completo'], ['smart', 'Recorte con seguimiento'], ['split', 'Arriba + zoom abajo']]
                   .map(([value, label]) => `<option value="${value}" ${(reframe.mode || 'blur') === value ? 'selected' : ''}>${label}</option>`).join('')}
               </select></div>
             <div class="field"><label>Centro horizontal</label>
@@ -86,7 +87,7 @@ async function openClip(clipId, reload) {
               <select id="c-account" style="flex:1">${accountOptions || '<option value="">Sin cuentas de TikTok</option>'}</select>
               <input type="datetime-local" id="c-when" style="flex:1">
             </div>
-            <span class="help">Deja la fecha vacía para que el motor elija la mejor hora automáticamente.</span>
+            <span class="help" id="c-when-help">Buscando la mejor hora…</span>
           </div>
         </div>
       </div>`,
@@ -116,15 +117,71 @@ async function openClip(clipId, reload) {
         const when = root.querySelector('#c-when').value;
         const accountId = Number(root.querySelector('#c-account').value) || null;
         if (!accountId) { toast('Conecta antes una cuenta de TikTok', 'warn'); return false; }
+        // Si la hora es la que propuso el motor, se manda con su motivo: así
+        // sigue siendo «suya» y puede recolocarla si cambia algo.
+        const propia = propuesta && when === propuesta.local;
         await api.post(`/api/clips/${clip.id}/approve`, {
           account_id: accountId,
           scheduled_at: when ? fmt.fromLocalInput(when) : null,
+          slot_reason: propia ? propuesta.reason : '',
         });
-        toast('Clip programado');
+        toast(when ? `Clip programado para el ${fmt.date(fmt.fromLocalInput(when))}` : 'Clip programado a la mejor hora');
         reload();
       } },
     ],
+    onOpen: (root, close) => {
+      const ayuda = root.querySelector('[data-ayuda-clip]');
+      if (ayuda) {
+        activarAyuda(ayuda, {
+          reintentar: async () => {
+            await api.post(`/api/clips/${clip.id}/render`);
+            toast('Montándolo otra vez…');
+            close();
+            reload();
+          },
+          descartar: async () => {
+            await api.post(`/api/clips/${clip.id}/reject`);
+            close();
+            reload();
+          },
+        });
+      }
+      const cuenta = root.querySelector('#c-account');
+      cuenta.addEventListener('change', () => proponer(root, clip));
+      proponer(root, clip);
+    },
   });
+}
+
+// La fecha no se deja vacía: se rellena con la hora que elegiría el motor, que
+// se puede cambiar. Así se ve cuándo va a salir antes de aprobarlo.
+let propuesta = null;
+
+async function proponer(root, clip) {
+  const campo = root.querySelector('#c-when');
+  const ayuda = root.querySelector('#c-when-help');
+  const accountId = Number(root.querySelector('#c-account').value) || null;
+  propuesta = null;
+  if (!accountId) {
+    ayuda.textContent = 'Conecta una cuenta para que el motor proponga la hora.';
+    return;
+  }
+  const programado = [clip.post].find((p) => p && p.status === 'scheduled' && p.account_id === accountId);
+  if (programado) {
+    campo.value = fmt.toLocalInput(programado.scheduled_at);
+    ayuda.textContent = `Ya estaba programado: ${fmt.date(programado.scheduled_at)}.`;
+    return;
+  }
+  try {
+    const datos = await api.get(`/api/clips/${clip.id}/propuesta?account_id=${accountId}`);
+    propuesta = { ...datos, local: fmt.toLocalInput(datos.scheduled_at) };
+    campo.value = propuesta.local;
+    ayuda.innerHTML = `El motor propone el <b>${escapeHtml(fmt.date(datos.scheduled_at, {
+      weekday: 'long', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true,
+    }))}</b> (${escapeHtml(datos.reason)}). Cámbiala si prefieres otra.`;
+  } catch {
+    ayuda.textContent = 'Deja la fecha vacía y el motor elegirá la mejor hora al aprobar.';
+  }
 }
 
 /* ------------------------------------------------------ liberar espacio */
@@ -222,6 +279,7 @@ export default {
     reloadView = ctx.reload;
     const hash = new URLSearchParams((location.hash.split('?')[1] || ''));
     if (hash.get('video')) filters.video = Number(hash.get('video'));
+    if (hash.get('liberar')) setTimeout(() => liberarEspacio(), 150);
 
     const query = new URLSearchParams();
     if (filters.status) query.set('status', filters.status);

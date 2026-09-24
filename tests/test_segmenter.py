@@ -123,8 +123,8 @@ def _sin_solapes(clips, separacion=0.0):
         assert siguiente["start"] >= anterior["end"] + separacion - 0.01
 
 
-def test_un_video_corto_da_varios_clips():
-    for duracion, minimo in ((150, 3), (420, 6), (900, 8)):
+def test_un_video_mediano_da_varios_clips():
+    for duracion, minimo in ((420, 5), (900, 8)):
         clips = segmenter.find_segments(
             media_path="x.mp4", duration=duracion,
             transcript=_transcripcion(duracion), config=_config(),
@@ -132,7 +132,45 @@ def test_un_video_corto_da_varios_clips():
         assert len(clips) >= minimo, (duracion, len(clips))
         _sin_solapes(clips)
         for clip in clips:
-            assert 21 - 0.01 <= clip["end"] - clip["start"] <= 59 + 0.01
+            # con contexto: ni cortos a media idea ni eternos
+            assert 30 - 0.01 <= clip["end"] - clip["start"] <= 90 + 0.01
+
+
+def test_un_video_corto_se_publica_entero():
+    """Troceado perdía el contexto: el principio explica el final."""
+    clips = segmenter.find_segments(
+        media_path="x.mp4", duration=150, transcript=_transcripcion(150), config=_config(),
+    )
+    assert len(clips) == 1
+    assert clips[0]["start"] == 0 and clips[0]["end"] == 150
+    assert "entero" in clips[0]["reason"]
+    assert clips[0]["hook"]                          # y trae su gancho
+
+    # con 0 se trocea siempre, como antes
+    troceado = segmenter.find_segments(
+        media_path="x.mp4", duration=150, transcript=_transcripcion(150),
+        config=_config(entero_hasta=0),
+    )
+    assert len(troceado) >= 2
+
+
+def test_los_cortes_caen_en_pausas_naturales():
+    """Entre dos frases pegadas no se corta si hay una pausa cerca."""
+    segmentos, t = [], 0.0
+    for i in range(60):
+        texto = f"frase número {i} con varias palabras de relleno aquí"
+        segmentos.append({"start": t, "end": t + 4.0, "text": texto})
+        # cada cinco frases, una pausa larga: ahí acaba una idea
+        t += 4.0 + (1.2 if i % 5 == 4 else 0.05)
+    trans = {"segments": segmentos, "words": []}
+    clips = segmenter.find_segments(
+        media_path="", duration=t, transcript=trans, config=_config(skip_intro=0, skip_outro=0),
+    )
+    comienzos_limpios = {round(s["start"], 2) for i, s in enumerate(segmentos)
+                         if i == 0 or s["start"] - segmentos[i - 1]["end"] > 1}
+    limpios = sum(1 for c in clips if round(c["start"] + 0.4, 2) in comienzos_limpios
+                  or round(c["start"], 2) in comienzos_limpios)
+    assert limpios >= len(clips) * 0.7, (limpios, len(clips))
 
 
 def test_un_directo_largo_da_muchos_mas():

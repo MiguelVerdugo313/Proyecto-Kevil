@@ -89,6 +89,7 @@ def video_to_dict(video: Video, *, with_transcript: bool = False) -> dict[str, A
         "was_live": video.was_live,
         "status": video.status,
         "error": video.error,
+        "diagnostico": _diagnostico(video.error),
         "downloaded": exists(video.local_path),
         "clips_count": len(video.clips),
         "transcript_words": len(transcript.get("words") or []),
@@ -133,6 +134,7 @@ def clip_to_dict(clip: Clip, *, with_words: bool = False) -> dict[str, Any]:
         "reason": clip.reason,
         "status": clip.status,
         "error": clip.error,
+        "diagnostico": _diagnostico(clip.error),
         "has_file": exists(clip.render_path),
         "has_thumb": exists(clip.thumb_path),
         "render_config": clip.render_config or {},
@@ -164,6 +166,14 @@ def post_to_dict(post: Post) -> dict[str, Any]:
     }
 
 
+def _diagnostico(texto: str) -> dict[str, Any] | None:
+    if not texto:
+        return None
+    from app.services.diagnostico import diagnosticar
+
+    return diagnosticar(texto)
+
+
 def job_to_dict(job: Job) -> dict[str, Any]:
     return {
         "id": job.id,
@@ -173,8 +183,10 @@ def job_to_dict(job: Job) -> dict[str, Any]:
         "progress": round(job.progress or 0, 3),
         "message": job.message,
         "error": (job.error or "")[:600],
+        "diagnostico": _diagnostico(job.error or job.message) if job.status == "failed" else None,
         "log": job.log or "",
         "attempts": job.attempts,
+        "run_at": iso(job.run_at),
         "created_at": iso(job.created_at),
         "started_at": iso(job.started_at),
         "finished_at": iso(job.finished_at),

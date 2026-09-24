@@ -40,7 +40,7 @@ async function addYouTube(reload) {
         </div>
         <div class="field">
           <label>Duración mínima (segundos)</label>
-          <input type="number" id="yt-min" value="120" min="0">
+          <input type="number" id="yt-min" value="20" min="0">
         </div>
         <div class="field full">
           <label class="switch"><input type="checkbox" id="yt-lives" checked><span class="track"></span>
@@ -250,9 +250,29 @@ function sourceSettings(source, reload) {
 }
 
 /* ----------------------------------------------- estrategia de publicación */
+// Si la cuenta usa una zona que no está en la lista, se añade: guardar sin
+// tocarla no puede cambiártela por la primera de la lista.
+function conZonaActual(field, valor) {
+  if (field.key !== 'timezone' || !valor || field.options.some((o) => o.value === valor)) return field;
+  return { ...field, options: [{ value: valor, label: valor }, ...field.options] };
+}
+
 const STRATEGY_FIELDS = [
-  { key: 'timezone', label: 'Zona horaria', type: 'text', default: 'Europe/Madrid',
-    help: 'Formato IANA: Europe/Madrid, America/Mexico_City, America/Bogota…' },
+  { key: 'timezone', label: 'Zona horaria', type: 'select', default: 'America/Bogota',
+    options: [
+      ['America/Bogota', 'Colombia, Perú, Ecuador (UTC−5)'],
+      ['America/Mexico_City', 'México (centro)'],
+      ['America/Guatemala', 'Centroamérica (UTC−6)'],
+      ['America/Caracas', 'Venezuela (UTC−4)'],
+      ['America/Santiago', 'Chile'],
+      ['America/Argentina/Buenos_Aires', 'Argentina (UTC−3)'],
+      ['America/Sao_Paulo', 'Brasil (Brasilia)'],
+      ['America/New_York', 'EE. UU. (este)'],
+      ['America/Los_Angeles', 'EE. UU. (pacífico)'],
+      ['Europe/Madrid', 'España'],
+      ['UTC', 'UTC'],
+    ].map(([value, label]) => ({ value, label })),
+    help: 'Las horas buenas se calculan en esta zona. Kevil pone la de tu ordenador.' },
   { key: 'max_per_day', label: 'Máximo por día', type: 'number', default: 3, min: 1, max: 12 },
   { key: 'min_gap_hours', label: 'Horas entre publicaciones', type: 'number', default: 3, min: 0.5, max: 48, step: 0.5 },
   { key: 'jitter_minutes', label: 'Variación aleatoria (min)', type: 'number', default: 12, min: 0, max: 60,
@@ -277,7 +297,7 @@ async function strategyDialog(accountId, reload) {
         <span class="lbl">${escapeHtml(day.slice(0, 3))}</span>
         ${heat[index].map((value, hour) => `
           <span class="cell" data-day="${index}" data-hour="${hour}"
-            title="${escapeHtml(day)} ${hour}:00 · ${Math.round(value * 100)}%"
+            title="${escapeHtml(day)} ${fmt.hour(hour)} · ${Math.round(value * 100)}%"
             style="background:${heatColorLocal(value)}"></span>`).join('')}`).join('')}
     </div>`;
 
@@ -306,7 +326,7 @@ async function strategyDialog(accountId, reload) {
       </div>
 
       <div class="form-grid" id="strategy-fields">
-        ${STRATEGY_FIELDS.map((field) => fieldHtml(field, strategy[field.key])).join('')}
+        ${STRATEGY_FIELDS.map((field) => fieldHtml(conZonaActual(field, strategy[field.key]), strategy[field.key])).join('')}
         <div class="field"><label>Silencio desde (hora)</label>
           <input type="number" id="quiet-start" min="0" max="23" value="${quiet.start}"></div>
         <div class="field"><label>Silencio hasta (hora)</label>
@@ -354,7 +374,7 @@ async function strategyDialog(accountId, reload) {
         const hour = Number(cell.dataset.hour);
         heat[day][hour] = Math.max(0, Math.min(1, Number((heat[day][hour] + delta).toFixed(2))));
         cell.style.background = heatColorLocal(heat[day][hour]);
-        cell.title = `${data.days[day]} ${hour}:00 · ${Math.round(heat[day][hour] * 100)}%`;
+        cell.title = `${data.days[day]} ${fmt.hour(hour)} · ${Math.round(heat[day][hour] * 100)}%`;
       };
       root.querySelectorAll('#heat .cell').forEach((cell) => {
         cell.onclick = () => adjust(cell, 0.2);

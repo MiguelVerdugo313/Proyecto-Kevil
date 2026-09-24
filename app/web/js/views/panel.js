@@ -1,6 +1,8 @@
 // Panel: el resumen de todo lo que está pasando.
 
 import { api } from '../lib/api.js';
+import { barras, mini } from '../lib/graficas.js';
+import { activarProblemas, problemasHtml } from '../lib/problemas.js';
 import { emptyState, escapeHtml, fmt, jobPill, toast, toastError } from '../lib/ui.js';
 
 /* --------------------------------------------------------- piloto automático */
@@ -48,11 +50,50 @@ function pilotoHtml(piloto) {
   </div>`;
 }
 
-function statCard(label, value, hint, warn = false) {
+function statCard(label, value, hint, warn = false, serie = null) {
   return `<div class="stat ${warn ? 'warn' : ''}">
     <div class="label">${escapeHtml(label)}</div>
-    <div class="value">${value}</div>
+    <div class="value" data-cuenta="${Number(String(value).replace(/[^0-9]/g, '')) || 0}">${value}</div>
     <div class="hint">${escapeHtml(hint)}</div>
+    ${serie ? mini(serie) : ''}
+  </div>`;
+}
+
+// Los números suben desde cero al entrar: se ve que están vivos
+function contarHacia(root) {
+  root.querySelectorAll('.stat .value[data-cuenta]').forEach((nodo) => {
+    const fin = Number(nodo.dataset.cuenta);
+    const texto = nodo.textContent;
+    if (!fin || fin > 100000 || /[^0-9]/.test(texto.trim())) return;
+    const inicio = performance.now();
+    const paso = (ahora) => {
+      const t = Math.min(1, (ahora - inicio) / 900);
+      nodo.textContent = Math.round(fin * (1 - (1 - t) ** 3));
+      if (t < 1) requestAnimationFrame(paso);
+    };
+    requestAnimationFrame(paso);
+  });
+}
+
+function graficasHtml(series) {
+  const hoy = series.programados[0]?.dia;
+  return `<div class="grid cols-2">
+    <div class="card">
+      <div class="card-head">
+        <div><h3>Programados</h3><p class="muted small" style="margin-top:4px">Los próximos 14 días, por día</p></div>
+        <a class="btn sm ghost" href="#agenda">Agenda</a>
+      </div>
+      ${barras(series.programados, { unidad: ['publicación', 'publicaciones'], hoy, titulo: 'Programados',
+        vacio: 'Nada programado todavía: aprueba clips y el motor les busca hora.' })}
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div><h3>Publicados</h3><p class="muted small" style="margin-top:4px">Los últimos 14 días, por día</p></div>
+        <a class="btn sm ghost" href="#analitica">Analítica</a>
+      </div>
+      ${barras(series.publicados, { unidad: ['publicación', 'publicaciones'], hoy: series.publicados.at(-1)?.dia,
+        titulo: 'Publicados', vacio: 'Aún no se ha publicado nada en estos días.' })}
+    </div>
   </div>`;
 }
 
@@ -106,9 +147,10 @@ export default {
   ],
 
   async render(root, ctx) {
-    const [data, piloto] = await Promise.all([
-      api.dashboard(), api.get('/api/autopilot'),
+    const [data, piloto, problemas] = await Promise.all([
+      api.dashboard(), api.get('/api/autopilot'), problemasHtml(),
     ]);
+    const series = data.series;
     const counters = data.counters;
 
     const noAccounts = data.accounts.length === 0 && counters.channels === 0;
@@ -132,14 +174,18 @@ export default {
         <div style="margin-top:18px"><a class="btn primary" href="#cuentas">Empezar por las cuentas</a></div>
       </div>` : ''}
 
+      ${problemas.html}
+
       ${pilotoHtml(piloto)}
 
       <div class="grid cols-4">
-        ${statCard('Clips por revisar', counters.clips_ready, `${counters.clips} generados en total`)}
-        ${statCard('Programados', counters.scheduled, 'a la espera de su hora')}
-        ${statCard('Publicados (7 días)', counters.published_7d, `${counters.channels} canal(es) vigilados`)}
+        ${statCard('Clips por revisar', counters.clips_ready, `${counters.clips} generados en total`, false, series.clips)}
+        ${statCard('Programados', counters.scheduled, 'a la espera de su hora', false, series.programados.slice(0, 12).reverse())}
+        ${statCard('Publicados (7 días)', counters.published_7d, `${counters.channels} canal(es) vigilados`, false, series.publicados)}
         ${statCard('Vistas (7 días)', fmt.number(counters.views_week), counters.failed ? `${counters.failed} publicación(es) con error` : 'todo en orden', counters.failed > 0)}
       </div>
+
+      ${graficasHtml(series)}
 
       <div class="grid side">
         <div style="display:flex;flex-direction:column;gap:20px">
@@ -219,6 +265,8 @@ export default {
     root.querySelectorAll('[data-clip]').forEach((node) => {
       node.onclick = () => { location.hash = '#clips'; };
     });
+    activarProblemas(root, ctx.reload);
+    contarHacia(root);
 
     const interruptor = root.querySelector('#piloto');
     if (interruptor) {
