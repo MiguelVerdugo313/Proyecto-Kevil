@@ -121,6 +121,19 @@ MEJORAS: dict[str, dict[str, dict[str, dict[str, tuple[Any, Any]]]]] = {
             "segment": {"min_duration": (20, 30), "max_duration": (55, 90)},
         },
     },
+    # Cada clip se llama como su parte del vídeo, en orden («Vídeo · Parte 1»),
+    # y así se sube: en YouTube de título y en TikTok en la primera línea.
+    "titulos-por-partes-1": {
+        "*": {
+            "metadata": {
+                "title_template": (["{titulo} · parte {n}", ""], "{titulo} · Parte {n}"),
+                "caption_template": (
+                    ["{hook}\n\n{hashtags}", ""],
+                    "{titulo} · Parte {n}\n{hook}\n\n{hashtags}",
+                ),
+            },
+        },
+    },
     # Vuelta al fondo borroso: el vídeo entero centrado y, detrás, él mismo
     # desenfocado. No corta nada de la pantalla y es el que más te gusta.
     "fondo-borroso-1": {
@@ -182,6 +195,7 @@ def actualizar_plantillas(session: Session) -> int:
     registro = session.get(Setting, MEJORAS_KEY)
     aplicadas: list[str] = list((registro.value if registro else None) or [])
     cambiados = 0
+    renumerar = False
 
     for clave, por_nombre in MEJORAS.items():
         if clave in aplicadas:
@@ -191,6 +205,7 @@ def actualizar_plantillas(session: Session) -> int:
             _clips_sin_montar_a_fondo_borroso(session)
         if clave == "clips-con-contexto-1":
             _canales_sin_saltar_cortos(session)
+        renumerar = renumerar or clave == "titulos-por-partes-1"
         for flow in session.scalars(select(Flow)).all():
             cambios = _cambios_para(por_nombre, flow.name)
             if not cambios:
@@ -215,6 +230,14 @@ def actualizar_plantillas(session: Session) -> int:
         session.add(Setting(key=MEJORAS_KEY, value=aplicadas))
     else:
         registro.value = aplicadas
+    if renumerar:
+        # con las plantillas ya nuevas: los clips sin publicar pasan a «Parte N»
+        from app.services import partes, repetidos
+
+        session.flush()
+        # primero fuera lo repetido, para que las partes no tengan huecos
+        repetidos.limpiar_locales(session)
+        partes.numerar_todo(session)
     return cambiados
 
 
@@ -355,3 +378,17 @@ def run() -> None:
         diagnostico.reintentar_pasajeros_al_arrancar(session)
         # el canal autorizado para publicar también se vigila para sacar clips
         canales.vigilar_los_conectados(session)
+        # lo que otras versiones ya subieron no se vuelve a subir
+        _revisar_repetidos(session)
+
+
+def _revisar_repetidos(session: Session) -> None:
+    from app.models import Post, PostStatus
+    from app.services.queue import enqueue
+
+    hay = session.scalars(
+        select(Post.id).where(Post.status == PostStatus.scheduled.value).limit(1)
+    ).first()
+    if hay:
+        enqueue(session, "revisar_repetidos", {"remoto": True}, priority=40,
+                message="Mirar qué ya está en YouTube y TikTok")

@@ -105,6 +105,15 @@ def cancel_post(post_id: int, db: Session = Depends(get_db)):
     return {"ok": True, "aviso": aviso}
 
 
+@router.post("/repetidos/revisar")
+def revisar_repetidos(db: Session = Depends(get_db)):
+    """Busca clips y publicaciones repetidos y lo que ya está en las plataformas."""
+    job = enqueue(db, "revisar_repetidos", {"remoto": True}, priority=20,
+                  message="Buscar repetidos")
+    db.commit()
+    return {"job_id": job.id}
+
+
 @router.post("/schedule/plan")
 def plan(body: PlanIn, db: Session = Depends(get_db)):
     """Vista previa de los próximos huecos que elegiría el motor."""

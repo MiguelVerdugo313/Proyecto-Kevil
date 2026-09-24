@@ -272,6 +272,55 @@ def fetch_video_details(credentials: dict[str, Any], video_ids: list[str]) -> di
     return resultado
 
 
+def mis_subidas(credentials: dict[str, Any], limit: int = 50) -> list[dict[str, Any]]:
+    """Tus últimas subidas, también las privadas y las programadas.
+
+    Sirve para no subir dos veces lo mismo: cada una con su título, si es
+    pública o privada y, si está programada, cuándo sale. 3 unidades de cuota.
+    """
+    with httpx.Client(timeout=TIMEOUT) as client:
+        canal = _json(client.get(
+            f"{API_BASE}/channels",
+            params={"part": "contentDetails", "mine": "true"},
+            headers=_headers(credentials),
+        ))
+        items = canal.get("items") or []
+        lista = (((items[0].get("contentDetails") or {}).get("relatedPlaylists") or {})
+                 .get("uploads", "")) if items else ""
+        if not lista:
+            return []
+        datos = _json(client.get(
+            f"{API_BASE}/playlistItems",
+            params={"part": "contentDetails", "playlistId": lista,
+                    "maxResults": max(1, min(50, limit))},
+            headers=_headers(credentials),
+        ))
+        ids = [
+            (item.get("contentDetails") or {}).get("videoId", "")
+            for item in datos.get("items") or []
+        ]
+        ids = [i for i in ids if i]
+        if not ids:
+            return []
+        detalles = _json(client.get(
+            f"{API_BASE}/videos",
+            params={"part": "snippet,status", "id": ",".join(ids)},
+            headers=_headers(credentials),
+        ))
+    subidas: list[dict[str, Any]] = []
+    for item in detalles.get("items") or []:
+        snippet = item.get("snippet") or {}
+        estado = item.get("status") or {}
+        subidas.append({
+            "id": item.get("id", ""),
+            "title": snippet.get("title", ""),
+            "published_at": (snippet.get("publishedAt") or "").replace("Z", ""),
+            "privacy": estado.get("privacyStatus", ""),
+            "publish_at": (estado.get("publishAt") or "").replace("Z", "").split(".")[0],
+        })
+    return subidas
+
+
 def fetch_uploads(credentials: dict[str, Any], limit: int = 50) -> list[dict[str, Any]]:
     """Tus últimos vídeos publicados con su fecha exacta y sus visitas.
 

@@ -48,7 +48,20 @@ def render_template(template: str, variables: dict[str, Any]) -> str:
     result = template or ""
     for key, value in variables.items():
         result = result.replace("{" + key + "}", str(value))
-    return re.sub(r"\{[a-z_]+\}", "", result).strip()
+    result = re.sub(r"\{[a-z_]+\}", "", result)
+    # una variable vacía no deja líneas en blanco de más ni separadores colgando
+    lineas = [re.sub(r"^[\s·|\-–]+|[\s·|\-–]+$", "", linea) for linea in result.split("\n")]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lineas)).strip()
+
+
+TITULO_MAX = 80          # que quepa «… · Parte 12 #Shorts» en los 100 de YouTube
+
+
+def acortar(texto: str, largo: int = TITULO_MAX) -> str:
+    texto = (texto or "").strip()
+    if len(texto) <= largo:
+        return texto
+    return texto[: largo - 1].rsplit(" ", 1)[0].rstrip(" ,.;:·|-") + "…"
 
 
 def build_metadata(
@@ -60,6 +73,7 @@ def build_metadata(
     text: str,
     index: int,
     total: int,
+    entero: bool | None = None,
 ) -> dict[str, Any]:
     fixed = [slugify_tag(t) for t in (config.get("hashtags") or []) if slugify_tag(t)]
     tags = list(dict.fromkeys(fixed))
@@ -73,24 +87,36 @@ def build_metadata(
     tags = tags[:max_tags] if max_tags else []
     hashtag_text = " ".join(f"#{tag}" for tag in tags)
 
+    titulo = acortar(video_title)
+    # el gancho sólo si dice algo más que el título del vídeo
+    gancho = (hook or "").strip()
+    if gancho.lower() == (video_title or "").strip().lower():
+        gancho = ""
     variables = {
-        "titulo": video_title,
-        "hook": hook or video_title,
+        "titulo": titulo,
+        "hook": gancho,
         "n": index,
         "total": total,
         "canal": channel,
         "hashtags": hashtag_text,
     }
 
-    title = render_template(config.get("title_template", "{titulo} · parte {n}"), variables)
-    caption = render_template(config.get("caption_template", "{hook}\n\n{hashtags}"), variables)
+    plantilla_titulo = config.get("title_template", "{titulo} · Parte {n}")
+    plantilla_texto = config.get("caption_template", "{titulo} · Parte {n}\n{hook}\n\n{hashtags}")
+    if entero if entero is not None else total <= 1:
+        # un vídeo que sale entero no es «Parte 1»
+        for resto in (" · Parte {n}", " · parte {n}", "Parte {n} · ", "parte {n} · "):
+            plantilla_titulo = plantilla_titulo.replace(resto, "")
+            plantilla_texto = plantilla_texto.replace(resto, "")
+    title = render_template(plantilla_titulo, variables)
+    caption = render_template(plantilla_texto, variables)
 
     max_chars = int(config.get("max_caption_chars", 2100) or 2100)
     if len(caption) > max_chars:
         caption = caption[: max_chars - 1].rstrip() + "…"
 
     return {
-        "title": title[:300] or video_title[:300],
+        "title": title[:300] or titulo[:300],
         "caption": caption,
         "hashtags": tags,
     }

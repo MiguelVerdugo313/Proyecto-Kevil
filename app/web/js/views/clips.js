@@ -123,10 +123,13 @@ async function openClip(clipId, reload) {
           return false;
         }
         await saveClip(root, clip);
-        await api.post(`/api/clips/${clip.id}/approve`, { destinos });
-        const nombres = [...root.querySelectorAll('[data-publicar]:checked')]
-          .map((c) => c.dataset.plataforma === 'youtube' ? 'YouTube Shorts' : 'TikTok');
-        toast(`Programado en ${[...new Set(nombres)].join(' y ')}`);
+        const respuesta = await api.post(`/api/clips/${clip.id}/approve`, { destinos });
+        (respuesta.avisos || []).forEach((aviso) => toast(aviso, 'warn'));
+        if (respuesta.post_ids?.length) {
+          const nombres = [...root.querySelectorAll('[data-publicar]:checked')]
+            .map((c) => c.dataset.plataforma === 'youtube' ? 'YouTube Shorts' : 'TikTok');
+          toast(`Programado en ${[...new Set(nombres)].join(' y ')}`);
+        }
         reload();
       } },
     ],

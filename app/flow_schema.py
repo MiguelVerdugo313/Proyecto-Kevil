@@ -549,14 +549,16 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "key": "title_template",
                 "label": "Título interno",
                 "type": "text",
-                "default": "{titulo} · parte {n}",
-                "help": "Variables: {titulo} {hook} {n} {total} {canal}",
+                "default": "{titulo} · Parte {n}",
+                "help": "Es el título con el que se sube (YouTube) y la primera línea en "
+                        "TikTok. Las partes van en el orden del vídeo. "
+                        "Variables: {titulo} {hook} {n} {total} {canal}",
             },
             {
                 "key": "caption_template",
-                "label": "Descripción de TikTok",
+                "label": "Descripción (TikTok y Shorts)",
                 "type": "textarea",
-                "default": "{hook}\n\n{hashtags}",
+                "default": "{titulo} · Parte {n}\n{hook}\n\n{hashtags}",
                 "help": "Variables: {hook} {titulo} {n} {total} {canal} {hashtags}",
             },
             {

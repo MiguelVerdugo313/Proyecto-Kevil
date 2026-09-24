@@ -465,6 +465,30 @@ Las ideas se guardan o se descartan, así no te repite siempre lo mismo.
   hueco y te avisa. Todo esto está en **Agenda** y en **Ajustes → Publicar sin estar
   pendiente**, junto a «Cerrar Kevil del todo».
 
+## Nada sale dos veces
+
+* **Antes de subir cualquier clip**, Kevil mira lo que ya hay de verdad en tu canal de
+  YouTube (también lo privado y lo programado) y en tu TikTok. Si ese clip ya está
+  —lo subió una versión anterior, aunque fuera desde otra carpeta—, no lo sube otra vez:
+  lo enlaza y, si en YouTube ya tenía hora, se queda con esa.
+* **Volver a cortar un vídeo** no repite los momentos que ya son clips (ni los que
+  descartaste).
+* **Aprobar** no programa en una cuenta un momento que ya está programado o publicado allí.
+* Al abrir Kevil (y con **Agenda → Buscar repetidos**) se repasa todo: los clips del
+  mismo momento se descartan (siguen en «Descartados», no se borran) y las publicaciones
+  repetidas se cancelan. Lo que ya está en una plataforma nunca se toca.
+
+## Cada clip es «Vídeo · Parte N»
+
+Los clips se llaman como su trozo del vídeo original —**«FNF Animania · Parte 3»**— y la
+parte va **por orden dentro del vídeo** (la 1 es la del principio, no la más viral). Con ese
+título se suben: es el título del Short en YouTube y la primera línea en TikTok. Un vídeo
+corto publicado entero lleva sólo su nombre. Al actualizar, los clips aún sin publicar se
+renombran solos; los títulos que escribiste a mano y lo ya publicado no se tocan.
+
+> Consejo: al actualizar Kevil, descomprime la versión nueva **encima de la anterior**
+> (o copia la carpeta `data` a la nueva). Ahí están tus cuentas, tus clips y tu agenda.
+
 ## Estudio: el kit habla de tu vídeo, no de otra cosa
 
 Un gameplay sin voz no se puede transcribir, y sin eso la IA sólo tenía el nombre del

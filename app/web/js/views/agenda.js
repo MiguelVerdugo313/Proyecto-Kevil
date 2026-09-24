@@ -101,6 +101,15 @@ function postDialog(post, reload) {
   });
 }
 
+// Mira en YouTube y TikTok lo que ya existe y quita lo repetido en Kevil
+async function buscarRepetidos() {
+  try {
+    await api.post('/api/repetidos/revisar', {});
+    toast('Buscando repetidos en Kevil, YouTube y TikTok… te aviso con lo que encuentre');
+    setTimeout(() => reloadView(), 6000);
+  } catch (error) { toastError(error); }
+}
+
 async function previewSlots() {
   if (!accountId) { toast('Conecta antes una cuenta de TikTok', 'warn'); return; }
   const slots = await api.post('/api/schedule/plan', { account_id: accountId, count: 10, spread_days: 10 });
@@ -126,6 +135,7 @@ export default {
   refreshMs: 20000,
 
   actions: [
+    { label: 'Buscar repetidos', onClick: () => buscarRepetidos() },
     { label: 'Ver huecos recomendados', onClick: () => previewSlots().catch(toastError) },
   ],
 
@@ -149,7 +159,8 @@ export default {
     const today = new Date().toDateString();
 
     const postsByDay = new Map();
-    posts.forEach((post) => {
+    // lo cancelado (repetidos, etc.) no ocupa sitio en el calendario
+    posts.filter((post) => post.status !== 'cancelled').forEach((post) => {
       const key = new Date(post.scheduled_at).toDateString();
       if (!postsByDay.has(key)) postsByDay.set(key, []);
       postsByDay.get(key).push(post);

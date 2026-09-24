@@ -98,8 +98,9 @@ def test_metadatos_y_hashtags():
         index=2,
         total=5,
     )
-    assert "parte 2" in resultado["title"]
-    assert resultado["caption"].startswith("el error")
+    # el título es la parte del vídeo, y así empieza también la descripción
+    assert resultado["title"] == "Cómo montar un huerto en casa · Parte 2"
+    assert resultado["caption"].startswith("Cómo montar un huerto en casa · Parte 2\nel error")
     assert "#fyp" in resultado["caption"]
     assert len(resultado["hashtags"]) <= config["max_hashtags"]
     assert all(tag == tag.lower() and tag.isalnum() for tag in resultado["hashtags"])

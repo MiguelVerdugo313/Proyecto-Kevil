@@ -374,7 +374,10 @@ def mejor_en_la_bandeja(opciones: list[str], deseada: str) -> bool:
 
 
 def fetch_recent_videos(credentials: dict[str, Any], limit: int = 20) -> list[dict[str, Any]]:
-    fields = "id,title,create_time,view_count,like_count,comment_count,share_count,share_url"
+    fields = (
+        "id,title,video_description,create_time,view_count,like_count,"
+        "comment_count,share_count,share_url"
+    )
     with httpx.Client(timeout=TIMEOUT) as client:
         response = client.post(
             f"{API_BASE}/video/list/",

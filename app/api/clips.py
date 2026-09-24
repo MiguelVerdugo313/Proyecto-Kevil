@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.api.common import clip_to_dict, naive_utc
 from app.db import get_db
-from app.models import Account, Clip, ClipStatus, Post, PostStatus
+from app.models import Account, Clip, ClipStatus, PostStatus
 from app.services import events, pipeline, storage
 from app.services.queue import enqueue
 
@@ -57,13 +57,17 @@ def list_clips(
     limit: int = 200,
     db: Session = Depends(get_db),
 ):
+    # cada vídeo junto, con sus partes en orden (Parte 1, 2, 3…), lo más nuevo arriba
     query = (
         select(Clip)
-        .order_by(Clip.created_at.desc(), Clip.index)
+        .order_by(Clip.video_id.desc(), Clip.start_s)
         .limit(max(1, min(500, limit)))
     )
     if status:
         query = query.where(Clip.status == status)
+    else:
+        # los descartados (y los repetidos) tienen su propio filtro
+        query = query.where(Clip.status != ClipStatus.rejected.value)
     if video_id:
         query = query.where(Clip.video_id == video_id)
     return [clip_to_dict(c) for c in db.scalars(query).all()]
@@ -157,19 +161,18 @@ def approve_clip(clip_id: int, body: ApproveIn, db: Session = Depends(get_db)):
             "de YouTube en «Cuentas».",
         )
 
-    # No se duplica lo que ya esté programado en esa misma cuenta
-    ya_programadas = {
-        post.account_id
-        for post in db.scalars(
-            select(Post).where(
-                Post.clip_id == clip.id, Post.status == PostStatus.scheduled.value
-            )
-        ).all()
-    }
+    # No se duplica: ni este clip ni el mismo momento del vídeo (otro clip que
+    # lo repite) si ya está programado o publicado en esa cuenta
+    from app.services import repetidos
+
+    ocupadas = repetidos.cuentas_con_ese_momento(clip)
+    avisos: list[str] = []
 
     creados = []
     for cuenta in cuentas:
-        if cuenta.id in ya_programadas:
+        if cuenta.id in ocupadas:
+            nombre = "YouTube Shorts" if cuenta.platform == "youtube" else "TikTok"
+            avisos.append(f"En {nombre} ese momento ya está como «{ocupadas[cuenta.id][:60]}»: no se repite.")
             continue
         cuando, motivo = horas.get(cuenta.id, (body.scheduled_at, body.slot_reason))
         post = pipeline.schedule_clip(
@@ -179,10 +182,12 @@ def approve_clip(clip_id: int, body: ApproveIn, db: Session = Depends(get_db)):
         creados.append(post.id)
 
     db.commit()
+    db.refresh(clip)            # la lista de publicaciones se leyó antes de crearlas
     return {
         "clip": clip_to_dict(clip),
         "post_ids": creados,
         "post_id": creados[0] if creados else None,
+        "avisos": avisos,
     }
 
 
