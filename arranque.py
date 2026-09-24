@@ -67,7 +67,21 @@ def main() -> None:
     # El puerto no es un detalle: es el que va escrito en la dirección de
     # retorno que registras en Google y en TikTok. Si está ocupado, más vale
     # decirlo claro que arrancar en otro y que fallen las conexiones.
+    solo_fondo = "--segundo-plano" in sys.argv      # al encender Windows: sin ventana
+    url = f"http://{settings.host}:{settings.port}"
+
     if _puerto_ocupado(settings.host, settings.port):
+        if _es_kevil(url):
+            # Ya está en marcha (en segundo plano): sólo hace falta la ventana
+            if not solo_fondo:
+                import ventana
+
+                ventana.abrir(
+                    url,
+                    perfil=settings.data_path / "ventana",
+                    preferencia="navegador" if settings.window_mode == "navegador" else "auto",
+                )
+            return
         _avisar(
             f"El puerto {settings.port} está ocupado.\n\n"
             "Seguramente ya tienes Kevil Studio abierto: mira en la barra de "
@@ -104,27 +118,75 @@ def main() -> None:
     hilo.start()
 
     import ventana
+    from app.services import segundo_plano
 
-    url = f"http://{settings.host}:{settings.port}"
-    modo = ventana.abrir(
-        url,
-        perfil=settings.data_path / "ventana",
-        preferencia="navegador" if settings.window_mode == "navegador" else "auto",
-    )
+    if solo_fondo:
+        modo = "fondo"
+    else:
+        modo = ventana.abrir(
+            url,
+            perfil=settings.data_path / "ventana",
+            preferencia="navegador" if settings.window_mode == "navegador" else "auto",
+        )
 
     if fallo:
         raise fallo[0]
 
-    if modo == "navegador":
-        # No hay ventana que esperar: nos quedamos mientras el servidor viva.
+    # Al cerrar la ventana: si hay cosas que sólo puede publicar Kevil a su
+    # hora (TikTok no deja programar), se queda en segundo plano.
+    if modo not in {"navegador", "fondo"} and _seguir_en_segundo_plano():
+        modo = "fondo"
+        _avisar_en_segundo_plano()
+
+    if modo in {"navegador", "fondo"}:
+        # Nos quedamos mientras el servidor viva o hasta «Cerrar Kevil del todo»
         try:
-            while hilo.is_alive():
+            while hilo.is_alive() and not segundo_plano.salir.is_set():
                 hilo.join(timeout=0.5)
         except KeyboardInterrupt:
             pass
 
     servidor.should_exit = True
     hilo.join(timeout=8)
+
+
+def _es_kevil(url: str) -> bool:
+    """¿Lo que ocupa el puerto es Kevil en segundo plano?"""
+    try:
+        import json
+        import urllib.request
+
+        with urllib.request.urlopen(f"{url}/api/status", timeout=3) as respuesta:
+            return "version" in json.loads(respuesta.read().decode("utf-8"))
+    except Exception:
+        return False
+
+
+def _seguir_en_segundo_plano() -> bool:
+    try:
+        from app.config import settings
+        from app.db import session_scope
+        from app.services import segundo_plano
+
+        if not settings.segundo_plano:
+            return False
+        with session_scope() as session:
+            return segundo_plano.pendientes_en_el_pc(session) > 0
+    except Exception:
+        return False
+
+
+def _avisar_en_segundo_plano() -> None:
+    try:
+        from app.services import notifications
+
+        notifications.send_desktop(
+            "Kevil sigue en segundo plano",
+            "Publicará lo programado a su hora. Pulsa su icono para abrirlo "
+            "o ciérralo del todo desde Ajustes.",
+        )
+    except Exception:
+        pass
 
 
 def _anotar_error(exc: BaseException, que: str) -> str:

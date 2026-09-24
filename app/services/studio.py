@@ -115,7 +115,29 @@ def job_build_kit(session: Session, ctx: JobContext) -> None:
         topic=settings.channel_topic,
         language=settings.channel_language,
         use_ai=usar_ia,
+        contexto=video.contexto or "",
+        canal=_titulos_del_canal(session, video),
+        forzar=bool(ctx.payload.get("forzar")),
     )
+
+    if kit.get("falta_contexto"):
+        # Sin saber de qué va, lo que salga es inventado: se pregunta primero
+        kit["updated_at"] = utcnow().isoformat() + "Z"
+        video.kit = kit
+        session.commit()
+        notifications.notify(
+            session,
+            "Cuéntale a Kevil de qué va tu vídeo",
+            f"«{video.title[:60]}» no tiene voz que transcribir: escribe en una línea de qué "
+            "va (el juego, qué haces) y Kevil prepara el kit con eso.",
+            kind="kit",
+            level="info",
+            action_label="Abrir el estudio",
+            action_url="#estudio",
+            dedupe_hours=0,
+        )
+        ctx.progress(1.0, "Esperando a que cuentes de qué va")
+        return
 
     # Miniaturas (sólo si tenemos el archivo en el disco)
     miniaturas: list[dict[str, Any]] = []
@@ -125,7 +147,7 @@ def job_build_kit(session: Session, ctx: JobContext) -> None:
             miniaturas = thumbnails.generate(
                 video_path=video.local_path,
                 duration=float(video.duration_s or 0),
-                texts=kit.get("thumbnail_texts") or [video.title[:24]],
+                texts=kit.get("thumbnail_texts") or [(kit.get("titles") or [video.title])[0][:24]],
                 out_dir=settings.thumbs_path / "youtube",
                 prefix=f"video-{video.id:05d}",
                 count=int(ctx.payload.get("thumbnail_count", 3)),
@@ -166,6 +188,19 @@ def job_build_kit(session: Session, ctx: JobContext) -> None:
         dedupe_hours=0,
     )
     ctx.progress(1.0, "Kit listo")
+
+
+def _titulos_del_canal(session: Session, video: Video, cuantos: int = 8) -> list[str]:
+    """Títulos recientes de tu canal: le enseñan a la IA tu forma de titular."""
+    titulos = session.scalars(
+        select(Video.title)
+        .where(Video.id != video.id, Video.origin != "local")
+        .order_by(Video.published_at.desc().nullslast(), Video.id.desc())
+        .limit(cuantos)
+    ).all()
+    if len(titulos) < cuantos:
+        titulos += [h.get("title", "") for h in coach.historial(session)[: cuantos - len(titulos)]]
+    return [t for t in dict.fromkeys(titulos) if t][:cuantos]
 
 
 # --------------------------------------------------------------------------

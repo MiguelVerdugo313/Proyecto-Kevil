@@ -582,13 +582,21 @@ def job_process(session: Session, ctx: JobContext) -> None:
     total = len(candidates)
     created: list[int] = []
 
+    # Un vídeo subido con nombre de archivo («2026-09-24 20-30») se titula con
+    # lo que contaste de él, no con el nombre del archivo
+    from app.services import fidelidad, seo
+
+    titulo_base = video.title
+    if fidelidad.titulo_generico(video.title) and video.contexto:
+        titulo_base = seo._frase_principal(video.contexto) or video.title
+
     for index, candidate in enumerate(candidates, start=1):
         meta = metadata.build_metadata(
             config=metadata_config,
-            video_title=video.title,
+            video_title=titulo_base,
             channel=channel,
             hook=candidate.get("hook", ""),
-            text=candidate.get("text", ""),
+            text=f"{video.contexto or ''} {candidate.get('text', '')}".strip(),
             index=index,
             total=total,
         )
@@ -891,6 +899,8 @@ def job_publish(session: Session, ctx: JobContext) -> None:
         raise RuntimeError("La publicación ya no existe.")
     if post.status in {PostStatus.published.value, PostStatus.cancelled.value}:
         return
+    if post.en_plataforma:
+        return                      # ya está programado en YouTube: sale solo
 
     clip = post.clip
     account = post.account
@@ -902,6 +912,14 @@ def job_publish(session: Session, ctx: JobContext) -> None:
 
     es_youtube = account.platform == Platform.youtube.value
     destino = "YouTube Shorts" if es_youtube else "TikTok"
+
+    # YouTube deja programar: el Short se sube ya, con su hora puesta dentro
+    # de YouTube, y sale solo aunque el ordenador esté apagado.
+    if ctx.payload.get("programar"):
+        publico = str(publish_config.get("youtube_privacy", "public")) == "public"
+        if es_youtube and publico and puede_programar_en_youtube(account, post):
+            _programar_en_youtube(session, ctx, post, clip, account, publish_config)
+        return
 
     post.status = PostStatus.publishing.value
     clip.status = ClipStatus.publishing.value
@@ -962,6 +980,8 @@ def job_publish(session: Session, ctx: JobContext) -> None:
 
     post.status = PostStatus.published.value
     post.published_at = utcnow()
+    if es_youtube and not result.get("dry_run"):
+        post.subido_at = utcnow()
     post.publish_id = str(result.get("publish_id", ""))
     post.external_post_id = str(result.get("external_id", ""))
     post.share_url = str(result.get("share_url", ""))
@@ -1035,7 +1055,13 @@ def _publish_to_tiktok(session, ctx, post, clip, account, publish_config) -> dic
 
 
 def youtube_uploads_today(session: Session) -> int:
-    """Shorts subidos en las últimas 24 h (la cuota de Google es diaria)."""
+    """Shorts subidos en las últimas 24 h (la cuota de Google es diaria).
+
+    Cuenta la subida, no la publicación: un Short programado en YouTube gasta
+    la cuota el día que se sube, aunque salga dentro de una semana.
+    """
+    from sqlalchemy import and_, or_
+
     desde = utcnow() - timedelta(hours=24)
     return len(
         session.execute(
@@ -1043,19 +1069,148 @@ def youtube_uploads_today(session: Session) -> int:
             .join(Account, Post.account_id == Account.id)
             .where(
                 Account.platform == Platform.youtube.value,
-                Post.status == PostStatus.published.value,
-                Post.published_at >= desde,
+                or_(
+                    Post.subido_at >= desde,
+                    and_(
+                        Post.subido_at.is_(None),
+                        Post.status == PostStatus.published.value,
+                        Post.published_at >= desde,
+                    ),
+                ),
             )
         ).all()
     )
+
+
+# Hace falta margen: YouTube no acepta una hora de publicación ya pasada, y
+# subir un Short tarda unos minutos
+MARGEN_PROGRAMAR = timedelta(minutes=20)
+
+
+def puede_programar_en_youtube(account: Account, post: Post) -> bool:
+    return bool(
+        not settings.dry_run
+        and youtube_api.is_configured()
+        and (account.credentials or {}).get("access_token")
+        and post.scheduled_at > utcnow() + MARGEN_PROGRAMAR
+    )
+
+
+def _programar_en_youtube(session, ctx, post, clip, account, publish_config) -> None:
+    """Sube el Short ya, programado dentro de YouTube para su hora."""
+    maximo = youtube_api.DAILY_QUOTA // youtube_api.COST_UPLOAD
+    if youtube_uploads_today(session) >= maximo:
+        # hoy no queda cuota: se sube mañana (o a su hora, lo que llegue antes)
+        ctx.progress(1.0, "Sin cuota de YouTube hoy: se subirá más tarde")
+        return
+
+    post.status = PostStatus.publishing.value
+    session.commit()
+    ctx.progress(0.1, "Subiendo a YouTube, programado para su hora…")
+    try:
+        result = _publish_to_youtube(
+            session, ctx, post, clip, account, publish_config,
+            publish_at=youtube_api.hora_para_youtube(post.scheduled_at),
+        )
+    except Exception as exc:  # noqa: BLE001 - a su hora se intenta otra vez
+        post.status = PostStatus.scheduled.value
+        post.error = f"No se pudo dejar programado en YouTube: {exc}"[:1000]
+        events.log(
+            session,
+            f"No se pudo dejar «{clip.title[:50]}» programado en YouTube; "
+            f"se subirá a su hora. ({exc})",
+            level="warn",
+            scope="youtube",
+            data={"post_id": post.id},
+        )
+        return
+
+    post.status = PostStatus.scheduled.value
+    post.en_plataforma = True
+    post.subido_at = utcnow()
+    post.error = ""
+    post.publish_id = str(result.get("publish_id", ""))
+    post.external_post_id = str(result.get("external_id", ""))
+    post.share_url = str(result.get("share_url", ""))
+    events.log(
+        session,
+        f"«{clip.title[:50]}» ya está programado en YouTube: saldrá solo a su hora, "
+        "aunque apagues el ordenador",
+        level="success",
+        scope="youtube",
+        data={"post_id": post.id},
+    )
+    ctx.progress(1.0, "Programado en YouTube")
+
+
+def marcar_salido_en_plataforma(session: Session, post: Post) -> None:
+    """Llegó la hora de un Short programado en YouTube: YouTube ya lo publicó."""
+    post.status = PostStatus.published.value
+    post.published_at = post.scheduled_at
+    clip = post.clip
+    if clip:
+        clip.status = ClipStatus.published.value
+        session.flush()
+        storage.after_publish(session, clip)
+    events.log(
+        session,
+        f"Publicado en YouTube Shorts (programado allí): «{(clip.title if clip else '')[:50]}»",
+        level="success",
+        scope="youtube",
+        data={"post_id": post.id},
+    )
+
+
+def mover_en_plataforma(
+    session: Session, post: Post, *, cancelar: bool = False, ya: bool = False
+) -> str:
+    """Cambia en YouTube la hora de un Short que ya estaba programado allí.
+
+    Devuelve un aviso si no se ha podido (para decirte que lo hagas en Studio).
+    """
+    if not post.en_plataforma or not post.external_post_id:
+        return ""
+    cuenta = post.account
+    try:
+        youtube_api.cambiar_programacion(
+            cuenta.credentials or {},
+            post.external_post_id,
+            None if cancelar else youtube_api.hora_para_youtube(post.scheduled_at),
+            ya=ya,
+        )
+        if cancelar:
+            post.en_plataforma = False
+        return ""
+    except Exception as exc:  # noqa: BLE001
+        aviso = (
+            f"Ese Short ya estaba programado en YouTube y no se ha podido "
+            f"{'cancelar' if cancelar else 'publicar ya' if ya else 'mover'} desde aquí: {exc} "
+            "Cámbialo en YouTube Studio."
+        )
+        notifications.notify(
+            session,
+            "Cámbialo también en YouTube Studio",
+            aviso,
+            kind="youtube",
+            level="warn",
+            action_label="Abrir YouTube Studio",
+            action_url=youtube_api.enlace_studio(post.external_post_id),
+            dedupe_hours=0,
+        )
+        return aviso
 
 
 class QuotaAgotada(RuntimeError):
     """La cuota diaria de YouTube no da para más subidas hoy."""
 
 
-def _publish_to_youtube(session, ctx, post, clip, account, publish_config) -> dict[str, Any]:
-    """Sube el clip vertical como Short al canal conectado."""
+def _publish_to_youtube(
+    session, ctx, post, clip, account, publish_config, publish_at: str | None = None
+) -> dict[str, Any]:
+    """Sube el clip vertical como Short al canal conectado.
+
+    Con `publish_at` se sube privado y YouTube lo publica solo a esa hora.
+    """
     simulate = settings.dry_run or not youtube_api.is_configured() or not (
         account.credentials or {}
     ).get("access_token")
@@ -1089,6 +1244,7 @@ def _publish_to_youtube(session, ctx, post, clip, account, publish_config) -> di
         tags=list(clip.hashtags or []),
         privacy_status=str(publish_config.get("youtube_privacy", "public")),
         made_for_kids=bool(publish_config.get("youtube_made_for_kids", False)),
+        publish_at=publish_at,
         dry_run=simulate,
         on_progress=lambda ratio: ctx.progress(0.15 + ratio * 0.8, f"Subiendo… {ratio * 100:.0f}%"),
     )

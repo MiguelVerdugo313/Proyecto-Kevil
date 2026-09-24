@@ -35,6 +35,8 @@ UPLOAD_BASE = "https://www.googleapis.com/upload/youtube/v3"
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.readonly",
+    # para mover o cancelar un Short que ya está programado en YouTube
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 ]
 
 # Coste en unidades de cuota de cada operación (lo fija Google)
@@ -326,6 +328,47 @@ def validate_short(width: int, height: int, duration: float) -> list[str]:
             "El vídeo no es vertical: para que sea un Short debe ser más alto que ancho."
         )
     return avisos
+
+
+class SinPermisoParaCambiar(YouTubeAPIError):
+    """El permiso que diste al conectar sólo deja subir, no cambiar lo subido."""
+
+
+def cambiar_programacion(
+    credentials: dict[str, Any], video_id: str, publish_at: str | None,
+    *, ya: bool = False,
+) -> None:
+    """Mueve la hora de un vídeo programado, o lo deja privado sin fecha.
+
+    Con `publish_at=None` el vídeo no sale nunca (se queda privado en tu
+    canal); con `ya=True` se hace público en el momento.
+    """
+    credentials = valid_credentials(credentials)
+    estado: dict[str, Any] = {"privacyStatus": "public" if ya else "private"}
+    if publish_at and not ya:
+        estado["publishAt"] = publish_at
+    with httpx.Client(timeout=TIMEOUT) as client:
+        respuesta = client.put(
+            f"{API_BASE}/videos",
+            params={"part": "status"},
+            headers={**_headers(credentials), "Content-Type": "application/json"},
+            json={"id": video_id, "status": estado},
+        )
+    if respuesta.status_code == 403 and "insufficient" in respuesta.text.lower():
+        raise SinPermisoParaCambiar(
+            "Para mover o cancelar un Short ya programado en YouTube, vuelve a "
+            "conectar YouTube en Ajustes (Google pedirá un permiso más)."
+        )
+    _json(respuesta)
+
+
+def hora_para_youtube(fecha) -> str:
+    """La hora en el formato que pide YouTube: UTC con «Z»."""
+    return fecha.replace(microsecond=0).isoformat() + "Z"
+
+
+def enlace_studio(video_id: str) -> str:
+    return f"https://studio.youtube.com/video/{video_id}/edit"
 
 
 def upload_short(

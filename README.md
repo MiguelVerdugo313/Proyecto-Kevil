@@ -449,6 +449,42 @@ busca en YouTube** y se mide:
 La nota final combina las tres, y puedes ver los vídeos concretos en los que se basa.
 Las ideas se guardan o se descartan, así no te repite siempre lo mismo.
 
+## Programado de verdad: qué sale solo y qué necesita el PC
+
+* **YouTube Shorts**: en cuanto apruebas un clip, Kevil lo sube y lo deja como
+  **«Programado»** dentro de YouTube (lo ves en YouTube Studio → Contenido). A su hora
+  YouTube lo publica solo, **aunque el ordenador esté apagado**. Si lo mueves o lo
+  cancelas en la Agenda, se cambia también en YouTube.
+* **TikTok**: TikTok **no deja que otras aplicaciones programen** publicaciones (su API
+  sólo permite publicar «ahora»), así que no los verás como programados dentro de
+  TikTok. Kevil los publica él mismo a la hora exacta, así que el PC tiene que estar
+  encendido y Kevil abierto… o en **segundo plano**: al cerrar la ventana, si queda algo
+  por publicar, Kevil sigue funcionando sin ventana (se vuelve a abrir pulsando su
+  icono). Con **Arrancar con Windows** se pone en marcha solo al encender. Si aun así el
+  PC estaba apagado a la hora, el clip no sale de madrugada: se mueve al siguiente buen
+  hueco y te avisa. Todo esto está en **Agenda** y en **Ajustes → Publicar sin estar
+  pendiente**, junto a «Cerrar Kevil del todo».
+
+## Estudio: el kit habla de tu vídeo, no de otra cosa
+
+Un gameplay sin voz no se puede transcribir, y sin eso la IA sólo tenía el nombre del
+archivo: se inventaba el tema. Ahora:
+
+* Al subir un vídeo, Kevil pregunta **«¿De qué va el vídeo?»**. Una línea basta
+  («Gameplay de Friday Night Funkin', jugué la actualización del mod Animania»).
+* Si no lo cuentas y el vídeo no tiene voz, **no escribe nada inventado**: te lo
+  pregunta primero (o lo hace sólo con el título, si se lo pides).
+* Lo que cuentas **manda** sobre todo lo demás; la transcripción sólo se usa si hay voz
+  de verdad (la música que Whisper confunde con frases se descarta).
+* Si la IA se sale del tema (un «tutorial de edición» para un gameplay, títulos que no
+  nombran el juego), se repite exigiéndole que lo nombre; si insiste, se usa el kit
+  local, hecho sólo con tus palabras.
+* Miniaturas: los fotogramas se analizan leyendo sólo los fotogramas clave (antes un
+  directo largo agotaba el tiempo y no salía ninguna), el texto usa la tipografía que
+  viene con Kevil (antes dependía de una que Windows no tiene) y, si algo falla, se dice
+  por qué y se puede reintentar. Siempre hay además un **prompt listo para copiar** y
+  crear la miniatura en ChatGPT, Gemini, Ideogram…
+
 ## Comunidad: lo que se publica entre vídeo y vídeo
 
 En **Comunidad** Kevil te deja escritas, con tus datos, las publicaciones para la pestaña

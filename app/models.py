@@ -179,6 +179,8 @@ class Video(Base):
     origin: Mapped[str] = mapped_column(String(20), default="youtube")  # youtube|local
     title: Mapped[str] = mapped_column(String(400), default="")
     description: Mapped[str] = mapped_column(Text, default="")
+    # de qué va, contado por ti: lo que manda al escribir el kit
+    contexto: Mapped[str] = mapped_column(Text, default="")
     url: Mapped[str] = mapped_column(String(500), default="")
     thumbnail_url: Mapped[str] = mapped_column(String(500), default="")
     duration_s: Mapped[float] = mapped_column(Float, default=0.0)
@@ -288,6 +290,10 @@ class Post(Base):
     slot_reason: Mapped[str] = mapped_column(String(300), default="")
 
     external_post_id: Mapped[str] = mapped_column(String(200), default="")
+    # ya está subido y programado en la propia plataforma (YouTube): sale solo,
+    # aunque el ordenador esté apagado
+    en_plataforma: Mapped[bool] = mapped_column(Boolean, default=False)
+    subido_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     publish_id: Mapped[str] = mapped_column(String(200), default="")
     share_url: Mapped[str] = mapped_column(String(500), default="")
     error: Mapped[str] = mapped_column(Text, default="")

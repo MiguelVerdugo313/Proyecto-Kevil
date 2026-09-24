@@ -1,6 +1,7 @@
 // Agenda: calendario semanal de publicaciones y vista previa de huecos.
 
 import { api } from '../lib/api.js';
+import { activarSegundoPlano, comoSaleHtml, estadoSegundoPlano } from '../lib/segundoPlano.js';
 import {
   LOCALE, confirmDialog, emptyState, escapeHtml, fmt, heatColor, modal,
   statusPill, toast, toastError,
@@ -18,7 +19,32 @@ function startOfWeek(offset = 0) {
   return date;
 }
 
+const DESTINO = { youtube: 'YouTube Shorts', tiktok: 'TikTok' };
+
+// Dónde vive cada publicación: en YouTube (programada allí) o esperando en tu PC
+function comoSale(post) {
+  if (post.status !== 'scheduled') return '';
+  if (post.platform === 'youtube') {
+    return post.en_plataforma
+      ? '<span class="pill ok">programado en YouTube · sale solo</span>'
+      : '<span class="pill info">se subirá a YouTube ya programado</span>';
+  }
+  return '<span class="pill warn" title="TikTok no deja programar a otras apps">lo publica Kevil desde tu PC</span>';
+}
+
+function marca(post) {
+  if (post.platform === 'youtube') {
+    return `<i class="marca-plat yt" title="${post.en_plataforma ? 'Programado dentro de YouTube' : 'YouTube'}">${post.en_plataforma ? 'YT ✓' : 'YT'}</i>`;
+  }
+  return '<i class="marca-plat tt" title="TikTok: lo publica Kevil a su hora">TT</i>';
+}
+
+function avisar(respuesta) {
+  if (respuesta?.aviso) toast(respuesta.aviso, 'warn');
+}
+
 function postDialog(post, reload) {
+  const destino = DESTINO[post.platform] || 'TikTok';
   modal({
     title: post.clip_title || `Publicación #${post.id}`,
     body: `
@@ -30,14 +56,22 @@ function postDialog(post, reload) {
             ${statusPill(post.status)}
             <span class="pill violet">@${escapeHtml(post.account_handle || post.account_name)}</span>
             ${post.slot_score ? `<span class="pill info">franja ${Math.round(post.slot_score * 100)}%</span>` : ''}
+            ${comoSale(post)}
           </div>
+          ${post.status === 'scheduled' ? `<p class="small muted" style="line-height:1.6">${post.platform === 'youtube'
+            ? (post.en_plataforma
+              ? 'Ya está subido y <b>programado dentro de YouTube</b>: lo ves en YouTube Studio → Contenido. Sale solo a su hora aunque el PC esté apagado.'
+              : 'Kevil lo sube en unos minutos y queda <b>programado dentro de YouTube</b>. Hace falta Kevil abierto sólo hasta que se suba.')
+            : 'TikTok no deja programar a otras aplicaciones, así que <b>Kevil lo publica a esta hora desde tu PC</b>: déjalo encendido con Kevil abierto o en segundo plano.'}</p>` : ''}
           <p class="muted tiny">${escapeHtml(post.slot_reason || '')}</p>
           <div class="field"><label>Fecha y hora</label>
             <input type="datetime-local" id="p-when" value="${fmt.toLocalInput(post.scheduled_at)}"></div>
           <div class="field"><label>Descripción</label>
             <textarea id="p-caption" style="min-height:130px">${escapeHtml(post.caption)}</textarea></div>
           ${post.error ? `<p class="small" style="color:var(--red)">${escapeHtml(post.error.slice(0, 300))}</p>` : ''}
-          ${post.share_url ? `<a class="btn sm" href="${escapeHtml(post.share_url)}" target="_blank" rel="noreferrer">Ver en TikTok</a>` : ''}
+          ${post.platform === 'youtube' && post.external_post_id
+            ? `<a class="btn sm" href="https://studio.youtube.com/video/${encodeURIComponent(post.external_post_id)}/edit" target="_blank" rel="noreferrer">Abrir en YouTube Studio</a>`
+            : (post.share_url ? `<a class="btn sm" href="${escapeHtml(post.share_url)}" target="_blank" rel="noreferrer">Ver en ${destino}</a>` : '')}
         </div>
       </div>`,
     wide: true,
@@ -45,21 +79,21 @@ function postDialog(post, reload) {
       ? [{ label: 'Cerrar' }]
       : [
         { label: 'Cancelar publicación', variant: 'danger', onClick: async () => {
-          await api.del(`/api/posts/${post.id}`);
+          avisar(await api.del(`/api/posts/${post.id}`));
           toast('Publicación cancelada');
           reload();
         } },
         { label: 'Publicar ahora', onClick: async () => {
-          if (!await confirmDialog('Publicar ahora', 'Se subirá a TikTok inmediatamente.', 'Publicar')) return false;
-          await api.post(`/api/posts/${post.id}/publish-now`);
-          toast('Subiendo a TikTok…');
+          if (!await confirmDialog('Publicar ahora', `Se publicará en ${destino} inmediatamente.`, 'Publicar')) return false;
+          avisar(await api.post(`/api/posts/${post.id}/publish-now`));
+          toast(`Publicando en ${destino}…`);
           reload();
         } },
         { label: 'Guardar', variant: 'primary', onClick: async (root) => {
-          await api.patch(`/api/posts/${post.id}`, {
+          avisar(await api.patch(`/api/posts/${post.id}`, {
             scheduled_at: fmt.fromLocalInput(root.querySelector('#p-when').value),
             caption: root.querySelector('#p-caption').value,
-          });
+          }));
           toast('Publicación actualizada');
           reload();
         } },
@@ -97,9 +131,10 @@ export default {
 
   async render(root, ctx) {
     reloadView = ctx.reload;
-    const [posts, accounts] = await Promise.all([
+    const [posts, accounts, segundoPlano] = await Promise.all([
       api.posts('?days=45&include_past=true'),
       api.accounts('tiktok'),
+      estadoSegundoPlano(),
     ]);
     if (!accountId && accounts.length) accountId = accounts[0].id;
 
@@ -121,6 +156,7 @@ export default {
     });
 
     root.innerHTML = `
+      ${comoSaleHtml(segundoPlano)}
       <div class="card">
         <div class="card-head">
           <div style="display:flex;gap:8px;align-items:center">
@@ -148,7 +184,7 @@ export default {
               </div>
               ${list.map((post) => `
                 <div class="cal-post ${escapeHtml(post.status)}" data-post="${post.id}">
-                  <b>${fmt.time(post.scheduled_at)}</b>
+                  <b>${fmt.time(post.scheduled_at)} ${marca(post)}</b>
                   <span>${escapeHtml(post.clip_title || 'Clip')}</span>
                 </div>`).join('') || '<span class="muted tiny">—</span>'}
             </div>`;
@@ -188,9 +224,9 @@ export default {
             <tr data-post="${post.id}" style="cursor:pointer">
               <td><strong>${escapeHtml(post.clip_title || 'Clip')}</strong>
                 <div class="muted tiny">${escapeHtml(post.slot_reason || '')}</div></td>
-              <td class="small">@${escapeHtml(post.account_handle || post.account_name)}</td>
+              <td class="small">${marca(post)} ${escapeHtml(post.account_handle ? `@${post.account_handle}` : post.account_name)}</td>
               <td class="small nowrap">${fmt.date(post.scheduled_at)}<div class="muted tiny">${fmt.relative(post.scheduled_at)}</div></td>
-              <td>${statusPill(post.status)}</td>
+              <td>${statusPill(post.status)} ${comoSale(post)}</td>
               <td class="small">${post.metrics?.views ? `${fmt.number(post.metrics.views)} vistas` : '—'}</td>
             </tr>`).join('')}</tbody>
         </table>` : emptyState('🗓️', 'Sin publicaciones todavía',
@@ -204,6 +240,8 @@ export default {
         ctx.reload();
       };
     });
+
+    activarSegundoPlano(root, ctx.reload);
 
     const selector = root.querySelector('#acc');
     if (selector) selector.onchange = () => { accountId = Number(selector.value); ctx.reload(); };

@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.db import session_scope
 from app.models import Post, PostStatus, Source, utcnow
-from app.services import events
+from app.services import events, pipeline
 from app.services.queue import enqueue
 
 scheduler = BackgroundScheduler(timezone="UTC")
@@ -35,16 +35,29 @@ def watch_sources() -> None:
             )
 
 
+# Si el PC estaba apagado a la hora de publicar y han pasado más de esto, no se
+# publica «a destiempo» (a las 3 de la mañana): se busca el siguiente buen hueco.
+RETRASO_MAXIMO = timedelta(hours=2)
+REINTENTO_PROGRAMAR = timedelta(minutes=60)
+
+
 def dispatch_due_posts() -> None:
-    """Manda a la cola las publicaciones cuya hora ya ha llegado."""
+    """Manda a la cola lo que toca publicar y deja programado lo que se pueda."""
     with session_scope() as session:
+        ahora = utcnow()
         due = session.scalars(
             select(Post).where(
                 Post.status == PostStatus.scheduled.value,
-                Post.scheduled_at <= utcnow(),
+                Post.scheduled_at <= ahora,
             )
         ).all()
         for post in due:
+            if post.en_plataforma:
+                # YouTube lo ha publicado él solo a su hora
+                pipeline.marcar_salido_en_plataforma(session, post)
+                continue
+            if ahora - post.scheduled_at > RETRASO_MAXIMO and _recolocar(session, post):
+                continue
             enqueue(
                 session,
                 "publish",
@@ -52,6 +65,94 @@ def dispatch_due_posts() -> None:
                 priority=50,
                 message=f"Publicar #{post.id}",
             )
+        _programar_en_youtube(session)
+
+
+def _recolocar(session, post: Post) -> bool:
+    """El ordenador estaba apagado a su hora: al siguiente buen hueco."""
+    from app.flow_schema import step_config
+
+    clip = post.clip
+    if clip is None or post.account is None:
+        return False
+    antes = post.scheduled_at
+    flow = pipeline.resolve_flow(session, clip.flow_id)
+    hueco = pipeline.proponer_hora(session, post.account, step_config(flow.steps, "schedule"))
+    post.scheduled_at = hueco["utc"]
+    post.slot_reason = f"Recolocado (el PC estaba apagado): {hueco['reason']}"[:300]
+    from app.services import notifications, timing
+
+    zona = timing.get_zone(timing.zona_local())
+
+    def a_las(fecha) -> str:
+        local = timing.to_local(fecha, zona)
+        return f"{local:%d/%m} a las {timing.hora_12(local.hour, local.minute)}"
+
+    notifications.notify(
+        session,
+        "Un clip no salió a su hora: lo he movido",
+        f"«{clip.title[:60]}» tocaba el {a_las(antes)} y Kevil estaba cerrado. "
+        f"Nueva hora: {a_las(post.scheduled_at)}. Para que no pase, deja Kevil en "
+        "segundo plano o actívalo al arrancar Windows (Ajustes).",
+        kind="agenda",
+        level="warn",
+        action_label="Ver la agenda",
+        action_url="#agenda",
+        dedupe_hours=0,
+    )
+    events.log(
+        session,
+        f"Recolocado «{clip.title[:50]}»: el PC estaba apagado a su hora",
+        level="warn",
+        scope="agenda",
+        data={"post_id": post.id},
+    )
+    return True
+
+
+def _programar_en_youtube(session) -> None:
+    """Los Shorts aprobados se suben ya, programados dentro de YouTube."""
+    from app.models import Account, Platform
+
+    ahora = utcnow()
+    candidatos = session.scalars(
+        select(Post)
+        .join(Account, Post.account_id == Account.id)
+        .where(
+            Account.platform == Platform.youtube.value,
+            Post.status == PostStatus.scheduled.value,
+            Post.en_plataforma.is_(False),
+            Post.scheduled_at > ahora + pipeline.MARGEN_PROGRAMAR + timedelta(minutes=5),
+        )
+        .order_by(Post.scheduled_at)
+        .limit(6)
+    ).all()
+    for post in candidatos:
+        if not pipeline.puede_programar_en_youtube(post.account, post):
+            continue
+        clip = post.clip
+        if not clip or not clip.render_path:
+            continue
+        intento = (post.metrics or {}).get("intento_programar")
+        if intento and ahora.isoformat() < _mas(intento, REINTENTO_PROGRAMAR):
+            continue
+        post.metrics = {**(post.metrics or {}), "intento_programar": ahora.isoformat()}
+        enqueue(
+            session,
+            "publish",
+            {"post_id": post.id, "programar": True},
+            priority=60,
+            message=f"Dejar programado en YouTube #{post.id}",
+        )
+
+
+def _mas(iso: str, delta: timedelta) -> str:
+    from datetime import datetime
+
+    try:
+        return (datetime.fromisoformat(iso) + delta).isoformat()
+    except ValueError:
+        return ""
 
 
 def refresh_metrics() -> None:

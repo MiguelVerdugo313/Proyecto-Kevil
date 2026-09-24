@@ -212,6 +212,7 @@ def reject_clip(clip_id: int, db: Session = Depends(get_db)):
     clip.status = ClipStatus.rejected.value
     for post in clip.posts:
         if post.status == PostStatus.scheduled.value:
+            pipeline.mover_en_plataforma(db, post, cancelar=True)
             post.status = PostStatus.cancelled.value
     events.log(db, f"Clip descartado: {clip.title[:50]}", level="info", scope="clips")
     db.commit()

@@ -779,3 +779,54 @@ def refresh_metrics(db: Session = Depends(get_db)):
     enqueue(db, "refresh_metrics", {}, priority=200, message="Actualizar métricas")
     db.commit()
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Segundo plano: seguir publicando con la ventana cerrada
+# --------------------------------------------------------------------------
+class SegundoPlanoIn(BaseModel):
+    segundo_plano: bool | None = None
+    arrancar_con_windows: bool | None = None
+
+
+def _estado_segundo_plano(db: Session) -> dict[str, Any]:
+    from app.services import segundo_plano
+
+    return {
+        "segundo_plano": bool(settings.segundo_plano),
+        "arranca_con_windows": segundo_plano.arranca_con_windows(),
+        "arranque_disponible": segundo_plano.arranque_disponible(),
+        "pendientes_en_el_pc": segundo_plano.pendientes_en_el_pc(db),
+        "pendientes_tiktok": segundo_plano.pendientes_de_tiktok(db),
+    }
+
+
+@router.get("/segundo-plano")
+def ver_segundo_plano(db: Session = Depends(get_db)):
+    return _estado_segundo_plano(db)
+
+
+@router.put("/segundo-plano")
+def cambiar_segundo_plano(body: SegundoPlanoIn, db: Session = Depends(get_db)):
+    from app.services import segundo_plano
+
+    if body.segundo_plano is not None:
+        save_settings(db, {"segundo_plano": body.segundo_plano})
+        db.commit()
+    if body.arrancar_con_windows is not None:
+        if not segundo_plano.arrancar_con_windows(body.arrancar_con_windows):
+            raise HTTPException(
+                400,
+                "No se ha podido cambiar el arranque con Windows"
+                + ("" if segundo_plano.arranque_disponible() else " (sólo funciona en Windows)."),
+            )
+    return _estado_segundo_plano(db)
+
+
+@router.post("/salir")
+def salir_del_todo():
+    """«Cerrar Kevil del todo»: para también lo que corre en segundo plano."""
+    from app.services import segundo_plano
+
+    segundo_plano.salir.set()
+    return {"ok": True}

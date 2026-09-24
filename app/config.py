@@ -110,6 +110,8 @@ class Settings(BaseSettings):
 
     # --- Ventana de la aplicación ----------------------------------------
     window_mode: str = "app"          # «app» = ventana propia, «navegador»
+    # al cerrar la ventana, seguir publicando lo programado en segundo plano
+    segundo_plano: bool = True
 
     # --- Rutas derivadas -------------------------------------------------
     @property
