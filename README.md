@@ -269,6 +269,19 @@ Más detalle en [`docs/CONECTAR-YOUTUBE.md`](docs/CONECTAR-YOUTUBE.md).
 > así que salen **unas 6 publicaciones diarias**. Kevil lleva la cuenta y te la muestra
 > en Ajustes. Es un límite de Google, igual para cualquier programa que use su API.
 
+El canal que autorizas **también se vigila**: Kevil busca en él vídeos y directos nuevos
+para sacar clips (sale en **Cuentas → Canales vigilados**). Si lo quitas de ahí, no
+vuelve a vigilarse solo; lo reactivas con **Vigilar**. Y si YouTube no deja leer el canal
+(la comprobación de «no soy un robot»), la lista de vídeos se saca del feed público o,
+con el canal autorizado, de la API de Google.
+
+**¿TikTok, Shorts o los dos?** Lo dice **Cuentas → Dónde sale cada clip**: cada flujo en
+uso con dos interruptores, TikTok y YouTube Shorts, y una frase que dice a dónde van los
+clips de cada canal. Si tu canal puede publicar Shorts y ningún clip va allí, sale un
+botón para activarlo en uno. En la ficha de cada clip, **Publicar en** muestra las dos
+casillas ya marcadas según el flujo, cada una con la hora que propone el motor; los
+clips de más de 3 minutos no se marcan para Shorts (YouTube no los trataría como tales).
+
 ### 3. Enciende el piloto automático
 
 En el **Panel**, arriba del todo, hay un interruptor: **Piloto automático**. Con él
@@ -435,6 +448,27 @@ busca en YouTube** y se mide:
 
 La nota final combina las tres, y puedes ver los vídeos concretos en los que se basa.
 Las ideas se guardan o se descartan, así no te repite siempre lo mismo.
+
+## Comunidad: lo que se publica entre vídeo y vídeo
+
+En **Comunidad** Kevil te deja escritas, con tus datos, las publicaciones para la pestaña
+**Comunidad** (Publicaciones) de YouTube y para los carruseles de fotos de TikTok:
+
+* 📊 **Encuestas** — «¿qué jugamos en el próximo directo?» con los juegos de tus últimos
+  títulos, o a qué hora os viene mejor el directo.
+* 🔴 **Aviso de lo próximo** — unas horas antes de tu siguiente directo o vídeo.
+* 🖼️ **Imagen con pregunta** — la miniatura de tu mejor clip y el enlace al directo entero.
+* 💬 **Pregunta sobre el último vídeo** y 🧠 **cuestionario** con tus vídeos más vistos.
+* 🎞️ **Carrusel de TikTok** — los mejores momentos de un directo, en fotos.
+
+Cada una lleva su **mejor momento** (tus franjas buenas, en días distintos), un botón
+para **copiar** el texto y cada opción, y otro para abrir YouTube o TikTok. «Avísame a esa
+hora» te deja un aviso en la campana (y en el escritorio) cuando toca. Al marcarla como
+publicada cuenta para tu semana: el coach te recuerda si llevas menos de 3.
+
+> YouTube **no deja** que ninguna aplicación lea ni publique en la pestaña Comunidad
+> (no existe esa función en su API), así que el último paso, pegar, es tuyo. Con una
+> clave de IA los textos quedan con más gracia; sin ella salen igual, de plantilla.
 
 ---
 

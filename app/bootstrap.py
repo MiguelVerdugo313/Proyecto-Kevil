@@ -11,7 +11,7 @@ from app.config import settings
 from app.db import session_scope
 from app.flow_schema import FLOW_PRESETS, normalize_steps
 from app.models import Flow, Setting
-from app.services import diagnostico, timing
+from app.services import canales, diagnostico, timing
 
 # Ajustes que se pueden cambiar desde la interfaz y se guardan en la base de datos
 EDITABLE_SETTINGS = {
@@ -352,3 +352,5 @@ def run() -> None:
         timing.poner_zona_del_equipo(session)
         # lo que falló por algo pasajero se vuelve a intentar al abrir
         diagnostico.reintentar_pasajeros_al_arrancar(session)
+        # el canal autorizado para publicar también se vigila para sacar clips
+        canales.vigilar_los_conectados(session)

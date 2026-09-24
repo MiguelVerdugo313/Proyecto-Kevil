@@ -468,11 +468,13 @@ def list_channel_videos(
             tabs.append(("shorts", False))
 
     results: dict[str, dict[str, Any]] = {}
+    fallos: list[Exception] = []
     with ydl.YoutubeDL(opts) as dl:
         for tab, was_live in tabs:
             try:
                 info = dl.extract_info(channel_tab(url, tab), download=False)
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - un canal sin directos, etc.
+                fallos.append(exc)
                 continue
             if not info:
                 continue
@@ -488,6 +490,9 @@ def list_channel_videos(
                 if video:
                     results.setdefault(video["external_id"], video)
 
+    if not results and fallos and len(fallos) == len(tabs):
+        # no se ha podido leer ninguna pestaña: eso no es «sin novedades»
+        raise fallos[0]
     videos = list(results.values())
     videos.sort(key=lambda v: v["published_at"] or datetime.min, reverse=True)
     return videos[: limit * 2]

@@ -75,8 +75,13 @@ def _fecha(texto: str) -> datetime | None:
     return fecha
 
 
-def leer_feed(channel_id: str, client: httpx.Client | None = None) -> list[dict[str, Any]]:
-    """Los últimos vídeos del canal con su fecha exacta, del feed público."""
+def leer_feed(
+    channel_id: str, client: httpx.Client | None = None, *, con_shorts: bool = False
+) -> list[dict[str, Any]]:
+    """Los últimos vídeos del canal con su fecha exacta, del feed público.
+
+    Con `con_shorts` también salen los Shorts, marcados con "short": True.
+    """
     propio = client is None
     client = client or httpx.Client(timeout=20, follow_redirects=True)
     try:
@@ -90,7 +95,8 @@ def leer_feed(channel_id: str, client: httpx.Client | None = None) -> list[dict[
     for entrada in raiz.findall("atom:entry", NS):
         enlace = entrada.find("atom:link", NS)
         href = enlace.get("href", "") if enlace is not None else ""
-        if "/shorts/" in href:
+        es_short = "/shorts/" in href
+        if es_short and not con_shorts:
             continue              # los Shorts no marcan el ritmo de tus vídeos
         video_id = entrada.findtext("yt:videoId", default="", namespaces=NS)
         publicado = _fecha(entrada.findtext("atom:published", default="", namespaces=NS))
@@ -103,6 +109,10 @@ def leer_feed(channel_id: str, client: httpx.Client | None = None) -> list[dict[
                 "title": entrada.findtext("atom:title", default="", namespaces=NS),
                 "published_at": publicado.isoformat(),
                 "views": int((estadisticas.get("views") if estadisticas is not None else 0) or 0),
+                "description": entrada.findtext(
+                    "media:group/media:description", default="", namespaces=NS
+                ),
+                **({"short": True} if es_short else {}),
             }
         )
     return subidas
@@ -152,6 +162,7 @@ def actualizar_historial(session: Session) -> int:
     for canal in _canales(session):
         try:
             for item in leer_feed(canal):
+                item.pop("description", None)       # el historial sólo guarda lo justo
                 por_id[item["id"]] = {**por_id.get(item["id"], {}), **item}
         except Exception:  # noqa: BLE001 - un canal sin feed no rompe el resto
             continue
@@ -408,6 +419,17 @@ def recommendation(session: Session) -> dict[str, Any]:
     if stats["uploads_30d"] == 0 and stats["known_uploads"]:
         acciones.append("Ningún vídeo en los últimos 30 días: recupera la constancia.")
 
+    # Entre vídeo y vídeo, la pestaña Comunidad mantiene el canal vivo
+    from app.services import comunidad
+
+    en_comunidad = comunidad.resumen(session)
+    if en_comunidad["hechas_semana"] < en_comunidad["objetivo_semana"]:
+        faltan = en_comunidad["objetivo_semana"] - en_comunidad["hechas_semana"]
+        acciones.append(
+            f"Comunidad: llevas {en_comunidad['hechas_semana']} publicaciones esta semana; "
+            f"saca {faltan} más (encuesta, aviso o imagen). Las tienes escritas en «Comunidad»."
+        )
+
     return {
         "stats": stats,
         "target_days": objetivo_dias,
@@ -418,6 +440,7 @@ def recommendation(session: Session) -> dict[str, Any]:
         "next_upload_at": proxima.isoformat() + "Z" if proxima else None,
         "overdue_days": retraso,
         "actions": acciones,
+        "comunidad": en_comunidad,
     }
 
 

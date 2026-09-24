@@ -8,4 +8,4 @@ uno actualiza el programa sin ver ningún cambio.
 
 from __future__ import annotations
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -33,6 +36,8 @@ from app.services import (
 from app.services import media as media_service
 from app.services import youtube as youtube_service
 from app.services.queue import JobContext, enqueue, register, reprogramar
+
+log = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------
@@ -207,6 +212,88 @@ def destinations_for(
 # --------------------------------------------------------------------------
 # 1. Sincronizar un canal
 # --------------------------------------------------------------------------
+def _id_del_canal(source: Source) -> str:
+    if (source.channel_id or "").startswith("UC"):
+        return source.channel_id
+    encontrado = re.search(r"/channel/(UC[\w-]{20,})", source.url or "")
+    if encontrado:
+        return encontrado.group(1)
+    cuenta = source.account
+    if cuenta and (cuenta.external_id or "").startswith("UC"):
+        return cuenta.external_id
+    return ""
+
+
+def _es_short(video_id: str) -> bool:
+    """youtube.com/shorts/ID sólo responde sin redirigir si es un Short."""
+    try:
+        respuesta = httpx.head(
+            f"https://www.youtube.com/shorts/{video_id}", timeout=8, follow_redirects=False
+        )
+    except httpx.HTTPError:
+        return False
+    return respuesta.status_code == 200
+
+
+def videos_de_respaldo(session: Session, source: Source, *, limit: int = 20) -> list[dict[str, Any]]:
+    """La lista de vídeos del canal sin pasar por yt-dlp.
+
+    Con el permiso de Google del propio canal se lee la lista de subidas por la
+    API (duración y directos incluidos); si no, el feed público, que trae los
+    15 últimos.
+    """
+    from app.services import coach
+
+    canal = _id_del_canal(source)
+    if not canal:
+        return []
+
+    cuenta = source.account
+    credenciales = (cuenta.credentials or {}) if cuenta else {}
+    items: list[dict[str, Any]] = []
+    detalles: dict[str, dict] = {}
+    if credenciales.get("access_token") and cuenta.external_id == canal:
+        credenciales = youtube_api.valid_credentials(credenciales)
+        cuenta.credentials = credenciales
+        items = youtube_api.fetch_uploads(credenciales, limit=min(50, limit * 2))
+        detalles = youtube_api.fetch_video_details(credenciales, [i["id"] for i in items])
+    else:
+        items = coach.leer_feed(canal, con_shorts=True)
+
+    videos: list[dict[str, Any]] = []
+    for item in items:
+        extra = detalles.get(item["id"], {})
+        if extra.get("en_directo"):
+            continue                          # se cortará cuando acabe
+        duracion = float(extra.get("duration_s") or 0)
+        short = item.get("short") or (
+            not extra.get("was_live") and 0 < duracion <= 180 and _es_short(item["id"])
+        )
+        if short and not (source.include_shorts or source.kind == "shorts"):
+            continue
+        if extra.get("was_live") and not source.include_lives:
+            continue
+        try:
+            publicado = datetime.fromisoformat(str(item.get("published_at") or ""))
+        except ValueError:
+            publicado = None
+        videos.append({
+            "external_id": item["id"],
+            "title": item.get("title") or "(sin título)",
+            "description": extra.get("description") or item.get("description", ""),
+            "url": f"https://www.youtube.com/watch?v={item['id']}",
+            "duration_s": duracion,
+            "thumbnail_url": extra.get("thumbnail_url")
+            or f"https://i.ytimg.com/vi/{item['id']}/hqdefault.jpg",
+            "published_at": publicado.replace(tzinfo=None) if publicado else None,
+            "was_live": bool(extra.get("was_live")),
+            "views": int(extra.get("views") or item.get("views") or 0),
+            "likes": int(extra.get("likes") or 0),
+        })
+        if len(videos) >= limit:
+            break
+    return videos
+
 @register("sync_source")
 def job_sync_source(session: Session, ctx: JobContext) -> None:
     source = session.get(Source, int(ctx.payload["source_id"]))
@@ -217,6 +304,7 @@ def job_sync_source(session: Session, ctx: JobContext) -> None:
     flow = resolve_flow(session, source.flow_id)
     ingest_config = step_config(flow.steps, "ingest")
 
+    fallo: Exception | None = None
     try:
         videos = youtube_service.list_channel_videos(
             source.url,
@@ -226,10 +314,23 @@ def job_sync_source(session: Session, ctx: JobContext) -> None:
             only_shorts=source.kind == "shorts",
             cookies_from_browser=ingest_config.get("cookies_from_browser", ""),
         )
-    except Exception as exc:
-        source.last_error = str(exc)[:500]
+    except Exception as exc:  # noqa: BLE001 - se prueba el plan B antes de rendirse
+        videos, fallo = [], exc
+    if not videos and source.kind == "channel":
+        # YouTube a veces no deja leer el canal (pide la comprobación de robot):
+        # el feed público o tu permiso de Google dicen igual qué has subido.
+        try:
+            videos = videos_de_respaldo(
+                session, source, limit=max(1, int(source.backfill_limit or 20))
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.info("Plan B para «%s» sin suerte: %s", source.name, exc)
+        if videos:
+            ctx.progress(0.3, "Leído por el feed del canal")
+    if not videos and fallo is not None:
+        source.last_error = str(fallo)[:500]
         source.last_checked_at = utcnow()
-        raise
+        raise fallo
 
     source.last_error = ""
     source.last_checked_at = utcnow()

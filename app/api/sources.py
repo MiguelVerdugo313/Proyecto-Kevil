@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.common import source_to_dict
 from app.db import get_db
 from app.models import Source
+from app.services import canales
 from app.services.queue import enqueue
 
 router = APIRouter(prefix="/api/sources", tags=["fuentes"])
@@ -65,6 +66,15 @@ def delete_source(source_id: int, db: Session = Depends(get_db)):
     source = db.get(Source, source_id)
     if not source:
         raise HTTPException(404, "Fuente no encontrada")
+    if source.kind == "channel":
+        # lo has quitado tú: no se vuelve a vigilar solo al abrir el programa
+        canales.recordar_que_no(db, source.channel_id or _canal_de(source))
     db.delete(source)
     db.commit()
     return {"ok": True}
+
+
+def _canal_de(source: Source) -> str:
+    if source.account and (source.account.external_id or "").startswith("UC"):
+        return source.account.external_id
+    return ""

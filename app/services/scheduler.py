@@ -65,6 +65,14 @@ def coach_check() -> None:
         enqueue(session, "coach_check", {}, priority=180, message="Revisar el canal")
 
 
+def avisar_comunidad() -> None:
+    """Las publicaciones de comunidad programadas cuya hora ha llegado."""
+    from app.services import comunidad
+
+    with session_scope() as session:
+        comunidad.avisar_las_que_tocan(session)
+
+
 def start() -> None:
     if scheduler.running:  # pragma: no cover
         return
@@ -94,6 +102,13 @@ def start() -> None:
         "interval",
         hours=12,
         id="coach_check",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        avisar_comunidad,
+        "interval",
+        minutes=5,
+        id="avisar_comunidad",
         replace_existing=True,
     )
     scheduler.start()
@@ -148,8 +163,18 @@ def agenda_del_motor(session) -> dict:
     def iso(fecha):
         return fecha.isoformat() + "Z" if fecha else None
 
+    from app.services import canales
+
     return {
         "canales": len(fuentes),
+        # conectado para publicar pero nadie lo vigila: eso no saca clips
+        "sin_vigilar": [
+            {"id": cuenta.id, "nombre": cuenta.display_name}
+            for cuenta in canales.cuentas_sin_vigilar(session)
+        ],
+        "canal_con_error": next(
+            (f.name for f in fuentes if f.last_error), ""
+        ),
         "proxima_revision": iso(max(revision, ahora) if revision else None),
         "proxima_publicacion": iso(post.scheduled_at) if post else None,
         "proxima_publicacion_titulo": post.clip.title if post and post.clip else "",

@@ -249,6 +249,99 @@ function sourceSettings(source, reload) {
   });
 }
 
+/* ---------------------------------------------- dónde sale cada clip */
+// Lo decide el paso «Publicación» de cada flujo; aquí se ve y se cambia sin
+// abrir el editor. Sólo salen los flujos que se usan: los demás, plegados.
+function interruptor(flujo, clave, etiqueta, desactivado = false) {
+  return `<label class="switch ${desactivado ? 'apagado' : ''}"><input type="checkbox" data-destino="${flujo.id}" data-clave="${clave}"
+      ${flujo[clave] ? 'checked' : ''} ${desactivado ? 'disabled' : ''}><span class="track"></span>
+      <span class="switch-label">${etiqueta}</span></label>`;
+}
+
+function frase(flujo) {
+  const donde = [flujo.tiktok && 'TikTok', flujo.shorts && 'YouTube Shorts'].filter(Boolean);
+  return donde.length ? `salen en <b>${donde.join('</b> y en <b>')}</b>` : '<b>no se publican</b> (sólo se exportan)';
+}
+
+function filaDestino(flujo, d) {
+  const sinYouTube = !d.youtube;
+  return `<div class="destino-fila">
+    <div class="grow" style="min-width:0">
+      <strong>${escapeHtml(flujo.icon)} ${escapeHtml(flujo.name)}</strong>
+      ${flujo.is_default ? '<span class="pill" style="margin-left:6px">por defecto</span>' : ''}
+      <div class="muted small" style="margin-top:3px">
+        ${flujo.canales.length ? `Los clips de ${flujo.canales.map((c) => `«${escapeHtml(c)}»`).join(', ')}` : 'Sus clips'}
+        ${frase(flujo)}.
+        ${flujo.shorts && sinYouTube ? '<span style="color:var(--amber)">Falta autorizar tu canal para que salgan en Shorts.</span>' : ''}
+      </div>
+    </div>
+    <div class="destino-interruptores">
+      ${interruptor(flujo, 'tiktok', 'TikTok')}
+      ${interruptor(flujo, 'shorts', 'YouTube Shorts')}
+    </div>
+  </div>`;
+}
+
+function destinosHtml(d) {
+  const enUso = d.flujos.filter((f) => f.en_uso);
+  const otros = d.flujos.filter((f) => !f.en_uso);
+  const ningunoAShorts = enUso.length && !enUso.some((f) => f.shorts);
+  return `<div class="card">
+    <div class="card-head">
+      <div>
+        <h3>Dónde sale cada clip</h3>
+        <p class="muted small" style="margin-top:4px">
+          TikTok: ${d.tiktok.length ? d.tiktok.map((c) => `<b>${escapeHtml(c.nombre)}</b>${c.prueba ? ' (prueba)' : ''}`).join(', ') : '<span style="color:var(--amber)">sin cuenta</span>'}
+          · YouTube Shorts: ${d.youtube ? `<b>${escapeHtml(d.youtube.nombre)}</b>`
+            : d.youtube_sin_permiso ? '<span style="color:var(--amber)">canal sin permiso para publicar</span>'
+            : '<span class="muted">sin canal</span>'}
+        </p>
+      </div>
+      ${!d.youtube && d.youtube_sin_permiso ? '<a class="btn sm primary" href="/api/oauth/youtube/start">Autorizar para publicar</a>' : ''}
+    </div>
+    ${d.youtube && ningunoAShorts ? `<div class="destino-aviso">
+      <span>Tu canal puede publicar Shorts, pero ahora mismo los clips <b>sólo van a TikTok</b>.</span>
+      <button class="btn sm primary" data-shorts-todos>Publicar también en Shorts</button>
+    </div>` : ''}
+    <div class="destinos">${enUso.map((f) => filaDestino(f, d)).join('')}</div>
+    ${otros.length ? `<details class="destinos-otros"><summary class="muted small">Otros flujos (${otros.length})</summary>
+      <div class="destinos">${otros.map((f) => filaDestino(f, d)).join('')}</div></details>` : ''}
+    <p class="muted tiny" style="margin-top:12px;line-height:1.6">
+      Cada clip también se puede mandar a otro sitio al aprobarlo. Google deja subir unos 6 Shorts al día;
+      los que no quepan salen al día siguiente.</p>
+  </div>`;
+}
+
+function activarDestinos(root, reload) {
+  root.querySelectorAll('[data-destino]').forEach((casilla) => {
+    casilla.onchange = async () => {
+      casilla.disabled = true;
+      try {
+        await api.put(`/api/destinos/${casilla.dataset.destino}`, { [casilla.dataset.clave]: casilla.checked });
+        toast('Guardado: los clips nuevos saldrán así');
+        reload();
+      } catch (error) {
+        toastError(error);
+        casilla.checked = !casilla.checked;
+        casilla.disabled = false;
+      }
+    };
+  });
+  const todos = root.querySelector('[data-shorts-todos]');
+  if (todos) {
+    todos.onclick = async () => {
+      todos.disabled = true;
+      const ids = [...root.querySelectorAll('.destinos [data-clave="shorts"]')]
+        .filter((c) => !c.closest('.destinos-otros')).map((c) => c.dataset.destino);
+      try {
+        for (const id of ids) await api.put(`/api/destinos/${id}`, { shorts: true });
+        toast('Listo: los clips saldrán en TikTok y en YouTube Shorts');
+        reload();
+      } catch (error) { toastError(error); todos.disabled = false; }
+    };
+  }
+}
+
 /* ----------------------------------------------- estrategia de publicación */
 // Si la cuenta usa una zona que no está en la lista, se añade: guardar sin
 // tocarla no puede cambiártela por la primera de la lista.
@@ -403,9 +496,9 @@ export default {
   ],
 
   async render(root, ctx) {
-    const [accounts, sources, flows, tiktokConfig, ytConfig] = await Promise.all([
+    const [accounts, sources, flows, tiktokConfig, ytConfig, destinos] = await Promise.all([
       api.accounts(), api.sources(), api.flows(),
-      api.get('/api/tiktok/config'), api.get('/api/youtube/config'),
+      api.get('/api/tiktok/config'), api.get('/api/youtube/config'), api.get('/api/destinos'),
     ]);
     cache = { accounts, sources, flows, tiktok: tiktokConfig };
 
@@ -414,11 +507,29 @@ export default {
     const reload = ctx.reload;
     reloadView = reload;
 
+    // El canal que autorizaste para publicar, ¿se vigila también para sacar clips?
+    const vigilado = (cuenta) => Boolean(cuenta.vigilado);
+    // el aviso grande sólo si no lo quitaste tú a propósito
+    const sinVigilar = youtube.filter((cuenta) => !cuenta.vigilado && !cuenta.quitado);
+
     root.innerHTML = `
+      ${sinVigilar.length ? `<div class="card aviso-vigilar">
+        <div>
+          <h3>Tu canal está conectado, pero no se vigila</h3>
+          <p class="muted small" style="margin-top:6px;line-height:1.6">
+            Autorizarlo sirve para <b>publicar</b> Shorts. Para que Kevil <b>saque clips</b> de tus vídeos y directos
+            hay que vigilarlo: lo revisa cada poco y corta lo nuevo solo.</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${sinVigilar.map((cuenta) => `<button class="btn primary" data-vigilar="${cuenta.id}">
+            Vigilar «${escapeHtml(cuenta.display_name)}»</button>`).join('')}
+        </div>
+      </div>` : ''}
+
       <div class="card">
         <div class="card-head">
           <div>
-            <h3>Canales de YouTube</h3>
+            <h3>Canales vigilados <span class="muted small" style="font-weight:400">· de aquí salen los clips</span></h3>
             <p class="muted small" style="margin-top:4px">Se revisan solos cada poco en busca de vídeos y directos nuevos.</p>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -451,9 +562,13 @@ export default {
               </tr>`;
             }).join('')}
           </tbody>
-        </table>` : emptyState('▶', 'Ningún canal conectado', 'Pega la URL de tu canal de YouTube y Kevil se encargará del resto.',
-          '<button class="btn primary" data-add-yt>Conectar mi canal</button>')}
+        </table>` : emptyState('▶', 'Ningún canal vigilado', sinVigilar.length
+          ? 'Pulsa «Vigilar» arriba y Kevil empezará a buscar tus vídeos.'
+          : 'Pega la URL de tu canal de YouTube y Kevil se encargará del resto.',
+          '<button class="btn primary" data-add-yt>Vigilar un canal</button>')}
       </div>
+
+      ${destinosHtml(destinos)}
 
       <div class="card">
         <div class="card-head">
@@ -514,16 +629,34 @@ export default {
             <div class="grow" style="min-width:0">
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                 <strong>${escapeHtml(account.display_name)}</strong>
+                ${vigilado(account)
+                  ? '<span class="pill ok" title="Kevil busca sus vídeos y saca clips">vigilado · saca clips</span>'
+                  : '<span class="pill warn">no se vigila</span>'}
                 ${account.has_token
                   ? '<span class="pill ok">publica Shorts</span>'
-                  : '<span class="pill">sólo lectura</span>'}
+                  : '<span class="pill">sin permiso para publicar</span>'}
               </div>
               <div class="muted small" style="margin-top:3px">
                 ${fmt.number(account.stats?.subscribers || 0)} suscriptores</div>
             </div>
-            <button class="btn sm danger" data-del-account="${account.id}">Quitar</button>
+            <div class="actions">
+              ${vigilado(account) ? '' : `<button class="btn sm primary" data-vigilar="${account.id}">Vigilar</button>`}
+              <button class="btn sm danger" data-del-account="${account.id}">Quitar</button>
+            </div>
           </div>`).join('')}</div>
       </div>` : ''}`;
+
+    root.querySelectorAll('[data-vigilar]').forEach((boton) => {
+      boton.onclick = async () => {
+        boton.disabled = true;
+        try {
+          const fuente = await api.post(`/api/accounts/${boton.dataset.vigilar}/vigilar`);
+          toast(`Vigilando «${fuente.name}»: en unos minutos verás sus vídeos en «Vídeos»`);
+          reload();
+        } catch (error) { toastError(error); boton.disabled = false; }
+      };
+    });
+    activarDestinos(root, reload);
 
     root.querySelectorAll('[data-add-yt]').forEach((b) => { b.onclick = () => addYouTube(reload); });
     root.querySelectorAll('[data-add-tt]').forEach((b) => { b.onclick = () => addTikTok(reload); });
