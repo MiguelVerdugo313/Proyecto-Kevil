@@ -22,6 +22,32 @@
   </script>
 </head>
 <body>
+  <!-- Fondo vivo: hojas de luz cálidas que derivan despacio (en claro, manchas
+       suaves de salvia, lavanda y melocotón) y un grano de papel encima. -->
+  <div class="aurora" aria-hidden="true">
+    <i class="hoja h1"></i><i class="hoja h2"></i><i class="hoja h3"></i><i class="hoja h4"></i>
+  </div>
+  <div class="grano" aria-hidden="true"></div>
+
+  <!-- Iconos: se dibujan una vez y se reutilizan con <use> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/></symbol>
+      <symbol id="i-cuentas" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"/></symbol>
+      <symbol id="i-estudio" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
+      <symbol id="i-coach" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></symbol>
+      <symbol id="i-videos" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="m10 9.2 5 2.8-5 2.8z"/></symbol>
+      <symbol id="i-clips" viewBox="0 0 24 24"><circle cx="6" cy="6.5" r="2.8"/><circle cx="6" cy="17.5" r="2.8"/><path d="M8.2 8.2 20 18.5M8.2 15.8 20 5.5"/></symbol>
+      <symbol id="i-flujos" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+      <symbol id="i-agenda" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="M7.5 14h2M11 14h2M14.5 14h2M7.5 17h2"/></symbol>
+      <symbol id="i-analitica" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+      <symbol id="i-ajustes" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+      <symbol id="i-buscar" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+      <symbol id="i-campana" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
+      <symbol id="i-tema" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/></symbol>
+    </defs>
+  </svg>
+
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
@@ -32,28 +58,35 @@
         </div>
       </div>
 
+      <button class="buscador" id="abrir-comandos" type="button" title="Ir a cualquier sitio o hacer cualquier cosa">
+        <svg class="ico"><use href="#i-buscar"/></svg>
+        <span>Buscar o hacer…</span>
+        <kbd>Ctrl K</kbd>
+      </button>
+
       <nav class="nav" id="nav">
-        <a class="nav-item" href="#panel"     data-view="panel"><span class="i">◈</span>Panel</a>
-        <a class="nav-item" href="#cuentas"   data-view="cuentas"><span class="i">◍</span>Cuentas</a>
-        <a class="nav-item" href="#estudio"   data-view="estudio"><span class="i">✦</span>Estudio</a>
-        <a class="nav-item" href="#coach"     data-view="coach"><span class="i">◎</span>Coach<em class="badge" id="badge-coach" hidden>0</em></a>
-        <a class="nav-item" href="#videos"    data-view="videos"><span class="i">▶</span>Vídeos</a>
-        <a class="nav-item" href="#clips"     data-view="clips"><span class="i">✂</span>Clips<em class="badge" id="badge-clips" hidden>0</em></a>
-        <a class="nav-item" href="#flujos"    data-view="flujos"><span class="i">⚙</span>Flujos</a>
-        <a class="nav-item" href="#agenda"    data-view="agenda"><span class="i">▦</span>Agenda</a>
-        <a class="nav-item" href="#analitica" data-view="analitica"><span class="i">◔</span>Analítica</a>
-        <a class="nav-item" href="#ajustes"   data-view="ajustes"><span class="i">☰</span>Ajustes</a>
+        <a class="nav-item" href="#panel"     data-view="panel"><svg class="ico"><use href="#i-panel"/></svg>Panel</a>
+        <a class="nav-item" href="#estudio"   data-view="estudio"><svg class="ico"><use href="#i-estudio"/></svg>Estudio</a>
+        <a class="nav-item" href="#clips"     data-view="clips"><svg class="ico"><use href="#i-clips"/></svg>Clips<em class="badge" id="badge-clips" hidden>0</em></a>
+        <a class="nav-item" href="#agenda"    data-view="agenda"><svg class="ico"><use href="#i-agenda"/></svg>Agenda</a>
+        <a class="nav-item" href="#videos"    data-view="videos"><svg class="ico"><use href="#i-videos"/></svg>Vídeos</a>
+        <a class="nav-item" href="#coach"     data-view="coach"><svg class="ico"><use href="#i-coach"/></svg>Coach<em class="badge" id="badge-coach" hidden>0</em></a>
+        <a class="nav-item" href="#analitica" data-view="analitica"><svg class="ico"><use href="#i-analitica"/></svg>Analítica</a>
+        <div class="nav-sep"></div>
+        <a class="nav-item" href="#cuentas"   data-view="cuentas"><svg class="ico"><use href="#i-cuentas"/></svg>Cuentas</a>
+        <a class="nav-item" href="#flujos"    data-view="flujos"><svg class="ico"><use href="#i-flujos"/></svg>Flujos</a>
+        <a class="nav-item" href="#ajustes"   data-view="ajustes"><svg class="ico"><use href="#i-ajustes"/></svg>Ajustes</a>
       </nav>
 
       <div class="sidebar-foot">
         <div class="worker-box" id="worker-box">
           <div class="worker-head">
-            <div class="worker-title">Motor</div>
+            <div class="worker-title"><span class="latido" id="motor-latido"></span>Motor</div>
             <button class="motor-boton" id="motor-boton" type="button"
               title="Parar descargas y renders para usar el ordenador para otra cosa">⏸ Pausar</button>
           </div>
           <div class="worker-body" id="worker-body">
-            <div class="muted small">Sin tareas activas</div>
+            <div class="muted small">Arrancando…</div>
           </div>
         </div>
         <div class="status-line" id="status-line"></div>
@@ -62,16 +95,16 @@
 
     <main class="main">
       <header class="topbar">
-        <div>
+        <div class="topbar-titulo">
           <h1 id="page-title">Panel</h1>
           <p class="muted small" id="page-subtitle">Resumen de tu operación</p>
         </div>
-        <div style="display:flex;align-items:center;gap:10px">
+        <div class="topbar-lado">
           <div style="position:relative">
-            <button class="bell" id="bell" title="Avisos">🔔<span class="count" id="bell-count" hidden>0</span></button>
+            <button class="bell" id="bell" title="Avisos"><svg class="ico"><use href="#i-campana"/></svg><span class="count" id="bell-count" hidden>0</span></button>
             <div class="avisos" id="avisos" hidden></div>
           </div>
-          <button class="theme-toggle" id="theme" title="Cambiar entre claro y oscuro">◐</button>
+          <button class="theme-toggle" id="theme" title="Cambiar entre claro y oscuro"><svg class="ico"><use href="#i-tema"/></svg></button>
           <div class="topbar-actions" id="page-actions"></div>
         </div>
       </header>
@@ -79,8 +112,22 @@
     </main>
   </div>
 
+  <!-- Paleta de comandos (Ctrl K): ir a cualquier sitio o hacer cualquier cosa -->
+  <div class="cmdk-fondo" id="cmdk" hidden>
+    <div class="cmdk" role="dialog" aria-label="Buscar o hacer">
+      <div class="cmdk-entrada">
+        <svg class="ico"><use href="#i-buscar"/></svg>
+        <input id="cmdk-texto" type="text" placeholder="¿Qué quieres hacer? Importar, pausar, liberar espacio…" autocomplete="off">
+        <kbd>Esc</kbd>
+      </div>
+      <div class="cmdk-lista" id="cmdk-lista"></div>
+      <div class="cmdk-pie"><span><kbd>↑</kbd><kbd>↓</kbd> moverse</span><span><kbd>↵</kbd> abrir</span></div>
+    </div>
+  </div>
+
   <div class="toasts" id="toasts"></div>
   <div class="modal-root" id="modal-root" hidden></div>
+  <div class="tip-grafica" id="tip-grafica" hidden></div>
 
   <!-- Aquí no se le cuelga la versión: los módulos se importan entre sí por su
        ruta pelada y el navegador cargaría dos copias del mismo archivo. Basta

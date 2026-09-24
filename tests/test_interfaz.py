@@ -104,3 +104,29 @@ def test_el_estilo_es_el_del_canal():
     assert "rgba(167, 139, 113, .2)" in css    # el resplandor
     assert "Playfair Display" in css
     assert "background-size: 32px 32px" in css  # la rejilla de puntos
+
+
+def test_el_estilo_nuevo_mezcla_el_del_canal_con_la_aurora():
+    """1.5: lo del canal (negro, puntos, oro, Playfair de acento) + aurora cálida,
+    grano, Outfit, teclas y aparición al hacer scroll."""
+    css = (WEB / "css" / "style.css").read_text(encoding="utf-8")
+    html = (WEB / "index.html").read_text(encoding="utf-8")
+    fuentes = (WEB / "css" / "fuentes.css").read_text(encoding="utf-8")
+
+    for familia in ("Outfit", "Reenie Beanie", "Geist Mono"):
+        assert f"font-family: '{familia}'" in fuentes
+    assert "'Outfit'" in css and "var(--font-hand)" in css
+    # aurora sólo cálida: carmesí, coral, ámbar (nada de violetas)
+    assert "--aurora-1: #FF2F3A" in css and "--aurora-3: #FFB347" in css
+    assert 'class="aurora"' in html and 'class="grano"' in html
+    assert "prefers-reduced-motion" in css          # respeta a quien no quiere movimiento
+    assert "body.quieto .aurora" in css             # y se para con la ventana oculta
+    assert ".btn.primary" in css and "inset 0 -2px 0" in css   # la tecla en relieve
+    assert ".reveal.visible" in css
+    assert 'id="cmdk"' in html                       # la paleta de comandos
+
+
+def test_las_graficas_usan_el_color_validado():
+    css = (WEB / "css" / "style.css").read_text(encoding="utf-8")
+    assert "--chart: #EC5A3E" in css                 # oscuro: contraste ≥ 3:1
+    assert "--chart: #E0492E" in css                 # claro

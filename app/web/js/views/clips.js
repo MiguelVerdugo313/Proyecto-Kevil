@@ -1,6 +1,7 @@
 // Clips: revisar, retocar, aprobar y programar.
 
 import { api } from '../lib/api.js';
+import { activarAyuda, ayudaHtml } from '../lib/ayuda.js';
 import {
   confirmDialog, emptyState, escapeHtml, fmt, modal,
   statusPill, toast, toastError,
@@ -51,7 +52,7 @@ async function openClip(clipId, reload) {
             Del original: ${fmt.duration(clip.start_s)} → ${fmt.duration(clip.end_s)}<br>
             ${escapeHtml(clip.reason || '')}
           </p>
-          ${clip.error ? `<p class="small" style="color:var(--red);margin-top:8px">${escapeHtml(clip.error.slice(0, 260))}</p>` : ''}
+          ${clip.error ? `<div style="margin-top:10px" data-ayuda-clip>${ayudaHtml(clip.diagnostico, { detalle: clip.error, abierto: true })}</div>` : ''}
         </div>
 
         <div style="display:flex;flex-direction:column;gap:14px">
@@ -128,7 +129,23 @@ async function openClip(clipId, reload) {
         reload();
       } },
     ],
-    onOpen: (root) => {
+    onOpen: (root, close) => {
+      const ayuda = root.querySelector('[data-ayuda-clip]');
+      if (ayuda) {
+        activarAyuda(ayuda, {
+          reintentar: async () => {
+            await api.post(`/api/clips/${clip.id}/render`);
+            toast('Montándolo otra vez…');
+            close();
+            reload();
+          },
+          descartar: async () => {
+            await api.post(`/api/clips/${clip.id}/reject`);
+            close();
+            reload();
+          },
+        });
+      }
       const cuenta = root.querySelector('#c-account');
       cuenta.addEventListener('change', () => proponer(root, clip));
       proponer(root, clip);
@@ -262,6 +279,7 @@ export default {
     reloadView = ctx.reload;
     const hash = new URLSearchParams((location.hash.split('?')[1] || ''));
     if (hash.get('video')) filters.video = Number(hash.get('video'));
+    if (hash.get('liberar')) setTimeout(() => liberarEspacio(), 150);
 
     const query = new URLSearchParams();
     if (filters.status) query.set('status', filters.status);

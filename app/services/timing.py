@@ -430,6 +430,11 @@ def plan_slots(
         score, local_dt, reason = best
         if jitter:
             local_dt = local_dt + timedelta(minutes=random.randint(-jitter, jitter))
+            # el texto dice la hora de verdad, no la de la franja redonda
+            reason = (
+                f"{DAYS[local_dt.weekday()]} {hora_12(local_dt.hour, local_dt.minute)} · "
+                f"franja {round(heat[local_dt.weekday()][local_dt.hour] * 100)}%"
+            )
         utc_dt = to_utc_naive(local_dt)
         used_hours[local_dt.hour] = used_hours.get(local_dt.hour, 0) + 1
         chosen.append(

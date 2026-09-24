@@ -1,6 +1,7 @@
 // Vídeos originales: importar, descargar y cortar.
 
 import { api } from '../lib/api.js';
+import { activarAyuda, ayudaHtml } from '../lib/ayuda.js';
 import {
   confirmDialog, debounce, emptyState, escapeHtml, fmt, modal,
   statusPill, toast, toastError,
@@ -136,7 +137,8 @@ export default {
                       ${video.published_at ? fmt.day(video.published_at) : 'sin fecha'}
                       ${video.transcript_words ? ` · ${fmt.number(video.transcript_words)} palabras transcritas` : ''}
                     </span>
-                    ${video.error ? `<div class="tiny" style="color:var(--red)">${escapeHtml(video.error.slice(0, 110))}</div>` : ''}
+                    ${video.error ? `<div style="margin-top:8px" data-ayuda-video="${video.id}">
+                      ${ayudaHtml(video.diagnostico, { detalle: video.error })}</div>` : ''}
                   </div>
                 </div>
               </td>
@@ -168,6 +170,23 @@ export default {
     }, 400);
 
     root.querySelectorAll('[data-import]').forEach((b) => { b.onclick = () => importDialog(ctx.reload); });
+
+    // Cada error con su «¿Qué hago?»: reintentar es volver a bajarlo
+    root.querySelectorAll('[data-ayuda-video]').forEach((caja) => {
+      const id = caja.dataset.ayudaVideo;
+      activarAyuda(caja, {
+        reintentar: async () => {
+          await api.post(`/api/videos/${id}/ingest`, {});
+          toast('Otra vez en la cola');
+          ctx.reload();
+        },
+        descartar: async () => {
+          await api.del(`/api/videos/${id}`);
+          toast('Quitado');
+          ctx.reload();
+        },
+      });
+    });
 
     root.querySelectorAll('[data-ingest]').forEach((button) => {
       button.onclick = async () => {

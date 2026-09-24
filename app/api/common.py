@@ -186,6 +186,7 @@ def job_to_dict(job: Job) -> dict[str, Any]:
         "diagnostico": _diagnostico(job.error or job.message) if job.status == "failed" else None,
         "log": job.log or "",
         "attempts": job.attempts,
+        "run_at": iso(job.run_at),
         "created_at": iso(job.created_at),
         "started_at": iso(job.started_at),
         "finished_at": iso(job.finished_at),

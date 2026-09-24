@@ -38,9 +38,8 @@ from app.models import (
 from app.services import branding
 from app.services import media as media_service
 from app.services import (
-    autopilot, brandkit, credenciales, events, pausa, storage, thumbnails, tiktok,
-    timing,
-    youtube_api,
+    autopilot, brandkit, credenciales, diagnostico, events, pausa, storage, thumbnails,
+    tiktok, timing, youtube_api,
 )
 from app.services.queue import enqueue
 from app.services import scheduler as scheduler_service
@@ -177,6 +176,43 @@ def reanudar_motor(db: Session = Depends(get_db)):
     return _estado_motor(db)
 
 
+def _series_por_dia(db: Session, dias: int = 14) -> dict[str, list[dict[str, Any]]]:
+    """Lo programado (próximos días), lo publicado y los clips (últimos días).
+
+    Los días se cuentan en tu hora, no en la de Londres: si no, lo que sale a
+    las 9 de la noche aparecería en el día siguiente.
+    """
+    zona = timing.get_zone(timing.zona_local())
+    hoy = timing.to_local(utcnow(), zona).date()
+
+    def contar(fechas, desde, hasta):
+        cuenta: dict[Any, int] = {}
+        for (fecha,) in fechas:
+            if fecha is None:
+                continue
+            dia = timing.to_local(fecha, zona).date()
+            if desde <= dia <= hasta:
+                cuenta[dia] = cuenta.get(dia, 0) + 1
+        return cuenta
+
+    futuro = [hoy + timedelta(days=i) for i in range(dias)]
+    pasado = [hoy - timedelta(days=dias - 1 - i) for i in range(dias)]
+    programados = contar(db.execute(
+        select(Post.scheduled_at).where(Post.status == PostStatus.scheduled.value)
+    ).all(), futuro[0], futuro[-1])
+    publicados = contar(db.execute(
+        select(Post.published_at).where(Post.status == PostStatus.published.value)
+    ).all(), pasado[0], pasado[-1])
+    clips = contar(db.execute(
+        select(Clip.created_at).where(Clip.created_at >= utcnow() - timedelta(days=dias + 1))
+    ).all(), pasado[0], pasado[-1])
+    return {
+        "programados": [{"dia": d.isoformat(), "n": programados.get(d, 0)} for d in futuro],
+        "publicados": [{"dia": d.isoformat(), "n": publicados.get(d, 0)} for d in pasado],
+        "clips": [{"dia": d.isoformat(), "n": clips.get(d, 0)} for d in pasado],
+    }
+
+
 @router.get("/dashboard")
 def dashboard(db: Session = Depends(get_db)):
     now = utcnow()
@@ -247,6 +283,8 @@ def dashboard(db: Session = Depends(get_db)):
         )
 
     return {
+        "series": _series_por_dia(db),
+        "problemas": diagnostico.problemas(db)["total"],
         "counters": {
             "channels": _count(db, Source),
             "videos": _count(db, Video),
