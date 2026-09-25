@@ -217,3 +217,57 @@ def test_cambiar_la_hora_en_youtube_conserva_lo_demas(monkeypatch):
     assert estado["license"] == "creativeCommon" and estado["embeddable"] is False
     assert estado["selfDeclaredMadeForKids"] is True
     assert "uploadStatus" not in estado          # lo que es sólo de lectura no se manda
+
+
+def test_un_fallo_en_una_publicacion_no_bloquea_las_demas(
+    session, tmp_path, sin_sesion_propia, monkeypatch
+):
+    from app.models import Job
+
+    tiktok = _cuenta(session, Platform.tiktok.value)
+    clip = _clip_listo(session, tmp_path, _pasos_publicando_en(True, False))
+    mala = _post(session, clip, tiktok)
+    buena = _post(session, clip, tiktok)
+    mala.en_plataforma = True               # irá por marcar_salido_en_plataforma
+    session.commit()
+
+    def revienta(*_a, **_k):
+        raise RuntimeError("algo raro")
+
+    monkeypatch.setattr(pipeline, "marcar_salido_en_plataforma", revienta)
+    scheduler.dispatch_due_posts()
+    pedidos = [j.payload for j in session.query(Job).filter_by(kind="publish").all()]
+    assert {"post_id": buena.id} in pedidos
+
+
+def test_publicar_ya_lo_recolocado(session, tmp_path, sin_sesion_propia, monkeypatch):
+    import contextlib
+
+    from fastapi.testclient import TestClient
+
+    from app.db import get_db
+    from app.main import app
+
+    monkeypatch.setattr(settings, "dry_run", False)
+    tiktok = _cuenta(session, Platform.tiktok.value)
+    clip = _clip_listo(session, tmp_path, _pasos_publicando_en(True, False))
+    post = _post(session, clip, tiktok)
+    post.scheduled_at = utcnow() - timedelta(hours=7)
+    session.commit()
+    scheduler.dispatch_due_posts()                  # Kevil estaba cerrado: se mueve
+    assert post.scheduled_at > utcnow()
+
+    @contextlib.asynccontextmanager
+    async def _nada(_app):
+        yield
+
+    app.router.lifespan_context = _nada
+    app.dependency_overrides[get_db] = lambda: session
+    try:
+        with TestClient(app) as cliente:
+            assert len(cliente.get("/api/posts/recolocados").json()) == 1
+            assert cliente.post("/api/posts/recolocados/publicar").json()["publicando"] == 1
+            assert cliente.get("/api/posts/recolocados").json() == []
+    finally:
+        app.dependency_overrides.clear()
+    assert post.scheduled_at <= utcnow()

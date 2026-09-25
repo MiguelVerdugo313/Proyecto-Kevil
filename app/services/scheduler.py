@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -14,6 +15,7 @@ from app.services import events, pipeline
 from app.services.queue import enqueue
 
 scheduler = BackgroundScheduler(timezone="UTC")
+log = logging.getLogger(__name__)
 
 
 def watch_sources() -> None:
@@ -42,7 +44,11 @@ REINTENTO_PROGRAMAR = timedelta(minutes=60)
 
 
 def dispatch_due_posts() -> None:
-    """Manda a la cola lo que toca publicar y deja programado lo que se pueda."""
+    """Manda a la cola lo que toca publicar y deja programado lo que se pueda.
+
+    Cada publicación va por separado: si una da un error raro, las demás salen
+    igual (antes un fallo en una tumbaba la vuelta entera y no salía ninguna).
+    """
     with session_scope() as session:
         ahora = utcnow()
         due = session.scalars(
@@ -52,20 +58,47 @@ def dispatch_due_posts() -> None:
             )
         ).all()
         for post in due:
-            if post.en_plataforma:
-                # YouTube lo ha publicado él solo a su hora
-                pipeline.marcar_salido_en_plataforma(session, post)
-                continue
-            if ahora - post.scheduled_at > RETRASO_MAXIMO and _recolocar(session, post):
-                continue
-            enqueue(
-                session,
-                "publish",
-                {"post_id": post.id},
-                priority=50,
-                message=f"Publicar #{post.id}",
-            )
-        _programar_en_youtube(session)
+            try:
+                with session.begin_nested():
+                    _despachar(session, post, ahora)
+            except Exception as exc:  # noqa: BLE001
+                _anotar_fallo(session, post, exc)
+    # lo de YouTube va aparte: si falla, lo que toca publicar ya está en la cola
+    try:
+        with session_scope() as session:
+            _programar_en_youtube(session)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("No se ha podido dejar nada programado en YouTube: %s", exc)
+
+
+def _despachar(session, post: Post, ahora) -> None:
+    if post.en_plataforma:
+        # YouTube lo ha publicado él solo a su hora
+        pipeline.marcar_salido_en_plataforma(session, post)
+        return
+    if ahora - post.scheduled_at > RETRASO_MAXIMO and _recolocar(session, post):
+        return
+    enqueue(
+        session,
+        "publish",
+        {"post_id": post.id},
+        priority=50,
+        message=f"Publicar #{post.id}",
+    )
+
+
+def _anotar_fallo(session, post: Post, exc: Exception) -> None:
+    log.warning("No se ha podido mandar a publicar #%s: %s", post.id, exc)
+    try:
+        events.log(
+            session,
+            f"No se ha podido mandar a publicar «{(post.clip.title if post.clip else '')[:50]}»: {exc}",
+            level="error",
+            scope="agenda",
+            data={"post_id": post.id},
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _recolocar(session, post: Post) -> bool:
