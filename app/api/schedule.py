@@ -105,6 +105,39 @@ def cancel_post(post_id: int, db: Session = Depends(get_db)):
     return {"ok": True, "aviso": aviso}
 
 
+RECOLOCADO = "Recolocado (el PC estaba apagado)"
+
+
+@router.get("/posts/recolocados")
+def recolocados(db: Session = Depends(get_db)):
+    """Lo que no salió a su hora porque Kevil estaba cerrado y se movió."""
+    posts = db.scalars(
+        select(Post).where(
+            Post.status == PostStatus.scheduled.value,
+            Post.slot_reason.like(f"{RECOLOCADO}%"),
+        ).order_by(Post.scheduled_at)
+    ).all()
+    return [post_to_dict(p) for p in posts]
+
+
+@router.post("/posts/recolocados/publicar")
+def publicar_recolocados(db: Session = Depends(get_db)):
+    """«Publícalos ya»: en vez de esperar al nuevo hueco, salen ahora."""
+    cuantos = 0
+    for post in db.scalars(
+        select(Post).where(
+            Post.status == PostStatus.scheduled.value,
+            Post.slot_reason.like(f"{RECOLOCADO}%"),
+        )
+    ).all():
+        post.scheduled_at = utcnow()
+        post.slot_reason = "Publicado ya (no salió a su hora)"
+        enqueue(db, "publish", {"post_id": post.id}, priority=10, message="Publicar ahora")
+        cuantos += 1
+    db.commit()
+    return {"publicando": cuantos}
+
+
 @router.post("/repetidos/revisar")
 def revisar_repetidos(db: Session = Depends(get_db)):
     """Busca clips y publicaciones repetidos y lo que ya está en las plataformas."""

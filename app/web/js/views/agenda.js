@@ -141,10 +141,11 @@ export default {
 
   async render(root, ctx) {
     reloadView = ctx.reload;
-    const [posts, accounts, segundoPlano] = await Promise.all([
+    const [posts, accounts, segundoPlano, recolocados] = await Promise.all([
       api.posts('?days=45&include_past=true'),
       api.accounts('tiktok'),
       estadoSegundoPlano(),
+      api.get('/api/posts/recolocados').catch(() => []),
     ]);
     if (!accountId && accounts.length) accountId = accounts[0].id;
 
@@ -167,6 +168,16 @@ export default {
     });
 
     root.innerHTML = `
+      ${recolocados.length ? `<div class="card aviso-vigilar">
+        <div>
+          <h3>${recolocados.length === 1 ? 'Una publicación no salió' : `${recolocados.length} publicaciones no salieron`} a su hora</h3>
+          <p class="muted small" style="margin-top:6px;line-height:1.6">
+            Kevil estaba cerrado cuando tocaban, así que las he movido al siguiente buen hueco
+            (${recolocados.map((p) => `«${escapeHtml((p.clip_title || 'Clip').slice(0, 40))}» → ${escapeHtml(fmt.date(p.scheduled_at))}`).join(' · ')}).
+            Si prefieres que salgan ya, pulsa el botón.</p>
+        </div>
+        <button class="btn primary" data-publicar-recolocados>Publicarlas ya</button>
+      </div>` : ''}
       ${comoSaleHtml(segundoPlano)}
       <div class="card">
         <div class="card-head">
@@ -253,6 +264,17 @@ export default {
     });
 
     activarSegundoPlano(root, ctx.reload);
+    const publicarYa = root.querySelector('[data-publicar-recolocados]');
+    if (publicarYa) {
+      publicarYa.onclick = async () => {
+        publicarYa.disabled = true;
+        try {
+          const r = await api.post('/api/posts/recolocados/publicar', {});
+          toast(`Publicando ${r.publicando} ahora…`);
+          ctx.reload();
+        } catch (error) { toastError(error); publicarYa.disabled = false; }
+      };
+    }
 
     const selector = root.querySelector('#acc');
     if (selector) selector.onchange = () => { accountId = Number(selector.value); ctx.reload(); };
