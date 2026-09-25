@@ -267,7 +267,7 @@ def _json(response: httpx.Response) -> dict[str, Any]:
     try:
         payload = response.json()
     except Exception:
-        raise TikTokError(f"Respuesta inesperada de TikTok ({response.status_code}).")
+        raise TikTokError(f"Respuesta inesperada de TikTok ({response.status_code}).") from None
 
     error = (payload or {}).get("error")
     if isinstance(error, dict) and error.get("code") not in (None, "ok"):
@@ -507,7 +507,10 @@ def publish_video(
     _upload_file(upload_url, path, size, chunk_size)
 
     status = poll_status(credentials, publish_id)
+    # el id del vídeo ya publicado (TikTok lo llama así, con la errata)
+    publicados = status.get("publicaly_available_post_id") or []
     return {
+        "post_id": str(publicados[0]) if publicados else "",
         "publish_id": publish_id,
         "status": status.get("status", "PROCESSING_UPLOAD"),
         "share_url": status.get("share_url", ""),

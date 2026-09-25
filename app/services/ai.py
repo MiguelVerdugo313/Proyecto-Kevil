@@ -361,7 +361,9 @@ def _con_respaldo(operacion: Callable[[Provider], Any], que: str) -> Any:
                     raise
                 provider = replace(provider, text_model=nuevo)
                 resultado = operacion(provider)
-        except AIError as exc:
+        except (AIError, ValueError, KeyError, TypeError, httpx.HTTPError) as exc:
+            # también una respuesta rara (no es JSON, le falta un campo): se
+            # prueba el siguiente proveedor en vez de rendirse
             errores.append(f"{provider.label}: {exc}")
             with _lock:
                 _estado["fallos"][provider.key] = str(exc)[:200]

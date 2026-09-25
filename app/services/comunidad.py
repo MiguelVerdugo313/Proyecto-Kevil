@@ -68,12 +68,16 @@ def _iso(fecha: datetime | None) -> str | None:
 
 
 def _fecha(texto: str | None) -> datetime | None:
+    """ISO → UTC sin zona (como todo lo guardado), venga con «Z», con +02:00 o sin nada."""
     if not texto:
         return None
     try:
-        return datetime.fromisoformat(str(texto).rstrip("Z"))
+        fecha = datetime.fromisoformat(str(texto).replace("Z", "+00:00"))
     except ValueError:
         return None
+    if fecha.tzinfo is not None:
+        fecha = to_utc_naive(fecha)
+    return fecha
 
 
 # --------------------------------------------------------------- contexto

@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -66,7 +66,7 @@ def titulos_de(clip: Clip) -> list[str]:
     return [t for t in [clip.title, *anteriores] if t and len(normalizar(t)) >= 6]
 
 
-def _coincide(subido: str, clip: Clip) -> bool:
+def _titulo_coincide(subido: str, clip: Clip) -> bool:
     subido = normalizar(subido)
     if not subido:
         return False
@@ -79,6 +79,45 @@ def _coincide(subido: str, clip: Clip) -> bool:
         if len(subido) >= 90 and propio.startswith(subido):
             return True
     return False
+
+
+def _gancho(clip: Clip) -> str:
+    """El texto propio de ese momento (el título del vídeo lo comparten todos)."""
+    gancho = normalizar(clip.hook or "")
+    video = normalizar(clip.video.title if clip.video else "")
+    return gancho if len(gancho) >= 8 and gancho != video else ""
+
+
+def _contiene(texto: str, frase: str) -> bool:
+    """Palabras enteras: «parte 1» no está dentro de «parte 12»."""
+    return bool(frase) and f" {frase} " in f" {texto} "
+
+
+def _no_es_anterior(fecha_subida: str | None, clip: Clip) -> bool:
+    """Lo subido antes de que existiera el vídeo no puede ser un clip suyo.
+
+    Con directos que se titulan igual («FNF Animania»), la «Parte 1» de hoy no
+    es la del directo de la semana pasada.
+    """
+    subido = _fecha(fecha_subida)
+    publicado = clip.video.published_at if clip.video else None
+    if not subido or not publicado:
+        return True
+    return subido >= publicado - timedelta(days=1)
+
+
+def _coincide(subido: str, clip: Clip, *, texto: str = "", fecha: str | None = None) -> bool:
+    """¿Es este clip lo que ya está subido?
+
+    El título solo no basta: dos directos con el mismo nombre dan «Parte 1»
+    iguales. Si el clip tiene su gancho, tiene que estar en el texto subido.
+    """
+    if not _titulo_coincide(subido, clip) or not _no_es_anterior(fecha, clip):
+        return False
+    gancho = _gancho(clip)
+    if gancho and texto:
+        return _contiene(normalizar(f"{subido} {texto}"), gancho)
+    return True
 
 
 def _fecha(texto: str | None) -> datetime | None:
@@ -132,7 +171,8 @@ def ya_en_youtube(account: Account, clip: Clip) -> dict[str, Any] | None:
         return youtube_api.mis_subidas(credenciales, limit=50)
 
     for subida in _con_cache(("youtube", account.id), leer):
-        if _coincide(subida.get("title", ""), clip):
+        if _coincide(subida.get("title", ""), clip,
+                     texto=subida.get("description", ""), fecha=subida.get("published_at")):
             return subida
     return None
 
@@ -145,20 +185,31 @@ def ya_en_tiktok(account: Account, clip: Clip, post: Post | None = None) -> dict
         account.credentials = credenciales
         return tiktok.fetch_recent_videos(credenciales, limit=20)
 
-    frases = [normalizar(t) for t in titulos_de(clip)]
-    gancho = normalizar(clip.hook or "")
-    # el gancho sirve si es propio del clip (no el título del vídeo, que comparten todos)
-    if len(gancho) >= 15 and gancho != normalizar(clip.video.title if clip.video else ""):
-        frases.append(gancho)
-    frases = [f for f in frases if len(f) >= 12]
-    if not frases:
-        return None
     for video in _con_cache(("tiktok", account.id), leer):
-        texto = normalizar(f"{video.get('title', '')} {video.get('video_description', '')}")
-        # palabras enteras: «parte 1» no está dentro de «parte 12»
-        if any(f" {frase} " in f" {texto} " for frase in frases):
+        if coincide_en_tiktok(video, clip):
             return video
     return None
+
+
+def coincide_en_tiktok(video: dict[str, Any], clip: Clip) -> bool:
+    """¿Este vídeo de TikTok es este clip? Por su gancho o, si no tiene, su título."""
+    titulos = [t for t in (normalizar(t) for t in titulos_de(clip)) if len(t) >= 12]
+    gancho = _gancho(clip)
+    if not titulos and not gancho:
+        return False
+    creado = video.get("create_time")
+    cuando = (
+        datetime.fromtimestamp(int(creado), tz=timezone.utc).replace(tzinfo=None).isoformat()
+        if creado else None
+    )
+    if not _no_es_anterior(cuando, clip):
+        return False
+    texto = normalizar(f"{video.get('title', '')} {video.get('video_description', '')}")
+    if gancho:
+        # el gancho es lo propio de ese momento: con él basta (las versiones
+        # de antes subían sólo el gancho) y sin él no vale
+        return _contiene(texto, gancho)
+    return any(_contiene(texto, titulo) for titulo in titulos)
 
 
 def ya_existe(account: Account, clip: Clip, post: Post | None = None) -> dict[str, Any] | None:

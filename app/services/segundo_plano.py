@@ -29,6 +29,18 @@ from app.models import Account, Platform, Post, PostStatus, utcnow
 
 # Se activa desde «Cerrar Kevil del todo»: el arranque lo espera para salir
 salir = threading.Event()
+# True cuando Kevil lo ha arrancado el .exe (arranque.py), que es quien escucha
+# `salir`. Si no (por ejemplo con run.py), cerrar del todo cierra el proceso.
+gestionado = False
+
+
+def cerrar_del_todo() -> None:
+    salir.set()
+    if not gestionado:
+        import os
+
+        # un momento para que la respuesta llegue a la ventana
+        threading.Timer(1.0, os._exit, (0,)).start()
 
 CLAVE_RUN = r"Software\Microsoft\Windows\CurrentVersion\Run"
 NOMBRE = "Kevil Studio"

@@ -135,7 +135,7 @@ def run_ffmpeg(
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:  # pragma: no cover
         proc.kill()
-        raise MediaError("ffmpeg tardó demasiado y se ha cancelado.")
+        raise MediaError("ffmpeg tardó demasiado y se ha cancelado.") from None
 
     log = "".join(tail)
     if proc.returncode != 0:

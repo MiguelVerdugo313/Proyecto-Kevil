@@ -11,7 +11,6 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.cors import CORSMiddleware
 
 from app import bootstrap
 from app.api import ROUTERS
@@ -56,12 +55,52 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Nombres con los que se llega a este ordenador (y el del cliente de pruebas)
+LOCALES = {"127.0.0.1", "localhost", "::1", "[::1]", "testserver"}
+
+
+def _nombre(valor: str) -> str:
+    """«127.0.0.1:8756» → «127.0.0.1»; «[::1]:8756» → «[::1]»."""
+    valor = (valor or "").strip().lower()
+    if valor.startswith("["):
+        return valor.split("]")[0] + "]"
+    return valor.rsplit(":", 1)[0] if valor.count(":") == 1 else valor
+
+
+@app.middleware("http")
+async def solo_desde_kevil(request, call_next):
+    """La API sólo atiende a la ventana de Kevil.
+
+    El servidor escucha en tu propio ordenador, y cualquier página que abras en
+    el navegador podría intentar hablar con él: leer tus datos, publicar,
+    borrar… Se corta de dos maneras:
+
+    * el nombre con el que se llega tiene que ser el del propio equipo (así no
+      sirve el truco de apuntar un dominio ajeno a 127.0.0.1);
+    * lo que cambia algo (POST, PUT, PATCH, DELETE) sólo se acepta desde la
+      propia interfaz de Kevil, no desde otra web.
+
+    Las vueltas de TikTok y de Google al conectar son visitas normales (GET)
+    a la dirección del equipo, así que siguen funcionando.
+    """
+    abierto = settings.host not in LOCALES          # lo abriste a la red a propósito
+    if not abierto and _nombre(request.headers.get("host", "")) not in LOCALES:
+        return JSONResponse(status_code=403, content={"detail": "Acceso no permitido"})
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        origen = request.headers.get("origin")
+        if origen is not None:
+            from urllib.parse import urlsplit
+
+            partes = urlsplit(origen)
+            propio = _nombre(request.headers.get("host", ""))
+            if partes.hostname is None or (
+                _nombre(partes.netloc) not in LOCALES | {propio}
+            ):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Sólo la ventana de Kevil puede hacer cambios"},
+                )
+    return await call_next(request)
 
 for router in ROUTERS:
     app.include_router(router)

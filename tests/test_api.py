@@ -483,3 +483,23 @@ def test_el_motor_dice_que_toca_despues(client):
     assert motor["proxima_revision"]                    # cuándo vuelve a mirar el canal
     assert motor["proxima_publicacion"]
     assert motor["proxima_publicacion_titulo"]
+
+
+def test_otra_web_no_puede_cambiar_nada(client):
+    """Una página cualquiera abierta en el navegador no puede usar la API."""
+    malo = client.put("/api/settings", json={}, headers={"Origin": "https://malo.example"})
+    assert malo.status_code == 403
+    nulo = client.put("/api/settings", json={}, headers={"Origin": "null"})
+    assert nulo.status_code == 403
+    propio = client.put("/api/settings", json={}, headers={"Origin": "http://127.0.0.1:8756"})
+    assert propio.status_code == 200
+
+
+def test_un_dominio_ajeno_apuntando_al_equipo_no_entra(client):
+    assert client.get("/api/status", headers={"Host": "malo.example"}).status_code == 403
+    assert client.get("/api/status", headers={"Host": "127.0.0.1:8756"}).status_code == 200
+
+
+def test_no_se_leen_datos_desde_otra_web(client):
+    respuesta = client.get("/api/accounts", headers={"Origin": "https://malo.example"})
+    assert "access-control-allow-origin" not in {k.lower() for k in respuesta.headers}

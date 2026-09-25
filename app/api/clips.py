@@ -283,12 +283,17 @@ def _stream_file(path: Path, request: Request) -> Response:
 
     try:
         units, _, span = range_header.partition("=")
-        start_text, _, end_text = span.partition("-")
-        start = int(start_text) if start_text else 0
-        end = int(end_text) if end_text else size - 1
+        start_text, _, end_text = span.split(",")[0].strip().partition("-")
+        if start_text:
+            start = int(start_text)
+            end = int(end_text) if end_text else size - 1
+        else:
+            # «bytes=-500»: los últimos 500 bytes
+            start = max(0, size - int(end_text))
+            end = size - 1
     except ValueError:
-        raise HTTPException(416, "Rango no válido")
-    if units.strip() != "bytes" or start >= size:
+        raise HTTPException(416, "Rango no válido") from None
+    if units.strip() != "bytes" or start >= size or end < start:
         raise HTTPException(416, "Rango no válido")
     end = min(end, size - 1)
     length = end - start + 1

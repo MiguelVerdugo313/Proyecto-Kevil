@@ -531,7 +531,7 @@ def search_videos(query: str, *, limit: int = 15) -> list[dict[str, Any]]:
 
 def fetch_video_info(url: str, cookies_from_browser: str = "") -> dict[str, Any]:
     """Metadatos completos de un vídeo suelto."""
-    ydl = _require_ytdlp()
+    _require_ytdlp()          # avisa claro si falta yt-dlp
     opts = _base_opts(cookies_from_browser) | {"skip_download": True}
     try:
         info = _extraer(opts, url, download=False)
@@ -575,7 +575,7 @@ def download_video(
     on_progress: Callable[[float, str], None] | None = None,
 ) -> dict[str, Any]:
     """Descarga el vídeo a data/media/originales y devuelve la ruta y metadatos."""
-    ydl = _require_ytdlp()
+    _require_ytdlp()          # avisa claro si falta yt-dlp
     dest = settings.sources_path
     dest.mkdir(parents=True, exist_ok=True)
     langs = subtitle_langs or ["es", "en"]
@@ -685,7 +685,7 @@ def fetch_subtitles_only(
     Son unos kilobytes. Con eso ya se puede decidir dónde están los mejores
     momentos, y sólo después se bajan esos segundos concretos.
     """
-    ydl = _require_ytdlp()
+    _require_ytdlp()          # avisa claro si falta yt-dlp
     dest = settings.work_path
     dest.mkdir(parents=True, exist_ok=True)
     langs = subtitle_langs or ["es", "en"]
@@ -729,7 +729,7 @@ def download_audio_only(
     Un directo de dos horas ocupa unos 100 MB de audio frente a varios GB de
     vídeo, y se borra en cuanto se han elegido los momentos.
     """
-    ydl = _require_ytdlp()
+    _require_ytdlp()          # avisa claro si falta yt-dlp
     dest = settings.work_path
     dest.mkdir(parents=True, exist_ok=True)
 

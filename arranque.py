@@ -120,6 +120,7 @@ def main() -> None:
     import ventana
     from app.services import segundo_plano
 
+    segundo_plano.gestionado = True       # «Cerrar del todo» lo atiende este bucle
     if solo_fondo:
         modo = "fondo"
     else:
@@ -134,7 +135,8 @@ def main() -> None:
 
     # Al cerrar la ventana: si hay cosas que sólo puede publicar Kevil a su
     # hora (TikTok no deja programar), se queda en segundo plano.
-    if modo not in {"navegador", "fondo"} and _seguir_en_segundo_plano():
+    if (modo not in {"navegador", "fondo"} and not segundo_plano.salir.is_set()
+            and _seguir_en_segundo_plano()):
         modo = "fondo"
         _avisar_en_segundo_plano()
 

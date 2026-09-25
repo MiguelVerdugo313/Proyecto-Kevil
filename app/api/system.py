@@ -694,8 +694,9 @@ def live_thumbnail(body: LiveThumbIn):
 @router.get("/brandkit/live-thumbnail/file")
 def live_thumbnail_file(path: str):
     archivo = Path(path).resolve()
-    # sólo se sirve lo que está dentro de la carpeta de miniaturas
-    if not str(archivo).startswith(str(settings.thumbs_path.resolve())):
+    # sólo se sirve lo que está dentro de la carpeta de miniaturas (y no en una
+    # hermana que empiece igual, tipo «thumbs-otra»)
+    if not archivo.is_relative_to(settings.thumbs_path.resolve()):
         raise HTTPException(404, "No encontrado")
     if not archivo.is_file():
         raise HTTPException(404, "No encontrado")
@@ -828,5 +829,5 @@ def salir_del_todo():
     """«Cerrar Kevil del todo»: para también lo que corre en segundo plano."""
     from app.services import segundo_plano
 
-    segundo_plano.salir.set()
+    segundo_plano.cerrar_del_todo()
     return {"ok": True}

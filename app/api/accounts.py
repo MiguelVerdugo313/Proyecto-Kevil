@@ -25,6 +25,22 @@ from app.services.queue import enqueue
 router = APIRouter(prefix="/api", tags=["cuentas"])
 
 _oauth_states: dict[str, float] = {}
+ESTADO_CADUCA_S = 30 * 60        # la autorización hay que terminarla en media hora
+
+
+def _nuevo_estado() -> str:
+    """Un «state» nuevo para la autorización; los viejos se olvidan."""
+    ahora = time.time()
+    for viejo in [k for k, t in _oauth_states.items() if ahora - t > ESTADO_CADUCA_S]:
+        _oauth_states.pop(viejo, None)
+    state = secrets.token_urlsafe(24)
+    _oauth_states[state] = ahora
+    return state
+
+
+def _estado_valido(state: str) -> bool:
+    creado = _oauth_states.pop(state, None)
+    return creado is not None and time.time() - creado <= ESTADO_CADUCA_S
 
 
 def _result_page(title: str, message: str, ok: bool, tecnico: str = "") -> str:
@@ -240,8 +256,7 @@ def tiktok_oauth_start():
             400,
             "Añade primero la clave y el secreto de tu app de TikTok en Ajustes.",
         )
-    state = secrets.token_urlsafe(24)
-    _oauth_states[state] = time.time()
+    state = _nuevo_estado()
     return RedirectResponse(tiktok.build_auth_url(state), status_code=302)
 
 
@@ -271,12 +286,11 @@ def tiktok_oauth_callback(
         return HTMLResponse(
             page("No se ha podido conectar", detalle, False, crudo), status_code=400
         )
-    if not code or state not in _oauth_states:
+    if not code or not _estado_valido(state):
         return HTMLResponse(
             page("Petición no válida", "Vuelve a intentarlo desde la aplicación.", False),
             status_code=400,
         )
-    _oauth_states.pop(state, None)
 
     try:
         # el state identifica el verificador de PKCE de esta autorización
@@ -334,8 +348,7 @@ def youtube_oauth_start():
             400,
             "Añade primero el ID y el secreto de cliente de Google en Ajustes → YouTube.",
         )
-    state = secrets.token_urlsafe(24)
-    _oauth_states[state] = time.time()
+    state = _nuevo_estado()
     return RedirectResponse(youtube_api.build_auth_url(state), status_code=302)
 
 
@@ -345,12 +358,11 @@ def youtube_oauth_callback(
 ):
     if error:
         return HTMLResponse(_result_page("No se ha podido conectar", error, False), status_code=400)
-    if not code or state not in _oauth_states:
+    if not code or not _estado_valido(state):
         return HTMLResponse(
             _result_page("Petición no válida", "Vuelve a intentarlo desde la aplicación.", False),
             status_code=400,
         )
-    _oauth_states.pop(state, None)
 
     try:
         credentials = youtube_api.exchange_code(code)

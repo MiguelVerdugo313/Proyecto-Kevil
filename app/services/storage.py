@@ -101,6 +101,15 @@ def cleanup_clip(session: Session, clip: Clip, *, force: bool = False) -> int:
     return liberado
 
 
+def _subido_por_ti_y_pendiente(video: Video) -> bool:
+    """Un vídeo que subiste en el Estudio y que aún no está en tu canal.
+
+    Ese archivo es tuyo y no se puede volver a bajar de ningún sitio: hace
+    falta para subir el vídeo largo a YouTube, así que no se borra solo.
+    """
+    return video.origin == "local" and not ((video.kit or {}).get("youtube") or {}).get("url")
+
+
 def cleanup_video(session: Session, video: Video, *, force: bool = False) -> int:
     """Borra el original cuando ya no queda ningún clip por renderizar."""
     if settings.keep_originals and not force:
@@ -111,6 +120,8 @@ def cleanup_video(session: Session, video: Video, *, force: bool = False) -> int
     if not force:
         pendientes = {ClipStatus.draft.value, ClipStatus.rendering.value}
         if any(clip.status in pendientes for clip in video.clips):
+            return 0
+        if _subido_por_ti_y_pendiente(video):
             return 0
 
     liberado = _borrar(video.local_path)
@@ -127,13 +138,52 @@ def after_publish(session: Session, clip: Clip) -> int:
     return liberado
 
 
-def clear_temp() -> int:
-    """Vacía la carpeta de trabajo: son archivos de un solo uso."""
+def _en_uso_por_la_cola() -> set[str]:
+    """Archivos que algún trabajo pendiente o en marcha todavía va a usar."""
+    from app.db import session_scope
+    from app.models import Job, JobStatus
+
+    rutas: set[str] = set()
+    try:
+        with session_scope() as session:
+            for job in session.scalars(
+                select(Job).where(
+                    Job.status.in_([JobStatus.pending.value, JobStatus.running.value])
+                )
+            ).all():
+                for valor in (job.payload or {}).values():
+                    if isinstance(valor, str) and valor:
+                        rutas.add(str(Path(valor).resolve()))
+    except Exception:  # noqa: BLE001 - ante la duda, se borra menos
+        pass
+    return rutas
+
+
+def clear_temp(*, todo: bool = False) -> int:
+    """Vacía la carpeta de trabajo: son archivos de un solo uso.
+
+    Sin `todo`, respeta lo que se está usando: lo reciente (un tramo que se
+    está bajando, un montaje a medias) y lo que espera un trabajo de la cola
+    (el audio de un vídeo que aún hay que cortar).
+    """
+    import time
+
     liberado = 0
+    limite = time.time() - MARGEN_HUERFANOS_S
+    en_uso = set() if todo else _en_uso_por_la_cola()
     try:
         for hijo in settings.work_path.iterdir():
-            if hijo.is_file():
-                liberado += _borrar(str(hijo))
+            if not hijo.is_file():
+                continue
+            if not todo:
+                try:
+                    if hijo.stat().st_mtime > limite:
+                        continue
+                except OSError:
+                    continue
+                if str(hijo.resolve()) in en_uso:
+                    continue
+            liberado += _borrar(str(hijo))
     except OSError:
         pass
     return liberado
@@ -190,7 +240,7 @@ def purge_everything(session: Session) -> dict[str, Any]:
     estaban programadas se cancelan: sin su archivo no podrían salir, y es
     mejor verlo claro ahora que como un fallo raro dentro de tres días.
     """
-    liberado = clear_temp()
+    liberado = clear_temp(todo=True)
     for clip in session.scalars(select(Clip)).all():
         if clip.render_path:
             for post in clip.posts:
@@ -237,7 +287,7 @@ def _original_pendiente(video: Video) -> bool:
     clips —recién bajado o recién subido desde el estudio—, también: aún no se
     ha sacado nada de él.
     """
-    if not video.clips:
+    if not video.clips or _subido_por_ti_y_pendiente(video):
         return True
     pendientes = {ClipStatus.draft.value, ClipStatus.rendering.value}
     return any(clip.status in pendientes for clip in video.clips)
@@ -356,11 +406,17 @@ def borrar_clips(session: Session, ids: list[int]) -> dict[str, Any]:
     en este momento no se tocan: cortarlos a medias dejaría la publicación en
     un estado raro en TikTok.
     """
+    from app.services import pipeline
+
     borrados, saltados, liberado = 0, 0, 0
     for clip in session.scalars(select(Clip).where(Clip.id.in_(ids or []))).all():
         if any(post.status == PostStatus.publishing.value for post in clip.posts):
             saltados += 1
             continue
+        # si ya estaba programado dentro de YouTube, allí se queda privado
+        for post in clip.posts:
+            if post.status == PostStatus.scheduled.value and post.en_plataforma:
+                pipeline.mover_en_plataforma(session, post, cancelar=True)
         liberado += _borrar(clip.render_path) + _borrar(clip.thumb_path)
         session.delete(clip)
         borrados += 1
