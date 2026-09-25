@@ -75,6 +75,9 @@ def _recolocar(session, post: Post) -> bool:
     clip = post.clip
     if clip is None or post.account is None:
         return False
+    if _en_la_cola(session, post):
+        # no es que el PC estuviera apagado: está esperando turno en la cola
+        return False
     antes = post.scheduled_at
     flow = pipeline.resolve_flow(session, clip.flow_id)
     hueco = pipeline.proponer_hora(session, post.account, step_config(flow.steps, "schedule"))
@@ -110,22 +113,39 @@ def _recolocar(session, post: Post) -> bool:
     return True
 
 
+def _en_la_cola(session, post: Post) -> bool:
+    from app.models import Job, JobStatus
+
+    return any(
+        (job.payload or {}).get("post_id") == post.id
+        for job in session.scalars(
+            select(Job).where(
+                Job.kind == "publish",
+                Job.status.in_([JobStatus.pending.value, JobStatus.running.value]),
+            )
+        ).all()
+    )
+
+
 def _programar_en_youtube(session) -> None:
     """Los Shorts aprobados se suben ya, programados dentro de YouTube."""
-    from app.models import Account, Platform
+    from app.models import Account, Clip, Platform
 
     ahora = utcnow()
     candidatos = session.scalars(
         select(Post)
         .join(Account, Post.account_id == Account.id)
+        .join(Clip, Post.clip_id == Clip.id)
         .where(
             Account.platform == Platform.youtube.value,
             Post.status == PostStatus.scheduled.value,
             Post.en_plataforma.is_(False),
             Post.scheduled_at > ahora + pipeline.MARGEN_PROGRAMAR + timedelta(minutes=5),
+            # sólo lo que ya tiene su vídeo montado (lo demás no ocupa sitio)
+            Clip.render_path != "",
         )
         .order_by(Post.scheduled_at)
-        .limit(6)
+        .limit(12)
     ).all()
     for post in candidatos:
         if not pipeline.puede_programar_en_youtube(post.account, post):

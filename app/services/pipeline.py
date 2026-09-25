@@ -796,6 +796,8 @@ def job_render(session: Session, ctx: JobContext) -> None:
     clip.render_path = result["path"]
     clip.thumb_path = result.get("thumb", "")
     clip.render_config = {
+        # lo demás que guarda el clip (sus títulos anteriores, etc.) se conserva
+        **(clip.render_config or {}),
         "reframe": reframe_config | {"focus_x": result.get("focus_x", 0.5)},
         "output": {
             "width": result.get("width"),
@@ -815,8 +817,13 @@ def job_render(session: Session, ctx: JobContext) -> None:
     if mode in {"auto", "draft"} and schedule_config.get("auto_schedule", True):
         cuentas = destinations_for(session, video, publish_config)
         if cuentas:
+            # volver a montar un clip ya programado no lo programa otra vez
+            from app.services import repetidos
+
+            ocupadas = repetidos.cuentas_con_ese_momento(clip)
             for cuenta in cuentas:
-                schedule_clip(session, clip, cuenta, schedule_config)
+                if cuenta.id not in ocupadas:
+                    schedule_clip(session, clip, cuenta, schedule_config)
         else:
             ctx.log("No hay ninguna cuenta conectada para publicar: el clip queda pendiente.")
 
@@ -927,6 +934,8 @@ def job_publish(session: Session, ctx: JobContext) -> None:
         return
     if post.en_plataforma:
         return                      # ya está programado en YouTube: sale solo
+    if not ctx.payload.get("programar") and post.scheduled_at > utcnow() + timedelta(minutes=10):
+        return                      # lo has movido más tarde mientras esperaba turno
 
     clip = post.clip
     account = post.account
@@ -1054,6 +1063,14 @@ def _publish_to_tiktok(session, ctx, post, clip, account, publish_config) -> dic
         account.credentials or {}
     ).get("access_token")
 
+    if not simulate:
+        # Se renueva el acceso una sola vez y se guarda antes de subir. Antes se
+        # renovaba dentro y otra vez después con las credenciales viejas: si
+        # TikTok había cambiado la clave de renovación, se guardaba la antigua
+        # y la cuenta acababa desconectándose sola.
+        account.credentials = tiktok.valid_credentials(account.credentials or {})
+        session.commit()
+
     result = tiktok.publish_video(
         account.credentials or {},
         video_path=clip.render_path,
@@ -1066,13 +1083,6 @@ def _publish_to_tiktok(session, ctx, post, clip, account, publish_config) -> dic
         commercial_content=bool(publish_config.get("commercial_content", False)),
         dry_run=simulate,
     )
-
-    # las credenciales pueden haberse renovado durante la subida
-    if not simulate:
-        try:
-            account.credentials = tiktok.valid_credentials(account.credentials or {})
-        except Exception:
-            pass
 
     # Si TikTok no ha dejado publicar directamente, el clip se queda en la
     # bandeja de la aplicación de TikTok. Hay que decirlo: si no, uno lo da por
@@ -1088,7 +1098,7 @@ def _publish_to_tiktok(session, ctx, post, clip, account, publish_config) -> dic
 
     return {
         "publish_id": result.get("publish_id", ""),
-        "external_id": "",
+        "external_id": result.get("post_id", ""),
         "share_url": result.get("share_url", ""),
         "dry_run": result.get("dry_run", False),
         "mode": result.get("mode", ""),
@@ -1278,6 +1288,11 @@ def _publish_to_youtube(
     for aviso in avisos:
         ctx.log(f"Aviso: {aviso}")
 
+    if not simulate:
+        # el acceso renovado se guarda antes de subir (la subida puede tardar)
+        account.credentials = youtube_api.valid_credentials(account.credentials or {})
+        session.commit()
+
     sufijo = str(publish_config.get("youtube_title_suffix", " #Shorts"))
     titulo = f"{clip.title}{sufijo}"[: youtube_api.MAX_TITLE]
 
@@ -1295,10 +1310,6 @@ def _publish_to_youtube(
     )
 
     if not simulate:
-        try:
-            account.credentials = youtube_api.valid_credentials(account.credentials or {})
-        except Exception:
-            pass
         # la miniatura del clip sirve de portada si el canal está verificado
         if clip.thumb_path and result.get("video_id"):
             try:
@@ -1411,6 +1422,24 @@ def job_refresh_metrics(session: Session, ctx: JobContext) -> None:
                     select(Post).where(Post.account_id == account.id)
                 ).all()
             }
+            # lo publicado sin el id del vídeo (versiones anteriores) se
+            # empareja por su texto, como al buscar repetidos
+            from app.services import repetidos
+
+            sin_id = [
+                post for post in by_publish_id.values()
+                if post.status == PostStatus.published.value and not post.external_post_id
+                and post.clip is not None
+            ]
+            for item in videos:
+                if item.get("id") in by_publish_id:
+                    continue
+                for post in sin_id:
+                    if repetidos.coincide_en_tiktok(item, post.clip):
+                        post.external_post_id = str(item["id"])
+                        by_publish_id[post.external_post_id] = post
+                        sin_id.remove(post)
+                        break
             for item in videos:
                 metrics = {
                     "views": item.get("view_count", 0),

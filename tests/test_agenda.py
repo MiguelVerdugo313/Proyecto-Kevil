@@ -187,3 +187,33 @@ def test_pendientes_que_necesitan_el_pc(session, tmp_path):
 def test_orden_de_arranque_con_windows():
     orden = segundo_plano.orden_de_arranque()
     assert "run.py" in orden and "--sin-ventana" in orden
+
+
+def test_cambiar_la_hora_en_youtube_conserva_lo_demas(monkeypatch):
+    import httpx
+
+    enviado = {}
+
+    def responder(peticion: httpx.Request) -> httpx.Response:
+        if peticion.method == "GET":
+            return httpx.Response(200, json={"items": [{"id": "v1", "status": {
+                "privacyStatus": "private", "publishAt": "2026-10-01T01:00:00Z",
+                "license": "creativeCommon", "embeddable": False, "madeForKids": True,
+                "uploadStatus": "processed",
+            }}]})
+        enviado.update(__import__("json").loads(peticion.content))
+        return httpx.Response(200, json={"id": "v1"})
+
+    real = httpx.Client
+    monkeypatch.setattr(youtube_api.httpx, "Client",
+                        lambda **k: real(transport=httpx.MockTransport(responder), **k))
+    monkeypatch.setattr(youtube_api, "valid_credentials", lambda c: c)
+
+    youtube_api.cambiar_programacion({"access_token": "t"}, "v1", "2026-10-02T03:00:00Z")
+    estado = enviado["status"]
+    assert estado["publishAt"] == "2026-10-02T03:00:00Z"
+    assert estado["privacyStatus"] == "private"
+    # lo que ya tenía el vídeo no se pierde
+    assert estado["license"] == "creativeCommon" and estado["embeddable"] is False
+    assert estado["selfDeclaredMadeForKids"] is True
+    assert "uploadStatus" not in estado          # lo que es sólo de lectura no se manda

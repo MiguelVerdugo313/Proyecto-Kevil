@@ -164,37 +164,67 @@ class Worker(threading.Thread):
                 self.stop_event.wait(1.5)
                 continue
 
-            with session_scope() as session:
-                job = session.get(Job, job_id)
-                if not job:
-                    continue
-                handler = _handlers.get(job.kind)
-                context = JobContext(session, job)
-                try:
-                    if handler is None:
-                        raise RuntimeError(f"No hay manejador para «{job.kind}»")
-                    handler(session, context)
-                    job.status = JobStatus.done.value
-                    job.progress = 1.0
-                    job.finished_at = utcnow()
-                except Exception as exc:  # noqa: BLE001
-                    if isinstance(exc, pausa.Pausado) or (
-                        pausa.activa() and pausa.afecta(job.kind)
-                    ):
-                        # Cortado por la pausa: no es un fallo. Se deshace lo
-                        # que dejó a medias y vuelve a la cola tal cual.
-                        session.rollback()
-                        _devolver_a_la_cola(session, job_id)
-                        continue
-                    job.status = JobStatus.failed.value
-                    job.error = f"{exc}\n{traceback.format_exc()}"[:4000]
-                    job.message = str(exc)[:400]
-                    job.finished_at = utcnow()
-                    # Lo pasajero (red, un archivo ocupado…) no se da por
-                    # perdido: vuelve a la cola dentro de un rato.
-                    from app.services import diagnostico
+            # Pase lo que pase con este trabajo, el hilo sigue vivo: si una
+            # excepción se escapaba de aquí (la base de datos ocupada al
+            # guardar, por ejemplo) el motor se quedaba parado hasta reiniciar.
+            try:
+                self._ejecutar(job_id)
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
+                _marcar_fallido(job_id, "Error interno al guardar el trabajo")
 
-                    diagnostico.reintentar_solo_si_toca(job)
+    def _ejecutar(self, job_id: int) -> None:
+        with session_scope() as session:
+            job = session.get(Job, job_id)
+            if not job:
+                return
+            handler = _handlers.get(job.kind)
+            context = JobContext(session, job)
+            try:
+                if handler is None:
+                    raise RuntimeError(f"No hay manejador para «{job.kind}»")
+                handler(session, context)
+                job.status = JobStatus.done.value
+                job.progress = 1.0
+                job.finished_at = utcnow()
+            except Exception as exc:  # noqa: BLE001
+                if isinstance(exc, pausa.Pausado) or (
+                    pausa.activa() and pausa.afecta(job.kind)
+                ):
+                    # Cortado por la pausa: no es un fallo. Se deshace lo
+                    # que dejó a medias y vuelve a la cola tal cual.
+                    session.rollback()
+                    _devolver_a_la_cola(session, job_id)
+                    return
+                if not session.is_active:
+                    # un error de la propia base de datos deja la sesión
+                    # inservible: se limpia antes de anotar el fallo
+                    session.rollback()
+                    job = session.get(Job, job_id)
+                    if job is None:
+                        return
+                job.status = JobStatus.failed.value
+                job.error = f"{exc}\n{traceback.format_exc()}"[:4000]
+                job.message = str(exc)[:400]
+                job.finished_at = utcnow()
+                # Lo pasajero (red, un archivo ocupado…) no se da por
+                # perdido: vuelve a la cola dentro de un rato.
+                from app.services import diagnostico
+
+                diagnostico.reintentar_solo_si_toca(job)
+
+
+def _marcar_fallido(job_id: int, motivo: str) -> None:
+    """Último recurso: que el trabajo no se quede «en marcha» para siempre."""
+    try:
+        with session_scope() as session:
+            job = session.get(Job, job_id)
+            if job is not None and job.status == JobStatus.running.value:
+                job.status = JobStatus.failed.value
+                job.message = motivo
+                job.finished_at = utcnow()
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
 
 
 def _devolver_a_la_cola(session: Session, job_id: int) -> None:

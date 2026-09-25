@@ -328,3 +328,80 @@ def test_un_video_corto_entero_no_lleva_parte(session):
     session.refresh(video)
     partes.numerar(session, video)
     assert entero.title == "FNF Animania"
+
+
+def test_directos_con_el_mismo_titulo_no_se_confunden(session, tmp_path, de_verdad, monkeypatch):
+    """«FNF Animania · Parte 1» de hoy no es la del directo de la semana pasada."""
+    video = _video(session)
+    video.published_at = utcnow() - timedelta(days=1)
+    youtube = _cuenta(session, Platform.youtube.value)
+    clip = _clip(session, video, 0, 40, titulo="FNF Animania · Parte 1", tmp=tmp_path)
+    post = _post(session, clip, youtube, horas=-1)
+    session.commit()
+    monkeypatch.setattr(youtube_api, "mis_subidas", lambda c, limit=50: [
+        # mismo título, otro momento (otro gancho) y de antes de este directo
+        {"id": "semana-pasada", "title": "FNF Animania · Parte 1 #Shorts", "privacy": "public",
+         "description": "FNF Animania · Parte 1\nEl jefe final me destroza\n\n#fyp",
+         "publish_at": "", "published_at": (utcnow() - timedelta(days=8)).isoformat()},
+    ])
+    pipeline.job_publish(session, _ctx(session, post))
+    assert de_verdad and de_verdad[0]["title"].startswith("FNF Animania · Parte 1")
+
+
+def test_mismo_titulo_y_mismo_momento_si_es_repetido(session, tmp_path, de_verdad, monkeypatch):
+    video = _video(session)
+    video.published_at = utcnow() - timedelta(days=1)
+    youtube = _cuenta(session, Platform.youtube.value)
+    clip = _clip(session, video, 0, 40, titulo="FNF Animania · Parte 1", tmp=tmp_path)
+    post = _post(session, clip, youtube, horas=-1)
+    session.commit()
+    monkeypatch.setattr(youtube_api, "mis_subidas", lambda c, limit=50: [
+        {"id": "este", "title": "FNF Animania · Parte 1 #Shorts", "privacy": "public",
+         "description": "El susto del segundo 0\n\n#fyp #parati",
+         "publish_at": "", "published_at": utcnow().isoformat()},
+    ])
+    pipeline.job_publish(session, _ctx(session, post))
+    assert not de_verdad
+    assert post.external_post_id == "este"
+
+
+def test_en_tiktok_otro_momento_del_mismo_juego_no_cuenta(session, tmp_path, de_verdad, monkeypatch):
+    video = _video(session)
+    cuenta = _cuenta(session, Platform.tiktok.value)
+    clip = _clip(session, video, 0, 40, titulo="FNF Animania · Parte 1", tmp=tmp_path)
+    post = _post(session, clip, cuenta, horas=-1)
+    session.commit()
+    monkeypatch.setattr(tiktok, "fetch_recent_videos", lambda c, limit=20: [{
+        "id": "9", "create_time": 1_790_000_000,
+        "video_description": "FNF Animania · Parte 1\nOtro momento distinto\n\n#fyp",
+    }])
+    pipeline.job_publish(session, _ctx(session, post))
+    assert de_verdad == ["tiktok"]
+
+
+def test_las_visitas_de_tiktok_llegan_a_su_publicacion(session, tmp_path, monkeypatch):
+    """Antes nunca casaban: se guardaba el id de la subida, no el del vídeo."""
+    from app.models import Job
+
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(tiktok, "valid_credentials", lambda c: c)
+    monkeypatch.setattr(tiktok, "fetch_user_info", lambda c: {"follower_count": 10})
+    video = _video(session)
+    cuenta = _cuenta(session, Platform.tiktok.value)
+    con_id = _clip(session, video, 0, 40, titulo="FNF Animania · Parte 1")
+    viejo = _clip(session, video, 100, 140, titulo="FNF Animania · Parte 2")
+    publicado = _post(session, con_id, cuenta, estado=PostStatus.published.value,
+                      external_post_id="111")
+    de_antes = _post(session, viejo, cuenta, estado=PostStatus.published.value)
+    session.commit()
+    monkeypatch.setattr(tiktok, "fetch_recent_videos", lambda c, limit=20: [
+        {"id": "111", "view_count": 500, "create_time": 1_790_000_000},
+        {"id": "222", "view_count": 90, "create_time": 1_790_000_000,
+         "video_description": "El susto del segundo 100 #fyp"},
+    ])
+    job = Job(kind="refresh_metrics", payload={"account_id": cuenta.id}, status="running")
+    session.add(job)
+    session.commit()
+    pipeline.job_refresh_metrics(session, pipeline.JobContext(session, job))
+    assert publicado.metrics["views"] == 500
+    assert de_antes.external_post_id == "222" and de_antes.metrics["views"] == 90

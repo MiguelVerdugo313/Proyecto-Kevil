@@ -149,7 +149,7 @@ def _json(response: httpx.Response) -> dict[str, Any]:
     except Exception:
         raise YouTubeAPIError(
             f"Respuesta inesperada de YouTube ({response.status_code}): {response.text[:200]}"
-        )
+        ) from None
     if response.status_code >= 400:
         error = (payload or {}).get("error") or {}
         mensaje = error.get("message") or str(payload)[:300]
@@ -314,6 +314,7 @@ def mis_subidas(credentials: dict[str, Any], limit: int = 50) -> list[dict[str, 
         subidas.append({
             "id": item.get("id", ""),
             "title": snippet.get("title", ""),
+            "description": snippet.get("description", ""),
             "published_at": (snippet.get("publishedAt") or "").replace("Z", ""),
             "privacy": estado.get("privacyStatus", ""),
             "publish_at": (estado.get("publishAt") or "").replace("Z", "").split(".")[0],
@@ -393,10 +394,28 @@ def cambiar_programacion(
     canal); con `ya=True` se hace público en el momento.
     """
     credentials = valid_credentials(credentials)
-    estado: dict[str, Any] = {"privacyStatus": "public" if ya else "private"}
-    if publish_at and not ya:
-        estado["publishAt"] = publish_at
     with httpx.Client(timeout=TIMEOUT) as client:
+        # YouTube borra lo que no se le manda al actualizar «status»: se parte
+        # de lo que el vídeo ya tiene (para niños, licencia…) y sólo se toca
+        # la privacidad y la hora
+        actual = _json(client.get(
+            f"{API_BASE}/videos",
+            params={"part": "status", "id": video_id},
+            headers=_headers(credentials),
+        ))
+        items = actual.get("items") or []
+        if not items:
+            raise YouTubeAPIError("Ese vídeo ya no está en tu canal.")
+        leido = items[0].get("status") or {}
+        estado = {
+            clave: valor for clave, valor in leido.items()
+            if clave in {"embeddable", "license", "publicStatsViewable",
+                         "selfDeclaredMadeForKids", "containsSyntheticMedia"}
+        }
+        estado.setdefault("selfDeclaredMadeForKids", bool(leido.get("madeForKids", False)))
+        estado["privacyStatus"] = "public" if ya else "private"
+        if publish_at and not ya:
+            estado["publishAt"] = publish_at
         respuesta = client.put(
             f"{API_BASE}/videos",
             params={"part": "status"},

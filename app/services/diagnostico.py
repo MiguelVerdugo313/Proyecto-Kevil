@@ -306,7 +306,7 @@ def reintentar_grupo(session: Session, tipo: str | None = None) -> int:
     for job in fallidos(session):
         vistos.setdefault(_clave(job), job)
     reintentados = 0
-    for clave, job in vistos.items():
+    for job in vistos.values():
         if tipo and diagnosticar(job.error or job.message or "")["tipo"] != tipo:
             continue
         reintentar(session, job)
