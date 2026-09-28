@@ -113,9 +113,14 @@ def patch_clip(clip_id: int, body: ClipPatch, db: Session = Depends(get_db)):
         permitidos = {"template", "font_size", "position_y", "enabled"}
         propios = {k: v for k, v in rotulos.items() if k in permitidos}
         plantilla = propios.get("template")
-        if plantilla and not plantillas.existe(plantilla):
+        actuales = dict(config.get("subtitles") or {})
+        if plantilla == "flujo":
+            # «como el flujo»: fuera la plantilla propia del clip
+            propios.pop("template")
+            actuales.pop("template", None)
+        elif plantilla and not plantillas.existe(plantilla):
             raise HTTPException(400, "Esa plantilla de rótulos no existe.")
-        config["subtitles"] = {**(config.get("subtitles") or {}), **propios}
+        config["subtitles"] = {**actuales, **propios}
         clip.render_config = config
         timing_changed = True
 

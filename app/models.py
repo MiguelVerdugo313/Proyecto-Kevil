@@ -181,6 +181,9 @@ class Video(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     # de qué va, contado por ti: lo que manda al escribir el kit
     contexto: Mapped[str] = mapped_column(Text, default="")
+    # lo elegido para este vídeo en «Crear» (plantilla, encuadre, limpieza…),
+    # por encima del flujo: {"subtitles": {"template": "gamer"}, ...}
+    ajustes: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     url: Mapped[str] = mapped_column(String(500), default="")
     thumbnail_url: Mapped[str] = mapped_column(String(500), default="")
     duration_s: Mapped[float] = mapped_column(Float, default=0.0)

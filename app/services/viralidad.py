@@ -112,9 +112,11 @@ def por_reglas(candidato: dict[str, Any]) -> dict[str, Any]:
     notas = {
         "gancho": gancho, "enganche": enganche, "valor": valor, "compartible": compartible,
     }
+    motivo = ""
     if not palabras:
         notas = dict.fromkeys(CRITERIOS, 3)
-    return _cerrar(notas, tipo=tipo, motivo="", gancho_titulo="", fuente="reglas")
+        motivo = "Sin voz que analizar: la nota no dice mucho de este momento"
+    return _cerrar(notas, tipo=tipo, motivo=motivo, gancho_titulo="", fuente="reglas")
 
 
 def _cerrar(

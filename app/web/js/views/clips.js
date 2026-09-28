@@ -24,9 +24,33 @@ const FILTERS = [
 ];
 
 /* ------------------------------------------------------- ficha de un clip */
+const NOMBRES_NOTA = [['gancho', 'Gancho'], ['enganche', 'Enganche'], ['valor', 'Valor'], ['compartible', 'Compartible']];
+const TIPOS_GANCHO = {
+  pregunta: 'Pregunta', dato: 'Dato o cifra', reaccion: 'Reacción', conflicto: 'Conflicto',
+  historia: 'Historia', humor: 'Humor', reto: 'Reto', sorpresa: 'Sorpresa', ninguno: 'Sin gancho claro',
+};
+
+/** La nota de viralidad desglosada: cuatro barras de 0 a 25. */
+function notaHtml(v) {
+  if (!v || v.total === undefined) return '';
+  return `<div class="nota-barras" style="margin-top:12px">${NOMBRES_NOTA.map(([k, n]) => `
+    <span>${n}</span><i><em style="width:${(v[k] / 25) * 100}%"></em></i><b>${v[k]}</b>`).join('')}</div>
+    <p class="muted tiny" style="margin-top:6px">Gancho: ${escapeHtml(TIPOS_GANCHO[v.tipo_gancho] || v.tipo_gancho || '')}
+      · ${v.fuente === 'ia' ? 'puntuado por la IA' : 'calculado con reglas'}</p>`;
+}
+
+let plantillasClip = [];
+let propiosRotulos = {};
+let limpiezaClip = {};
+
 async function openClip(clipId, reload) {
   const clip = await api.get(`/api/clips/${clipId}`);
   const reframe = (clip.render_config || {}).reframe || {};
+  if (!plantillasClip.length) {
+    plantillasClip = await api.get('/api/flows/plantillas-rotulos').catch(() => []);
+  }
+  propiosRotulos = (clip.render_config || {}).subtitles || {};
+  limpiezaClip = (clip.render_config || {}).cleanup || {};
 
   modal({
     title: clip.title || `Clip #${clip.id}`,
@@ -43,8 +67,10 @@ async function openClip(clipId, reload) {
           <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
             ${statusPill(clip.status)}
             <span class="pill">${fmt.duration(clip.duration_s)}</span>
-            <span class="pill info">viralidad ${Math.round(clip.score * 100)}</span>
+            <span class="pill info">viralidad ${clip.viralidad?.total ?? Math.round(clip.score * 100)}</span>
+            ${clip.viralidad?.fuente === 'ia' ? '<span class="pill">IA</span>' : ''}
           </div>
+          ${notaHtml(clip.viralidad)}
           <p class="muted tiny" style="margin-top:9px;line-height:1.55">
             Del original: ${fmt.duration(clip.start_s)} → ${fmt.duration(clip.end_s)}<br>
             ${escapeHtml(clip.reason || '')}
@@ -76,6 +102,16 @@ async function openClip(clipId, reload) {
                   oninput="this.nextElementSibling.textContent=this.value">
                 <b class="mono small">${reframe.focus_x ?? 0.5}</b>
               </div></div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field"><label>Rótulos de este clip</label>
+              <select id="c-plantilla"><option value="flujo">Como el flujo</option>
+                ${plantillasClip.map((p) => `<option value="${p.id}" ${propiosRotulos.template === p.id ? 'selected' : ''}>${escapeHtml(p.nombre)}</option>`).join('')}
+              </select></div>
+            <div class="field"><label>Limpieza</label>
+              <label class="check"><input type="checkbox" id="c-muletillas" ${limpiezaClip.remove_fillers ? 'checked' : ''}> Quitar «eh», «em»…</label>
+              <label class="check"><input type="checkbox" id="c-silencios" ${limpiezaClip.remove_silences ? 'checked' : ''}> Acortar silencios</label></div>
           </div>
 
           <div class="field">
@@ -293,6 +329,15 @@ async function saveClip(root, clip) {
     && payload.reframe.mode === (reframe.mode || 'blur')
     && payload.reframe.focus_x === (reframe.focus_x ?? 0.5);
   if (untouched) delete payload.reframe;
+  // plantilla y limpieza sólo si cambian: cambiarlas obliga a volver a montarlo
+  const plantilla = root.querySelector('#c-plantilla')?.value || 'flujo';
+  if (plantilla !== (propiosRotulos.template || 'flujo')) payload.subtitles = { template: plantilla };
+  const limpieza = {
+    remove_fillers: !!root.querySelector('#c-muletillas')?.checked,
+    remove_silences: !!root.querySelector('#c-silencios')?.checked,
+  };
+  if (limpieza.remove_fillers !== !!limpiezaClip.remove_fillers
+      || limpieza.remove_silences !== !!limpiezaClip.remove_silences) payload.cleanup = limpieza;
   await api.patch(`/api/clips/${clip.id}`, payload);
 }
 
@@ -362,7 +407,7 @@ export default {
               ${eligiendo ? `<span class="marca-eleccion">${elegidos.has(clip.id) ? '✓' : ''}</span>` : ''}
               ${clip.has_thumb ? `<img src="/api/clips/${clip.id}/thumb" alt="" loading="lazy">` : '<span style="font-size:28px">🎬</span>'}
               <div class="play">▶</div>
-              <div class="score">${Math.round(clip.score * 100)}</div>
+              <div class="score" title="${clip.viralidad?.total !== undefined ? 'Nota de viralidad (de 100)' : 'Puntuación del corte'}">${clip.viralidad?.total ?? Math.round(clip.score * 100)}</div>
               <div class="dur">${fmt.duration(clip.duration_s)}</div>
             </div>
             <div class="body">

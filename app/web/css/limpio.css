@@ -1,0 +1,229 @@
+/* ==========================================================================
+   Kevil Studio — estilo «Limpio» (1.9)
+
+   Neutro y plano, como las herramientas de clips modernas (SupoClip, Opus):
+   la gama «stone» (grises cálidos), la letra Geist, tarjetas blancas con un
+   borde fino, el botón principal casi negro y nada de aurora ni grano. Se
+   activa con data-estilo="limpio" en <html>; «Aurora» sigue en Ajustes.
+   ========================================================================== */
+
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url(/static/fonts/Geist-var.woff2) format('woff2');
+}
+
+/* --- Claro: el de SupoClip ------------------------------------------------ */
+:root[data-estilo="limpio"][data-theme="light"] {
+  --bg: #FFFFFF;
+  --bg-soft: #FFFFFF;
+  --sidebar: #FAFAF9;
+  --surface: #FFFFFF;
+  --surface-2: #F5F5F4;
+  --surface-3: #E7E5E4;
+  --solid: #FFFFFF;
+  --line: #E7E5E4;
+  --line-strong: #D6D3D1;
+  --ring: rgba(168, 162, 158, .5);
+
+  --text: #0C0A09;
+  --muted: #78716C;
+  --muted-2: #A8A29E;
+
+  --accent: #1C1917;
+  --accent-2: #44403C;
+  --accent-hover: #292524;
+  --accent-ink: #FAFAF9;
+  --accent-soft: #F5F5F4;
+  --accent-line: #D6D3D1;
+
+  --key: #1C1917;
+  --key-ink: #FAFAF9;
+
+  --chart: #EA580C;
+  --chart-soft: rgba(234, 88, 12, .12);
+  --chart-grid: #F0EFEE;
+
+  --violet: #7C5A2E;
+  --pink: #BE4B2E;
+  --amber: #B45309;
+  --red: #DC2626;
+  --green: #15803D;
+
+  --shadow: 0 1px 2px rgba(12, 10, 9, .05);
+  --shadow-lift: 0 10px 30px -12px rgba(12, 10, 9, .18);
+  color-scheme: light;
+}
+
+/* --- Oscuro -------------------------------------------------------------- */
+:root[data-estilo="limpio"]:not([data-theme="light"]) {
+  --bg: #0C0A09;
+  --bg-soft: #1C1917;
+  --sidebar: #110F0E;
+  --surface: #1C1917;
+  --surface-2: #292524;
+  --surface-3: #3A3532;
+  --solid: #1C1917;
+  --line: rgba(255, 255, 255, .1);
+  --line-strong: rgba(255, 255, 255, .18);
+  --ring: rgba(120, 113, 108, .6);
+
+  --text: #FAFAF9;
+  --muted: #A8A29E;
+  --muted-2: #78716C;
+
+  --accent: #E7E5E4;
+  --accent-2: #D6D3D1;
+  --accent-hover: #FAFAF9;
+  --accent-ink: #1C1917;
+  --accent-soft: #292524;
+  --accent-line: rgba(255, 255, 255, .18);
+
+  --key: #E7E5E4;
+  --key-ink: #1C1917;
+
+  --chart: #FB923C;
+  --chart-soft: rgba(251, 146, 60, .14);
+  --chart-grid: rgba(255, 255, 255, .07);
+
+  --violet: #E4C9A2;
+  --pink: #F2B8A0;
+  --amber: #FBBF24;
+  --red: #F87171;
+  --green: #4ADE80;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-lift: 0 14px 34px -14px rgba(0, 0, 0, .8);
+  color-scheme: dark;
+}
+
+:root[data-estilo="limpio"] {
+  --aurora-opacity: 0;
+  --dot-opacity: 0;
+  --grain-opacity: 0;
+  --glow: none;
+  --halo: none;
+
+  --r-xl: 14px;
+  --r-lg: 12px;
+  --r: 10px;
+  --r-sm: 8px;
+  --r-xs: 6px;
+
+  --font: 'Geist', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-title: 'Geist', 'Inter', system-ui, sans-serif;
+  --font-accent: 'Geist', 'Inter', system-ui, sans-serif;
+}
+
+/* Sin decorado de fondo */
+:root[data-estilo="limpio"] .aurora,
+:root[data-estilo="limpio"] .grano { display: none; }
+:root[data-estilo="limpio"] body::after { display: none; }
+:root[data-estilo="limpio"] body { background: var(--bg); font-size: 14px; }
+
+/* Títulos: Geist en negrita, sin cursiva ni degradado */
+:root[data-estilo="limpio"] h1,
+:root[data-estilo="limpio"] h2,
+:root[data-estilo="limpio"] h3,
+:root[data-estilo="limpio"] h4 { font-weight: 650; letter-spacing: -.02em; }
+:root[data-estilo="limpio"] .acento {
+  font-style: normal; font-weight: 700; letter-spacing: -.02em;
+  background: none; -webkit-background-clip: initial; background-clip: initial;
+  color: var(--text); padding-right: 0;
+}
+
+/* Barra lateral */
+:root[data-estilo="limpio"] .sidebar {
+  background: var(--sidebar);
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  gap: 14px; padding: 18px 12px;
+}
+:root[data-estilo="limpio"] .brand-mark {
+  width: 34px; height: 34px; border-radius: 9px;
+  background: var(--accent); color: var(--accent-ink);
+  font-family: var(--font); font-style: normal; font-weight: 800; font-size: 17px;
+  box-shadow: none;
+}
+:root[data-estilo="limpio"] .brand:hover .brand-mark { transform: none; }
+:root[data-estilo="limpio"] .brand-text strong { font-family: var(--font); font-weight: 700; letter-spacing: -.02em; }
+:root[data-estilo="limpio"] .brand-text span { letter-spacing: .08em; font-weight: 600; }
+:root[data-estilo="limpio"] .buscador { border-radius: 8px; background: var(--bg); }
+:root[data-estilo="limpio"] .nav-item { border-radius: 8px; padding: 8px 10px; font-size: 13.5px; }
+:root[data-estilo="limpio"] .nav-item:hover .ico { transform: none; }
+:root[data-estilo="limpio"] .nav-item.active {
+  background: var(--surface-2); box-shadow: none; font-weight: 600;
+}
+:root[data-estilo="limpio"] .nav-item.active::before { display: none; }
+:root[data-estilo="limpio"] .nav-item.active .ico { color: var(--text); }
+:root[data-estilo="limpio"] .nav-item.destacado {
+  background: var(--accent); color: var(--accent-ink); font-weight: 600; margin-bottom: 6px;
+}
+:root[data-estilo="limpio"] .nav-item.destacado .ico { color: var(--accent-ink); opacity: 1; }
+:root[data-estilo="limpio"] .nav-item.destacado:hover { background: var(--accent-hover); color: var(--accent-ink); }
+:root[data-estilo="limpio"] .nav-item.destacado.active { outline: 2px solid var(--ring); outline-offset: 1px; }
+
+/* Barra de arriba */
+:root[data-estilo="limpio"] .topbar {
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  padding: 22px 36px 18px; align-items: center;
+}
+:root[data-estilo="limpio"] .topbar h1 { font-size: 24px; font-weight: 700; letter-spacing: -.025em; }
+
+/* Botones: planos, esquinas de 8 px */
+:root[data-estilo="limpio"] .btn {
+  border-radius: 8px; background: var(--bg); border-color: var(--line);
+  box-shadow: var(--shadow); padding: 8px 14px;
+}
+:root[data-estilo="limpio"] .btn:hover { background: var(--surface-2); transform: none; }
+:root[data-estilo="limpio"] .btn:active { transform: none; }
+:root[data-estilo="limpio"] .btn.primary,
+:root[data-estilo="limpio"] .btn.accent {
+  background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+:root[data-estilo="limpio"] .btn.primary:hover,
+:root[data-estilo="limpio"] .btn.accent:hover { background: var(--accent-hover); box-shadow: var(--shadow); }
+:root[data-estilo="limpio"] .btn.ghost { background: transparent; box-shadow: none; border-color: transparent; }
+:root[data-estilo="limpio"] .btn.ghost:hover { background: var(--surface-2); }
+:root[data-estilo="limpio"] .btn.danger { background: transparent; }
+:root[data-estilo="limpio"] .btn.sm { border-radius: 7px; }
+
+/* Tarjetas: blancas, borde fino, sombra mínima */
+:root[data-estilo="limpio"] .card {
+  background: var(--surface); border-radius: var(--r-xl);
+  box-shadow: var(--shadow); backdrop-filter: none; -webkit-backdrop-filter: none;
+  padding: 20px 22px;
+}
+:root[data-estilo="limpio"] .card::before { display: none; }
+:root[data-estilo="limpio"] .card-head h3 { font-size: 16px; font-weight: 650; }
+
+/* Campos */
+:root[data-estilo="limpio"] input[type="text"],
+:root[data-estilo="limpio"] input[type="number"],
+:root[data-estilo="limpio"] input[type="password"],
+:root[data-estilo="limpio"] input[type="url"],
+:root[data-estilo="limpio"] input[type="datetime-local"],
+:root[data-estilo="limpio"] select,
+:root[data-estilo="limpio"] textarea {
+  border-radius: 8px; background: var(--bg); border-color: var(--line); box-shadow: var(--shadow);
+}
+:root[data-estilo="limpio"] input:focus,
+:root[data-estilo="limpio"] select:focus,
+:root[data-estilo="limpio"] textarea:focus {
+  border-color: var(--muted-2); box-shadow: 0 0 0 3px var(--ring);
+}
+:root[data-estilo="limpio"] input[type="range"] { accent-color: var(--accent); }
+
+/* Detalles */
+:root[data-estilo="limpio"] .skeleton { border-radius: var(--r-lg); }
+:root[data-estilo="limpio"] .modal,
+:root[data-estilo="limpio"] .cmdk { border-radius: 14px; }
+:root[data-estilo="limpio"] .reveal.visible { transition-duration: .45s; }
+
+/* Etiquetas de los campos: como en shadcn, en minúscula y de peso medio */
+:root[data-estilo="limpio"] .field > label:not(.switch) {
+  text-transform: none; letter-spacing: -.005em; font-size: 13px; font-weight: 500; color: var(--text);
+}

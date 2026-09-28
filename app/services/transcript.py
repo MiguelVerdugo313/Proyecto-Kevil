@@ -235,6 +235,135 @@ def transcribe_with_whisper(
 # --------------------------------------------------------------------------
 # Punto de entrada
 # --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# Whisper en la nube (Groq): para vídeos sin subtítulos de YouTube
+# --------------------------------------------------------------------------
+NUBE_MODELO = "whisper-large-v3-turbo"
+NUBE_TROZO_S = 1200          # 20 min de audio a 32 kb/s ≈ 4,8 MB: cabe de sobra
+NUBE_TIPOS = {"groq"}        # gratis; los de pago no se usan sin pedirlo
+
+
+def proveedor_en_la_nube():
+    """El proveedor con Whisper que tengas configurado (hoy, Groq), o None."""
+    from app.services import ai
+
+    for provider in ai.configured_providers():
+        if provider.tipo in NUBE_TIPOS or provider.key in NUBE_TIPOS:
+            return provider
+    return None
+
+
+def _trozos_de_audio(media_path: str | Path, destino: Path) -> list[Path]:
+    from app import procesos
+    from app.config import settings
+
+    destino.mkdir(parents=True, exist_ok=True)
+    patron = destino / "trozo-%03d.mp3"
+    procesos.run(
+        [
+            settings.ffmpeg_path, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+            "-i", str(media_path), "-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k",
+            "-f", "segment", "-segment_time", str(NUBE_TROZO_S), "-reset_timestamps", "1",
+            str(patron),
+        ],
+        capture_output=True, timeout=3600, check=True,
+    )
+    return sorted(destino.glob("trozo-*.mp3"))
+
+
+def transcribe_in_cloud(
+    media_path: str | Path, *, language: str = "es", provider=None,
+    on_progress=None,
+) -> dict[str, Any]:
+    """Transcribe con Whisper de Groq, con el tiempo de cada palabra."""
+    import shutil
+    import tempfile
+
+    import httpx
+
+    from app.services import media as media_service
+
+    provider = provider or proveedor_en_la_nube()
+    if provider is None:
+        raise RuntimeError("No hay ningún servicio con Whisper configurado (añade Groq en IA).")
+    carpeta = Path(tempfile.mkdtemp(prefix="kevil-voz-"))
+    words: list[dict[str, Any]] = []
+    try:
+        trozos = _trozos_de_audio(media_path, carpeta)
+        desplazamiento = 0.0
+        with httpx.Client(timeout=httpx.Timeout(30.0, read=600.0)) as cliente:
+            for numero, trozo in enumerate(trozos):
+                if on_progress:
+                    on_progress(numero / max(1, len(trozos)))
+                datos = {
+                    "model": NUBE_MODELO,
+                    "response_format": "verbose_json",
+                    "timestamp_granularities[]": ["word", "segment"],
+                }
+                if language and language != "auto":
+                    datos["language"] = language
+                with trozo.open("rb") as audio:
+                    respuesta = cliente.post(
+                        f"{provider.base_url.rstrip('/')}/audio/transcriptions",
+                        headers={"Authorization": f"Bearer {provider.api_key}"},
+                        data=datos,
+                        files={"file": (trozo.name, audio, "audio/mpeg")},
+                    )
+                if respuesta.status_code >= 400:
+                    raise RuntimeError(
+                        f"{provider.label or 'Groq'} no ha podido transcribir "
+                        f"({respuesta.status_code}): {respuesta.text[:200]}"
+                    )
+                cuerpo = respuesta.json()
+                sueltas = cuerpo.get("words") or []
+                if not sueltas:
+                    # sin tiempos por palabra: se reparten dentro de cada frase
+                    for segmento in cuerpo.get("segments") or []:
+                        trozos_texto = str(segmento.get("text", "")).split()
+                        ini, fin = float(segmento["start"]), float(segmento["end"])
+                        paso = (fin - ini) / max(1, len(trozos_texto))
+                        for n, texto in enumerate(trozos_texto):
+                            sueltas.append({"word": texto, "start": ini + n * paso,
+                                            "end": ini + (n + 1) * paso})
+                for palabra in sueltas:
+                    texto = _clean(str(palabra.get("word", "")))
+                    if texto:
+                        words.append({
+                            "start": round(float(palabra["start"]) + desplazamiento, 3),
+                            "end": round(float(palabra["end"]) + desplazamiento, 3),
+                            "text": texto,
+                        })
+                duracion = float(media_service.probe(trozo).get("duration") or NUBE_TROZO_S)
+                desplazamiento += duracion
+    finally:
+        shutil.rmtree(carpeta, ignore_errors=True)
+    return {
+        "words": words,
+        "segments": words_to_segments(words),
+        "language": language,
+        "source": "whisper-nube",
+    }
+
+
+def _whisper_local_disponible() -> bool:
+    try:
+        import faster_whisper  # type: ignore  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def transcribir_archivo(
+    media_path: str | Path, *, language: str = "es", whisper_model: str = "small"
+) -> dict[str, Any]:
+    """Un archivo sin subtítulos: Whisper en tu PC si está, si no, en la nube."""
+    if _whisper_local_disponible():
+        return transcribe_with_whisper(media_path, model=whisper_model, language=language)
+    if proveedor_en_la_nube() is not None:
+        return transcribe_in_cloud(media_path, language=language)
+    return {"words": [], "segments": [], "language": language, "source": "unavailable"}
+
+
 def build_transcript(
     *,
     engine: str,
@@ -263,9 +392,17 @@ def build_transcript(
     if engine == "none":
         return {"words": [], "segments": [], "language": language, "source": "none"}
     if engine == "youtube":
-        return from_youtube() or {
-            "words": [], "segments": [], "language": language, "source": "unavailable"
-        }
+        resultado = from_youtube()
+        if resultado:
+            return resultado
+        # sin subtítulos (vídeo del PC, o YouTube no los tiene): Whisper en la
+        # nube si tienes Groq, que es gratis
+        if media_path and Path(media_path).exists() and proveedor_en_la_nube() is not None:
+            try:
+                return transcribe_in_cloud(media_path, language=language)
+            except Exception:
+                pass
+        return {"words": [], "segments": [], "language": language, "source": "unavailable"}
     if engine == "whisper":
         return transcribe_with_whisper(media_path, model=whisper_model, language=language)
     if engine == "youtube_then_whisper":

@@ -56,9 +56,36 @@ def plantillas_de_rotulos():
 
     salida = []
     for datos in plantillas.lista():
-        archivo = (captions.metricas(datos["fuente"]) or {}).get("archivo", "")
-        salida.append({**datos, "archivo": archivo})
+        medidas = captions.metricas(datos["fuente"]) or {}
+        tpl = {**datos, "normalizar": True}
+        salida.append({
+            **datos,
+            "archivo": medidas.get("archivo", ""),
+            # para dibujarla igual en la interfaz: el tamaño que le da el render
+            # (a 125 en un vertical de 1920) y cómo pasar de ASS a CSS
+            "tamano": captions.tamano_de_letra(tpl, 125),
+            "em": medidas.get("em", 0.7),
+            "negrita": captions.es_gruesa(datos["fuente"]),
+        })
     return salida
+
+
+@router.get("/plantillas-rotulos/extras")
+def extras_de_rotulos():
+    """Palabras fuertes y emojis, para que la vista previa haga lo mismo que el render."""
+    from app.services import captions, plantillas
+
+    emoji = captions.metricas(captions.FUENTE_EMOJI) or {}
+    return {
+        "fuertes": sorted(plantillas.FUERTES),
+        "emojis": {
+            palabra: captions.glifo_emoji(valor)
+            for palabra, valor in plantillas.EMOJIS.items() if captions.glifo_emoji(valor)
+        },
+        "emoji_cada": plantillas.EMOJI_CADA,
+        "fuente_emoji": {"familia": captions.FUENTE_EMOJI, "archivo": emoji.get("archivo", ""),
+                         "em": emoji.get("em", 0.85)},
+    }
 
 
 @router.get("/plantillas-rotulos/fuente/{archivo}")
