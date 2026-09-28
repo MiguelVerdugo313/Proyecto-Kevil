@@ -33,3 +33,21 @@ def session():
         yield db
     finally:
         db.close()
+
+
+@pytest.fixture(autouse=True)
+def _sin_internet(monkeypatch):
+    """Las pruebas no salen a internet: si algo lo intenta, falla como sin red.
+
+    Así ninguna prueba pasa «por casualidad» porque hubo conexión.
+    """
+    import httpx
+
+    original = httpx.HTTPTransport.handle_request
+
+    def sin_red(self, request):
+        if request.url.host in {"127.0.0.1", "localhost", "::1"}:
+            return original(self, request)          # servidores de prueba locales
+        raise httpx.ConnectError("sin red en las pruebas", request=request)
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", sin_red)

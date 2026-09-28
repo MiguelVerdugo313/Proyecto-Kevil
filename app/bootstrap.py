@@ -424,6 +424,10 @@ def _revisar_repetidos(session: Session) -> None:
 
     # lo que se dio por publicado confundiendo el original: vuelve a la agenda
     repetidos.reparar_originales(session)
+    # lo que falló con el error viejo al caducar un permiso: se reintenta
+    from app.services import permisos
+
+    permisos.reintentar_los_rotos(session)
 
     hay = session.scalars(
         select(Post.id).where(Post.status == PostStatus.scheduled.value).limit(1)

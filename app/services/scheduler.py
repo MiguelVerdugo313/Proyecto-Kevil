@@ -73,8 +73,8 @@ def dispatch_due_posts() -> None:
 
 def _despachar(session, post: Post, ahora) -> None:
     if post.en_plataforma:
-        # YouTube lo ha publicado él solo a su hora
-        pipeline.marcar_salido_en_plataforma(session, post)
+        # YouTube lo publica él solo a su hora: se comprueba que salió
+        pipeline.comprobar_salido_en_youtube(session, post)
         return
     if ahora - post.scheduled_at > RETRASO_MAXIMO and _recolocar(session, post):
         return

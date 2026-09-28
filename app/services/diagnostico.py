@@ -130,6 +130,22 @@ TIPOS: list[dict[str, Any]] = [
         "pasajero": True,
     },
     {
+        "tipo": "permiso",
+        "marcas": ("volver a conectar", "vuelve a conectar", "permiso de youtube ha caducado",
+                   "ya no acepta el permiso"),
+        "titulo": "Hay que volver a conectar la cuenta",
+        "por_que": (
+            "YouTube o TikTok ya no aceptan el permiso de la cuenta (caducó o se quitó). "
+            "Si tu app de Google está en modo «Prueba», Google lo caduca cada 7 días."
+        ),
+        "pasos": [
+            "Ve a Cuentas y pulsa «Volver a conectar» en la cuenta marcada.",
+            "Lo que no pudo salir vuelve solo a la agenda al reconectar.",
+        ],
+        "acciones": [{"id": "cuentas", "label": "Ir a Cuentas"}],
+        "pasajero": False,
+    },
+    {
         "tipo": "tiktok",
         "marcas": ("tiktok", "access_token", "spam_risk", "scope_not_authorized"),
         "titulo": "TikTok no aceptó la publicación",
@@ -207,6 +223,14 @@ def _poner_en_marcha_lo_suyo(session: Session, job: Job) -> None:
         if clip and clip.status == ClipStatus.failed.value:
             clip.status = ClipStatus.draft.value
             clip.error = ""
+    if payload.get("post_id"):
+        from app.models import Post, PostStatus
+
+        post = session.get(Post, int(payload["post_id"]))
+        if post and post.status == PostStatus.failed.value:
+            post.status = PostStatus.scheduled.value
+            if post.clip is not None and post.clip.status == ClipStatus.failed.value:
+                post.clip.status = ClipStatus.scheduled.value
     if payload.get("video_id"):
         video = session.get(Video, int(payload["video_id"]))
         if video and video.status == VideoStatus.error.value:

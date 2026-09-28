@@ -147,7 +147,15 @@ def refresh_token(credentials: dict[str, Any]) -> dict[str, Any]:
             data=data,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
-    payload = _json(response)
+    try:
+        payload = _json(response)
+    except TikTokRechazo as exc:
+        if exc.codigo in {"invalid_grant", "invalid_request", "access_token_invalid"}:
+            raise PermisoCaducado(
+                "TikTok ya no acepta el permiso de esta cuenta (caducó, cambiaste la "
+                "contraseña o quitaste la app). Vuelve a conectarla en Cuentas."
+            ) from exc
+        raise
     if "access_token" not in payload:
         raise TikTokError(f"No se ha podido renovar el acceso: {payload}")
     payload["expires_at"] = time.time() + float(payload.get("expires_in", 86400))
@@ -253,6 +261,10 @@ def traducir_error(codigo: str, mensaje: str = "") -> str:
 # --------------------------------------------------------------------------
 # Llamadas
 # --------------------------------------------------------------------------
+class PermisoCaducado(TikTokError):
+    """TikTok ya no acepta el permiso: hay que volver a conectar la cuenta."""
+
+
 class TikTokRechazo(TikTokError):
     """Error con el código original a mano, para poder reaccionar a él."""
 
@@ -538,8 +550,9 @@ def poll_status(
             if status in {"PUBLISH_COMPLETE", "SEND_TO_USER_INBOX"}:
                 return last
             if status == "FAILED":
-                raise TikTokError(
-                    f"TikTok ha rechazado el vídeo: {last.get('error_code') or last}"
+                raise TikTokRechazo(
+                    str(last.get("fail_reason") or last.get("error_code") or "rechazado"),
+                    "TikTok ha rechazado el vídeo al procesarlo",
                 )
             time.sleep(delay)
     return last

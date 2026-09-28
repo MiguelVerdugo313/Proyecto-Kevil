@@ -35,7 +35,8 @@ from app.services.queue import JobContext, enqueue, register
 def job_analyze_local(session: Session, ctx: JobContext) -> None:
     video = session.get(Video, int(ctx.payload["video_id"]))
     if not video:
-        raise RuntimeError("El vídeo ya no existe.")
+        ctx.progress(1.0, "El vídeo ya no existe. Nada que hacer.")
+        return
     if not video.local_path or not Path(video.local_path).exists():
         raise RuntimeError("No se encuentra el archivo subido.")
 
@@ -106,7 +107,8 @@ def job_analyze_local(session: Session, ctx: JobContext) -> None:
 def job_build_kit(session: Session, ctx: JobContext) -> None:
     video = session.get(Video, int(ctx.payload["video_id"]))
     if not video:
-        raise RuntimeError("El vídeo ya no existe.")
+        ctx.progress(1.0, "El vídeo ya no existe. Nada que hacer.")
+        return
 
     usar_ia = bool(ctx.payload.get("use_ai", True))
     ctx.progress(0.15, "Escribiendo títulos y descripción…")
@@ -229,7 +231,8 @@ def job_upload_youtube(session: Session, ctx: JobContext) -> None:
     etiquetas y la miniatura que se hayan elegido en el estudio."""
     video = session.get(Video, int(ctx.payload["video_id"]))
     if not video:
-        raise RuntimeError("El vídeo ya no existe.")
+        ctx.progress(1.0, "El vídeo ya no existe. Nada que hacer.")
+        return
     if not video.local_path or not Path(video.local_path).exists():
         raise RuntimeError("El archivo del vídeo ya no está en el disco.")
 

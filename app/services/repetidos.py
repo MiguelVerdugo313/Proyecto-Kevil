@@ -151,7 +151,11 @@ def olvidar(account: Account) -> None:
 
 
 def _puede_mirar(account: Account) -> bool:
+    from app.services import permisos
+
     if settings.dry_run or not (account.credentials or {}).get("access_token"):
+        return False
+    if not permisos.puede_usarse(account):
         return False
     if account.platform == Platform.youtube.value:
         from app.services import youtube_api

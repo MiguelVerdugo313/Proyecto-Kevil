@@ -57,6 +57,22 @@ class YouTubeAPIError(RuntimeError):
     pass
 
 
+class PermisoCaducado(YouTubeAPIError):
+    """Google ya no acepta el permiso: hay que volver a conectar el canal."""
+
+
+MENSAJE_PERMISO_CADUCADO = (
+    "El permiso de YouTube ha caducado o se ha quitado: vuelve a conectar el canal "
+    "en Cuentas. Si tu app de Google está en modo «Prueba», Google lo caduca cada 7 "
+    "días: publícala en Google Cloud → Pantalla de consentimiento de OAuth → "
+    "«Publicar aplicación» y no volverá a pasar."
+)
+
+
+class LimiteDelDia(YouTubeAPIError):
+    """Cuota o tope de subidas del día: no es un fallo, toca mañana."""
+
+
 class YouTubeNotConfigured(YouTubeAPIError):
     pass
 
@@ -150,17 +166,33 @@ def _json(response: httpx.Response) -> dict[str, Any]:
         raise YouTubeAPIError(
             f"Respuesta inesperada de YouTube ({response.status_code}): {response.text[:200]}"
         ) from None
+    if not isinstance(payload, dict):
+        payload = {}
+    error = payload.get("error")
+    if isinstance(error, str) and error:
+        # el servidor de permisos contesta {"error": "invalid_grant", ...}
+        if error == "invalid_grant":
+            raise PermisoCaducado(MENSAJE_PERMISO_CADUCADO)
+        if error in {"invalid_client", "unauthorized_client"}:
+            raise YouTubeAPIError(
+                "Google no reconoce el ID o el secreto de cliente. Revísalos en "
+                "Ajustes → YouTube (tienen que ser los del mismo proyecto)."
+            )
+        detalle = str(payload.get("error_description") or "")
+        raise YouTubeAPIError(f"Google ha respondido «{error}»{': ' + detalle if detalle else ''}")
+    if response.status_code == 401:
+        raise PermisoCaducado(MENSAJE_PERMISO_CADUCADO)
     if response.status_code >= 400:
-        error = (payload or {}).get("error") or {}
+        error = error if isinstance(error, dict) else {}
         mensaje = error.get("message") or str(payload)[:300]
         motivos = [d.get("reason", "") for d in (error.get("errors") or [])]
         if "quotaExceeded" in motivos or "dailyLimitExceeded" in motivos:
-            raise YouTubeAPIError(
+            raise LimiteDelDia(
                 "Se ha agotado la cuota diaria de la API de YouTube (10.000 unidades, "
                 "1.600 por subida). Vuelve a intentarlo mañana o pide ampliación de cuota."
             )
         if "uploadLimitExceeded" in motivos:
-            raise YouTubeAPIError(
+            raise LimiteDelDia(
                 "YouTube ha limitado las subidas de esta cuenta por hoy. Prueba mañana."
             )
         raise YouTubeAPIError(f"YouTube respondió {response.status_code}: {mensaje}")
@@ -384,6 +416,40 @@ class SinPermisoParaCambiar(YouTubeAPIError):
     """El permiso que diste al conectar sólo deja subir, no cambiar lo subido."""
 
 
+def estado_del_video(credentials: dict[str, Any], video_id: str) -> dict[str, Any] | None:
+    """Cómo está de verdad un vídeo en YouTube, o None si ya no existe."""
+    credentials = valid_credentials(credentials)
+    with httpx.Client(timeout=TIMEOUT) as client:
+        datos = _json(client.get(
+            f"{API_BASE}/videos",
+            params={"part": "status", "id": video_id},
+            headers=_headers(credentials),
+        ))
+    items = datos.get("items") or []
+    if not items:
+        return None
+    estado = items[0].get("status") or {}
+    return {
+        "privacy": estado.get("privacyStatus", ""),
+        "publish_at": (estado.get("publishAt") or "").replace("Z", "").split(".")[0],
+        "upload_status": estado.get("uploadStatus", ""),
+        "motivo": estado.get("rejectionReason") or estado.get("failureReason") or "",
+    }
+
+
+def borrar_video(credentials: dict[str, Any], video_id: str) -> None:
+    """Borra un vídeo de tu canal (50 unidades de cuota)."""
+    credentials = valid_credentials(credentials)
+    with httpx.Client(timeout=TIMEOUT) as client:
+        respuesta = client.delete(
+            f"{API_BASE}/videos", params={"id": video_id}, headers=_headers(credentials),
+        )
+    if respuesta.status_code == 404:
+        return                                  # ya no estaba
+    if respuesta.status_code >= 400:
+        _json(respuesta)
+
+
 def cambiar_programacion(
     credentials: dict[str, Any], video_id: str, publish_at: str | None,
     *, ya: bool = False,
@@ -485,11 +551,11 @@ def upload_video(
 
     credentials = valid_credentials(credentials)
 
-    titulo = (title or "Vídeo").strip()[:MAX_TITLE].replace("<", "(").replace(">", ")")
+    titulo = limpiar_para_youtube(title or "Vídeo", MAX_TITLE) or "Vídeo"
     cuerpo: dict[str, Any] = {
         "snippet": {
             "title": titulo,
-            "description": (description or "")[:MAX_DESCRIPTION],
+            "description": limpiar_para_youtube(description or "", MAX_DESCRIPTION, en_bytes=True),
             "tags": _limit_tags(tags or []),
             "categoryId": category_id,
         },
@@ -584,6 +650,18 @@ def set_thumbnail(credentials: dict[str, Any], video_id: str, image_path: str | 
             content=path.read_bytes(),
         )
     return respuesta.status_code < 400
+
+
+def limpiar_para_youtube(texto: str, largo: int, *, en_bytes: bool = False) -> str:
+    """YouTube rechaza la subida entera si el título o la descripción llevan
+    «<» o «>» (un «<3», una flecha «->»…) o se pasan de largo. La descripción
+    se mide en bytes: las tildes y los emojis ocupan más de uno."""
+    texto = (texto or "").replace("<", "‹").replace(">", "›").strip()
+    if not en_bytes:
+        return texto[:largo].strip()
+    while len(texto.encode("utf-8")) > largo:
+        texto = texto[: max(0, len(texto) - max(1, (len(texto.encode("utf-8")) - largo) // 4))]
+    return texto.strip()
 
 
 def _limit_tags(tags: list[str]) -> list[str]:

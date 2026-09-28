@@ -166,6 +166,11 @@ def post_to_dict(post: Post) -> dict[str, Any]:
         "slot_score": round(post.slot_score, 3),
         "slot_reason": post.slot_reason,
         "share_url": post.share_url,
+        # TikTok lo dejó en la bandeja: falta darle a publicar en el móvil
+        "en_bandeja": bool((post.metrics or {}).get("en_bandeja")),
+        # publicado en modo simulación: no se subió nada de verdad
+        "simulado": str(post.publish_id or "").startswith("simulado")
+        or post.external_post_id == "simulado",
         "en_plataforma": bool(post.en_plataforma),
         "external_post_id": post.external_post_id or "",
         "subido_at": iso(post.subido_at),

@@ -18,7 +18,7 @@ from app.api.common import account_to_dict, source_to_dict
 from app.config import settings
 from app.db import get_db
 from app.models import Account, AccountStatus, Platform, Post, PostStatus, Source, utcnow
-from app.services import canales, events, pipeline, tiktok, timing, youtube_api
+from app.services import canales, events, permisos, pipeline, tiktok, timing, youtube_api
 from app.services import youtube as youtube_service
 from app.services.queue import enqueue
 
@@ -43,43 +43,80 @@ def _estado_valido(state: str) -> bool:
     return creado is not None and time.time() - creado <= ESTADO_CADUCA_S
 
 
+CONEXION_CADUCADA = (
+    "Pasó demasiado tiempo o Kevil se reinició entre medias. Vuelve a pulsar «Conectar» "
+    "en Kevil y termina en menos de media hora."
+)
+
+ERRORES_DE_GOOGLE = {
+    "access_denied": (
+        "Cancelaste el permiso en la ventana de Google, o tu cuenta no está en la lista "
+        "de «Usuarios de prueba» de tu app. Vuelve a intentarlo y pulsa «Continuar» "
+        "en todas las pantallas."
+    ),
+    "admin_policy_enforced": "La cuenta de Google pertenece a una organización que no deja usar esta app.",
+    "invalid_request": "Google no ha aceptado la petición: revisa el ID de cliente en Ajustes → YouTube.",
+}
+
+
 def _result_page(title: str, message: str, ok: bool, tecnico: str = "") -> str:
     """Página que se ve al volver de autorizar (TikTok o YouTube).
 
-    Cuando algo falla se deja además el error tal cual lo manda la plataforma,
-    plegado: no estorba y sirve para copiarlo si hay que preguntar.
+    Con el aspecto de Kevil (claro u oscuro según tu sistema). Cuando algo
+    falla se deja además el error tal cual lo manda la plataforma, plegado: no
+    estorba y sirve para copiarlo si hay que preguntar.
     """
-    color = "#C9B8A0" if ok else "#E07A6E"
+    titulo, mensaje = html.escape(title), html.escape(message)
     detalle = ""
     if tecnico:
         detalle = (
             "<details><summary>Ver el error técnico</summary>"
             f"<code>{html.escape(tecnico)}</code></details>"
         )
+    icono = (
+        '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' if ok
+        else '<svg viewBox="0 0 24 24"><path d="M12 7v6M12 16.5v.5"/><circle cx="12" cy="12" r="9"/></svg>'
+    )
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
-<title>{title}</title>
-<link rel="stylesheet" href="/static/css/fuentes.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{titulo} · Kevil Studio</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
-body{{margin:0;height:100vh;display:grid;place-items:center;background:#0A0A0A;
-color:#F2EDE4;font-family:'Inter',system-ui,sans-serif;
-background-image:radial-gradient(circle at 1px 1px,rgba(255,255,255,.08) 1px,transparent 0);
-background-size:32px 32px}}
-.card{{max-width:480px;padding:48px 40px;border-radius:48px;
-background:rgba(255,255,255,.03);backdrop-filter:blur(10px);
-border:1px solid rgba(255,255,255,.1);text-align:center;
-box-shadow:0 0 100px rgba(167,139,113,.2)}}
-h1{{font-size:24px;margin:0 0 16px;color:{color};font-weight:600;
-font-family:'Playfair Display',Georgia,serif;font-style:italic;letter-spacing:-.02em}}
-p{{color:#A29A8E;line-height:1.7;margin:0;font-weight:300}}
-a{{color:{color};display:inline-block;margin-top:26px;text-decoration:none;
-font-weight:500;font-size:14px}}
-details{{margin-top:22px;font-size:12px;color:#777066}}
+@font-face{{font-family:'Geist';font-weight:100 900;font-display:swap;src:url(/static/fonts/Geist-var.woff2) format('woff2')}}
+:root{{--bg:#FAFAF9;--card:#FFFFFF;--text:#0C0A09;--muted:#78716C;--line:#E7E5E4;
+--accent:#1C1917;--ink:#FAFAF9;--ok:#15803D;--okbg:#DCFCE7;--bad:#DC2626;--badbg:#FEE2E2;color-scheme:light}}
+@media (prefers-color-scheme:dark){{:root{{--bg:#0C0A09;--card:#1C1917;--text:#FAFAF9;--muted:#A8A29E;
+--line:rgba(255,255,255,.1);--accent:#E7E5E4;--ink:#1C1917;--ok:#4ADE80;--okbg:rgba(74,222,128,.12);
+--bad:#F87171;--badbg:rgba(248,113,113,.12);color-scheme:dark}}}}
+*{{box-sizing:border-box}}
+body{{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--bg);
+color:var(--text);font:14px/1.6 'Geist',system-ui,-apple-system,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}}
+.card{{width:100%;max-width:440px;padding:32px;border-radius:14px;background:var(--card);
+border:1px solid var(--line);box-shadow:0 1px 2px rgba(12,10,9,.06)}}
+.marca{{display:flex;align-items:center;gap:10px;margin-bottom:28px;font-weight:700;letter-spacing:-.02em}}
+.marca i{{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-style:normal;
+background:var(--accent);color:var(--ink);font-weight:800;font-size:14px}}
+.icono{{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;margin-bottom:16px;
+background:{'var(--okbg)' if ok else 'var(--badbg)'};color:{'var(--ok)' if ok else 'var(--bad)'}}}
+.icono svg{{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}}
+h1{{font-size:22px;line-height:1.25;margin:0 0 8px;font-weight:700;letter-spacing:-.025em}}
+p{{margin:0;color:var(--muted)}}
+a.boton{{display:flex;justify-content:center;margin-top:24px;padding:11px 16px;border-radius:10px;
+background:var(--accent);color:var(--ink);text-decoration:none;font-weight:600}}
+a.boton:hover{{opacity:.9}}
+details{{margin-top:18px;font-size:12px;color:var(--muted)}}
 summary{{cursor:pointer}}
-code{{display:block;margin-top:10px;word-break:break-all;text-align:left;
-font-family:ui-monospace,Consolas,monospace;color:#A29A8E;line-height:1.6}}
-</style></head><body><div class="card"><h1>{title}</h1><p>{message}</p>{detalle}
-<a href="/#cuentas">Volver a Kevil Studio</a></div>
-{'' if tecnico else "<script>setTimeout(()=>{window.location='/#cuentas'},2600)</script>"}
+code{{display:block;margin-top:8px;padding:10px 12px;border-radius:8px;background:var(--bg);
+border:1px solid var(--line);word-break:break-all;font:12px/1.6 ui-monospace,Consolas,monospace}}
+small{{display:block;margin-top:12px;color:var(--muted);font-size:12px;text-align:center}}
+</style></head><body><div class="card">
+<div class="marca"><i>K</i>Kevil Studio</div>
+<div class="icono">{icono}</div>
+<h1>{titulo}</h1><p>{mensaje}</p>{detalle}
+<a class="boton" href="/#cuentas">Volver a Kevil Studio</a>
+{'' if tecnico or not ok else '<small>Volviendo solo en unos segundos…</small>'}
+</div>
+{"<script>setTimeout(()=>{window.location='/#cuentas'},2600)</script>" if ok and not tecnico else ''}
 </body></html>"""
 
 
@@ -288,7 +325,7 @@ def tiktok_oauth_callback(
         )
     if not code or not _estado_valido(state):
         return HTMLResponse(
-            page("Petición no válida", "Vuelve a intentarlo desde la aplicación.", False),
+            page("La conexión ha caducado", CONEXION_CADUCADA, False),
             status_code=400,
         )
 
@@ -332,9 +369,17 @@ def tiktok_oauth_callback(
         "updated_at": utcnow().isoformat(),
     }
     events.log(db, f"TikTok conectado: @{account.handle}", level="success", scope="tiktok")
+    db.flush()
+    vueltas = permisos.rescatar(db, account)
     db.commit()
     return HTMLResponse(
-        page("¡Cuenta conectada!", f"@{account.handle or account.display_name} ya está lista.", True)
+        page(
+            "¡Cuenta conectada!",
+            f"@{account.handle or account.display_name} ya está lista."
+            + (f" {vueltas} publicación(es) que se habían quedado sin salir vuelven a la agenda."
+               if vueltas else ""),
+            True,
+        )
     )
 
 
@@ -357,10 +402,14 @@ def youtube_oauth_callback(
     code: str = "", state: str = "", error: str = "", db: Session = Depends(get_db)
 ):
     if error:
-        return HTMLResponse(_result_page("No se ha podido conectar", error, False), status_code=400)
+        return HTMLResponse(
+            _result_page("No se ha podido conectar",
+                         ERRORES_DE_GOOGLE.get(error, "Google no ha dado el permiso."), False, error),
+            status_code=400,
+        )
     if not code or not _estado_valido(state):
         return HTMLResponse(
-            _result_page("Petición no válida", "Vuelve a intentarlo desde la aplicación.", False),
+            _result_page("La conexión ha caducado", CONEXION_CADUCADA, False),
             status_code=400,
         )
 
@@ -368,7 +417,9 @@ def youtube_oauth_callback(
         credentials = youtube_api.exchange_code(code)
         canal = youtube_api.fetch_channel(credentials)
     except Exception as exc:
-        return HTMLResponse(_result_page("Error al conectar", str(exc), False), status_code=400)
+        return HTMLResponse(
+            _result_page("Error al conectar", str(exc), False, type(exc).__name__), status_code=400
+        )
 
     account = db.scalars(
         select(Account).where(
@@ -387,6 +438,10 @@ def youtube_oauth_callback(
     account.display_name = canal["name"] or "Canal de YouTube"
     account.handle = canal.get("handle") or account.handle
     account.avatar_url = canal.get("avatar_url", "")
+    # Google sólo manda el permiso de larga duración a veces: el de antes se
+    # conserva si esta vez no viene (sin él, a la hora dejaría de publicar)
+    if not credentials.get("refresh_token") and (account.credentials or {}).get("refresh_token"):
+        credentials["refresh_token"] = account.credentials["refresh_token"]
     account.credentials = credentials
     account.status = AccountStatus.connected.value
     account.status_detail = ""
@@ -404,12 +459,15 @@ def youtube_oauth_callback(
     db.flush()
     # el canal que autorizas es también el tuyo: se vigila para sacar clips
     vigilado = canales.vigilar(db, account)
+    vueltas = permisos.rescatar(db, account)
     db.commit()
     return HTMLResponse(
         _result_page(
             "¡Canal conectado!",
-            f"{html.escape(account.display_name)} ya puede recibir Shorts"
-            + (" y Kevil busca ya sus vídeos para sacar clips." if vigilado else "."),
+            f"{account.display_name} ya puede recibir Shorts"
+            + (" y Kevil busca ya sus vídeos para sacar clips." if vigilado else ".")
+            + (f" {vueltas} publicación(es) que se habían quedado sin salir vuelven a la agenda."
+               if vueltas else ""),
             True,
         )
     )
