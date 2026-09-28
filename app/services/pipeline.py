@@ -821,6 +821,18 @@ def job_render(session: Session, ctx: JobContext) -> None:
             f"en vez del vídeo entero"
         )
 
+    if not (video.probe or {}).get("width"):
+        # en modo ligero no se bajó el original: el tramo dice si es vertical
+        try:
+            medidas = media_service.probe(fuente)
+            video.probe = {
+                **(video.probe or {}),
+                "width": medidas.get("width"), "height": medidas.get("height"),
+                "has_audio": medidas.get("has_audio", True),
+            }
+        except Exception:  # noqa: BLE001 - es sólo un dato extra
+            pass
+
     output = settings.clips_path / f"clip-{clip.id:05d}-{video.external_id}.mp4"
     ctx.log(f"Renderizando {clip.start_s:.1f}s → {clip.end_s:.1f}s")
 
@@ -1013,6 +1025,31 @@ def job_publish(session: Session, ctx: JobContext) -> None:
     # ¿Ya existe de verdad en la plataforma (lo subió una versión anterior, o
     # una subida que se cortó)? Entonces se enlaza en vez de subirlo otra vez.
     from app.services import repetidos
+
+    if es_youtube and repetidos.ya_es_short_en_tu_canal(account, clip):
+        post.status = PostStatus.cancelled.value
+        post.en_plataforma = False
+        post.error = (
+            "Este vídeo ya es un Short de tu canal: subirlo otra vez sería el mismo Short "
+            "repetido. Sale sólo en TikTok."
+        )
+        post.slot_reason = "Ya es un Short en tu canal"
+        vivos = [p for p in clip.posts if p.id != post.id and p.status in {
+            PostStatus.scheduled.value, PostStatus.publishing.value, PostStatus.published.value}]
+        if not vivos:
+            clip.status = ClipStatus.rendered.value
+        notifications.notify(
+            session,
+            "No se sube a YouTube: ya es un Short tuyo",
+            f"«{clip.title[:60]}» es el vídeo entero y ya está en tu canal como Short. "
+            "No se vuelve a subir; en TikTok sí sale.",
+            kind="youtube", level="info", action_label="Ver la agenda", action_url="#agenda",
+            dedupe_hours=0,
+        )
+        events.log(session, f"«{clip.title[:50]}» ya es un Short de tu canal: no se sube otra vez",
+                   level="info", scope="youtube", data={"post_id": post.id})
+        ctx.progress(1.0, "Ya es un Short de tu canal")
+        return
 
     encontrado = repetidos.ya_existe(account, clip, post)
     if encontrado:

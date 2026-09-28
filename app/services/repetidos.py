@@ -162,7 +162,21 @@ def _puede_mirar(account: Account) -> bool:
     return tiktok.is_configured()
 
 
-def ya_en_youtube(account: Account, clip: Clip) -> dict[str, Any] | None:
+def es_el_original(video_id: str, clip: Clip) -> bool:
+    """¿Ese vídeo de YouTube es el original del que sale el clip?
+
+    Un clip que es el vídeo entero se llama igual que el original: sin esto,
+    el original de tu canal se tomaba por el clip «ya subido» y el Short se
+    daba por publicado sin haberse subido nunca.
+    """
+    video = clip.video
+    return bool(
+        video_id and video is not None and video.origin != "local"
+        and video_id == video.external_id
+    )
+
+
+def _subidas(account: Account) -> list[dict[str, Any]]:
     from app.services import youtube_api
 
     def leer():
@@ -170,11 +184,111 @@ def ya_en_youtube(account: Account, clip: Clip) -> dict[str, Any] | None:
         account.credentials = credenciales
         return youtube_api.mis_subidas(credenciales, limit=50)
 
-    for subida in _con_cache(("youtube", account.id), leer):
+    return _con_cache(("youtube", account.id), leer)
+
+
+def ya_en_youtube(account: Account, clip: Clip) -> dict[str, Any] | None:
+    for subida in _subidas(account):
+        if es_el_original(subida.get("id", ""), clip):
+            continue
         if _coincide(subida.get("title", ""), clip,
                      texto=subida.get("description", ""), fecha=subida.get("published_at")):
             return subida
     return None
+
+
+def original_en_el_canal(account: Account, clip: Clip) -> bool:
+    """¿El vídeo del que sale el clip está en el canal de esta cuenta?"""
+    video = clip.video
+    if video is None or video.origin == "local":
+        return False
+    fuente = video.source
+    if fuente is not None and (
+        (fuente.account_id and fuente.account_id == account.id)
+        or (fuente.channel_id and fuente.channel_id == account.external_id)
+    ):
+        return True
+    if not _puede_mirar(account):
+        return False
+    try:
+        return any(s.get("id") == video.external_id for s in _subidas(account))
+    except Exception:  # noqa: BLE001 - sin red no se sabe
+        return False
+
+
+def es_el_video_entero(clip: Clip) -> bool:
+    video = clip.video
+    duracion = float(video.duration_s or 0) if video else 0.0
+    return duracion > 0 and (clip.end_s - clip.start_s) >= 0.9 * duracion
+
+
+def ya_es_short_en_tu_canal(account: Account, clip: Clip) -> bool:
+    """El clip es el vídeo entero y ese vídeo ya es un Short de este canal.
+
+    Subirlo otra vez sería el mismo Short dos veces en tu canal (YouTube lo
+    trata como contenido repetido): sólo tiene sentido en TikTok. Si el
+    original es horizontal, el vertical sí es un Short nuevo y se sube.
+    """
+    if account.platform != Platform.youtube.value or not es_el_video_entero(clip):
+        return False
+    if not original_en_el_canal(account, clip):
+        return False
+    video = clip.video
+    datos = video.probe or {}
+    ancho, alto = int(datos.get("width") or 0), int(datos.get("height") or 0)
+    if ancho and alto:
+        return alto > ancho
+    if "es_short" not in datos:
+        from app.services import youtube as youtube_service
+
+        video.probe = {**datos, "es_short": youtube_service.es_short(video.external_id)}
+    return bool((video.probe or {}).get("es_short"))
+
+
+def reparar_originales(session: Session) -> int:
+    """Los Shorts que se dieron por publicados porque se confundió el original.
+
+    Vuelven a la agenda para subirse de verdad (o, si el vídeo ya era un Short
+    de tu canal, se quedan fuera al ir a publicarse, avisando).
+    """
+    reparados = 0
+    for post in session.scalars(
+        select(Post)
+        .join(Account, Post.account_id == Account.id)
+        .where(Account.platform == Platform.youtube.value, Post.external_post_id != "")
+    ).all():
+        clip = post.clip
+        if clip is None or not es_el_original(post.external_post_id, clip):
+            continue
+        post.status = PostStatus.scheduled.value
+        post.en_plataforma = False
+        post.external_post_id = post.publish_id = post.share_url = ""
+        post.published_at = None
+        post.subido_at = None
+        post.error = ""
+        post.metrics = {k: v for k, v in (post.metrics or {}).items() if k != "intento_programar"}
+        if clip.status == ClipStatus.published.value and not any(
+            p.status == PostStatus.published.value for p in clip.posts if p.id != post.id
+        ):
+            clip.status = ClipStatus.scheduled.value
+        reparados += 1
+        events.log(
+            session,
+            f"«{clip.title[:50]}»: se había tomado el vídeo original por el Short. "
+            "Vuelve a la agenda para subirse de verdad",
+            level="warn", scope="agenda", data={"post_id": post.id},
+        )
+    if reparados:
+        notifications.notify(
+            session,
+            "Shorts que no se habían subido",
+            f"{reparados} Short(s) aparecían como publicados en YouTube pero era tu vídeo "
+            "original, que se llama igual. Vuelven a la agenda y se subirán a su hora.",
+            kind="agenda", level="warn", action_label="Ver la agenda", action_url="#agenda",
+            dedupe_hours=0,
+        )
+    session.flush()
+    return reparados
 
 
 def ya_en_tiktok(account: Account, clip: Clip, post: Post | None = None) -> dict[str, Any] | None:
@@ -229,7 +343,7 @@ def ya_existe(account: Account, clip: Clip, post: Post | None = None) -> dict[st
 
 def enlazar(session: Session, post: Post, encontrado: dict[str, Any]) -> str:
     """El post pasa a apuntar a lo que ya existe. Devuelve qué se ha hecho."""
-    from app.services import storage, youtube_api
+    from app.services import youtube_api
 
     clip = post.clip
     if encontrado.get("plataforma") == "youtube":
@@ -251,9 +365,7 @@ def enlazar(session: Session, post: Post, encontrado: dict[str, Any]) -> str:
             post.published_at = subido or utcnow()
             post.error = ""
             if clip:
-                clip.status = ClipStatus.published.value
-                session.flush()
-                storage.after_publish(session, clip)
+                _clip_tras_enlazar(session, clip, post)
             return "ya estaba publicado en YouTube"
         # subido pero privado y sin fecha: se le pone la de la agenda
         post.en_plataforma = True
@@ -290,10 +402,21 @@ def enlazar(session: Session, post: Post, encontrado: dict[str, Any]) -> str:
     )
     post.error = ""
     if clip:
-        clip.status = ClipStatus.published.value
-        session.flush()
-        storage.after_publish(session, clip)
+        _clip_tras_enlazar(session, clip, post)
     return "ya estaba publicado en TikTok"
+
+
+def _clip_tras_enlazar(session: Session, clip: Clip, post: Post) -> None:
+    """Publicado aquí; el clip sólo pasa a publicado si no le queda nada pendiente."""
+    from app.services import storage
+
+    pendiente = any(
+        p.id != post.id and p.status in {PostStatus.scheduled.value, PostStatus.publishing.value}
+        for p in clip.posts
+    )
+    clip.status = ClipStatus.scheduled.value if pendiente else ClipStatus.published.value
+    session.flush()
+    storage.after_publish(session, clip)
 
 
 # --------------------------------------------------------------------------
@@ -397,7 +520,9 @@ def limpiar_locales(session: Session) -> dict[str, int]:
 
 def revisar(session: Session, *, remoto: bool = True) -> dict[str, int]:
     """Repaso completo: repetidos en Kevil y lo que ya existe en las plataformas."""
+    reparados = reparar_originales(session)
     resumen = limpiar_locales(session)
+    resumen["reparados"] = reparados
     if resumen["descartados"]:
         # sin los repetidos, las partes se vuelven a numerar sin huecos
         from app.services import partes
@@ -427,6 +552,8 @@ def revisar(session: Session, *, remoto: bool = True) -> dict[str, int]:
 
 def texto_del_resumen(resumen: dict[str, int]) -> str:
     partes = []
+    if resumen.get("reparados"):
+        partes.append(f"{resumen['reparados']} Short(s) que no se habían subido vuelven a la agenda")
     if resumen.get("enlazados"):
         partes.append(f"{resumen['enlazados']} ya estaban en YouTube o TikTok (no se suben otra vez)")
     if resumen.get("cancelados"):

@@ -179,7 +179,8 @@ function proximosHtml(motor, compacto) {
       + (compacto ? '' : `<div class="proximo-titulo">${escapeHtml((motor.proxima_publicacion_titulo || '').slice(0, 60))}</div>`));
   }
   if (motor.reintento) {
-    filas.push(`<div class="proximo"><span>${motor.esperando} reintento(s)</span><b>${enCuanto(motor.reintento)}</b></div>`);
+    filas.push(`<div class="proximo" title="${escapeHtml(motor.reintento_que ? `El siguiente: ${motor.reintento_que}` : 'Tareas que esperan para volver a intentarlo')}">
+      <span>${motor.esperando} en espera</span><b>${enCuanto(motor.reintento)}</b></div>`);
   }
   return filas.length ? `<div style="display:flex;flex-direction:column;gap:6px;${compacto ? 'margin-top:4px' : ''}">${filas.join('')}</div>` : '';
 }

@@ -419,7 +419,11 @@ def run() -> None:
 
 def _revisar_repetidos(session: Session) -> None:
     from app.models import Post, PostStatus
+    from app.services import repetidos
     from app.services.queue import enqueue
+
+    # lo que se dio por publicado confundiendo el original: vuelve a la agenda
+    repetidos.reparar_originales(session)
 
     hay = session.scalars(
         select(Post.id).where(Post.status == PostStatus.scheduled.value).limit(1)
