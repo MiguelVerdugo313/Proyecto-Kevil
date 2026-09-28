@@ -147,6 +147,7 @@ function formularioHtml(op, datos, ultimos) {
       <section class="bloque">
         <header><span class="bloque-icono">Aa</span><b>Rótulos</b></header>
         ${interruptor('op-rotulos', 'Poner rótulos', 'Lo que se dice, palabra a palabra', v.subtitles.enabled)}
+        ${v.subtitles.template ? '' : '<p class="muted tiny">Tu flujo usa rótulos personalizados: se quedan así salvo que elijas una plantilla.</p>'}
         <div class="plantillas" id="plantillas">${galeriaHtml(datos, v.subtitles.template)}</div>
         <label class="campo-linea"><span>Altura en pantalla</span>
           <input type="range" id="op-altura" min="20" max="90" step="1" value="${v.subtitles.position_y}"></label>
@@ -183,13 +184,14 @@ async function pintarFormulario(root) {
 
   const estado = {
     fuente: 'enlace',
-    plantilla: op.valores.subtitles.template || 'kevil',
+    // '' = «Personalizado» (lo de tu flujo): no se manda plantilla y no se pisa
+    plantilla: op.valores.subtitles.template || '',
     encuadre: op.valores.reframe.mode,
     duracion: root.querySelector('[data-duracion].on')?.dataset.duracion || '30-90',
   };
 
   vista = vistaRotulos(root.querySelector('#movil-pantalla'), datos, {
-    plantilla: estado.plantilla, posicionY: op.valores.subtitles.position_y,
+    plantilla: estado.plantilla || 'kevil', posicionY: op.valores.subtitles.position_y,
   });
   pintarFondo(root, estado.encuadre);
 
@@ -262,7 +264,11 @@ async function pintarFormulario(root) {
   $('#crear-boton').onclick = async () => {
     const d = DURACIONES.find((x) => x.valor === estado.duracion) || DURACIONES[2];
     const ajustes = {
-      subtitles: { enabled: $('#op-rotulos').checked, template: estado.plantilla, position_y: Number($('#op-altura').value) },
+      subtitles: {
+        enabled: $('#op-rotulos').checked,
+        ...(estado.plantilla ? { template: estado.plantilla } : {}),
+        position_y: Number($('#op-altura').value),
+      },
       reframe: { mode: estado.encuadre },
       cleanup: {
         remove_fillers: $('#op-muletillas').checked,

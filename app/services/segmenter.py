@@ -105,7 +105,11 @@ def cuantos_clips(duration: float, config: dict[str, Any]) -> int:
 
 
 def _make_hook(text: str, limit: int = 90) -> str:
-    text = re.sub(r"\s+", " ", text or "").strip()
+    from app.services.limpieza import es_muletilla
+
+    # el gancho va escrito arriba del clip: sin «eh» ni «mmm»
+    text = " ".join(p for p in (text or "").split() if not es_muletilla(p))
+    text = re.sub(r"\s+", " ", text).strip()
     if not text:
         return ""
     sentences = re.split(r"(?<=[.!?…])\s+", text)

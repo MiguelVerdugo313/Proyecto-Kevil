@@ -358,20 +358,15 @@ def render_clip(
 
     chains.append(f"{label}fps={fps},format=yuv420p[vfinal]")
     if quedan:
-        # se cortan los trozos que se quedan y se pegan uno detrás de otro
-        cortes_ff: list[str] = []
-        pegar = ""
-        for numero, (a, b) in enumerate(quedan):
-            cortes_ff.append(f"[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[c{numero}v]")
-            pegar += f"[c{numero}v]"
-            if has_audio:
-                cortes_ff.append(
-                    f"[0:a:0]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[c{numero}a]"
-                )
-                pegar += f"[c{numero}a]"
-        salida = "[vlimpio][alimpio]" if has_audio else "[vlimpio]"
-        cortes_ff.append(f"{pegar}concat=n={len(quedan)}:v=1:a={1 if has_audio else 0}{salida}")
-        chains = cortes_ff + [c.replace("[0:v]", "[vlimpio]") for c in chains]
+        # Se quedan sólo los trozos buenos, en una pasada: `select` deja pasar
+        # los fotogramas de dentro y `setpts` los pone seguidos. (Recortar cada
+        # trozo por separado y pegarlos decodifica el vídeo una vez por trozo.)
+        dentro = "+".join(f"between(t,{a:.3f},{b - 0.001:.3f})" for a, b in quedan)
+        chains = [f"[0:v]fps={fps},select='{dentro}',setpts=N/{fps}/TB[vlimpio]"] + [
+            c.replace("[0:v]", "[vlimpio]") for c in chains
+        ]
+        if has_audio:
+            chains.insert(1, f"[0:a:0]aselect='{dentro}',asetpts=N/SR/TB[alimpio]")
     if has_audio:
         audio_chain = build_audio_filters(audio or {}, duration)
         if quedan:
