@@ -270,7 +270,7 @@ def test_los_flujos_viejos_pasan_a_rotulos_virales_y_mas_clips(session):
 # Rótulos virales
 # --------------------------------------------------------------------------
 def _dialogos(ruta):
-    return [l for l in ruta.read_text(encoding="utf-8").splitlines() if l.startswith("Dialogue:")]
+    return [ln for ln in ruta.read_text(encoding="utf-8").splitlines() if ln.startswith("Dialogue:")]
 
 
 def test_rotulos_virales_por_defecto(tmp_path):

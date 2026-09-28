@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.flow_schema import step_config
+from app.flow_schema import step_config, step_enabled
 from app.models import Account, Platform, Video, VideoStatus, utcnow
 from app.services import (
     coach, events, ideas, notifications, seo, thumbnails, transcript, youtube_api,
@@ -50,42 +50,45 @@ def job_analyze_local(session: Session, ctx: JobContext) -> None:
     flow = resolve_flow(session, ctx.payload.get("flow_id"))
     config = step_config(flow.steps, "transcribe")
     motor = str(config.get("engine", "youtube"))
+    if not step_enabled(flow.steps, "transcribe"):
+        motor = "none"
 
-    # Un archivo local no tiene subtítulos de YouTube: se usa Whisper si está.
-    if motor in {"youtube", "youtube_then_whisper"}:
-        motor = "whisper" if motor == "youtube_then_whisper" else "none"
-
-    if motor == "whisper":
-        ctx.progress(0.25, "Transcribiendo con Whisper (puede tardar)…")
+    # Un archivo local no tiene subtítulos de YouTube: Whisper en tu PC si lo
+    # tienes y, si no, Whisper en la nube con tu clave de Groq (gratis).
+    if motor == "none":
+        video.transcript = {"words": [], "segments": [], "source": "none"}
+    else:
+        ctx.progress(0.25, "Transcribiendo (puede tardar)…")
         try:
-            video.transcript = transcript.build_transcript(
-                engine="whisper",
-                media_path=video.local_path,
-                subtitle_files=[],
+            video.transcript = transcript.transcribir_archivo(
+                video.local_path,
                 language=str(config.get("language", "es")),
                 whisper_model=str(config.get("whisper_model", "small")),
             )
-            ctx.log(f"Transcritas {len(video.transcript.get('words') or [])} palabras.")
         except Exception as exc:
             video.transcript = {"words": [], "segments": [], "source": "error"}
             ctx.log(f"Sin transcripción: {exc}")
-    else:
-        video.transcript = {"words": [], "segments": [], "source": "none"}
+    palabras = len((video.transcript or {}).get("words") or [])
+    if palabras:
+        ctx.log(f"Transcritas {palabras} palabras ({video.transcript.get('source')}).")
+    elif (video.transcript or {}).get("source") != "error":
         ctx.log(
-            "Sin transcripción: activa Whisper en el flujo para que el kit sea mucho mejor."
+            "Sin transcripción: añade una clave de Groq (gratis) en IA o instala "
+            "Whisper para tener rótulos y mejores cortes."
         )
 
     video.status = VideoStatus.ready.value
     session.commit()
-    ctx.progress(0.6, "Preparando el kit de publicación…")
-
-    enqueue(
-        session,
-        "build_kit",
-        {"video_id": video.id, "use_ai": bool(ctx.payload.get("use_ai", True))},
-        priority=95,
-        message=f"Kit de «{video.title[:50]}»",
-    )
+    # desde «Crear» sólo se quieren los clips, no el kit del vídeo largo
+    if ctx.payload.get("kit", True):
+        ctx.progress(0.6, "Preparando el kit de publicación…")
+        enqueue(
+            session,
+            "build_kit",
+            {"video_id": video.id, "use_ai": bool(ctx.payload.get("use_ai", True))},
+            priority=95,
+            message=f"Kit de «{video.title[:50]}»",
+        )
     if ctx.payload.get("make_clips"):
         enqueue(
             session,

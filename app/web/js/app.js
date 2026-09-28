@@ -6,6 +6,7 @@ import { activarVentanitas } from './lib/graficas.js';
 import { escapeHtml, fmt, toast, toastError } from './lib/ui.js';
 
 import panel from './views/panel.js';
+import crear from './views/crear.js';
 import estudio from './views/estudio.js';
 import coach from './views/coach.js';
 import comunidad from './views/comunidad.js';
@@ -17,7 +18,7 @@ import agenda from './views/agenda.js';
 import analitica from './views/analitica.js';
 import ajustes from './views/ajustes.js';
 
-const VIEWS = { panel, estudio, coach, comunidad, cuentas, videos, clips, flujos, agenda, analitica, ajustes };
+const VIEWS = { panel, crear, estudio, coach, comunidad, cuentas, videos, clips, flujos, agenda, analitica, ajustes };
 
 const viewRoot = document.getElementById('view');
 const titleNode = document.getElementById('page-title');
@@ -342,7 +343,8 @@ document.getElementById('motor-boton').addEventListener('click', async (evento) 
 /* ------------------------------------------------- los colores de tu marca */
 export function aplicarColores(tema) {
   const raiz = document.documentElement;
-  if (!tema || !tema.custom) {
+  // en «Limpio» el acento es neutro a propósito: los colores de marca, en Aurora
+  if (!tema || !tema.custom || raiz.dataset.estilo === 'limpio') {
     ['--accent', '--accent-ink', '--accent-soft', '--accent-2'].forEach((v) => raiz.style.removeProperty(v));
     return;
   }
@@ -376,6 +378,19 @@ function aplicarTema(tema) {
   botonTema.title = tema === 'light' ? 'Cambiar a modo oscuro' : 'Cambiar a modo claro';
   aplicarColores(temaMarca);
   try { localStorage.setItem('kevil-tema', tema); } catch { /* modo privado */ }
+}
+
+/* Estilo: «Limpio» (neutro, como SupoClip) o «Aurora» (el de antes) */
+export function aplicarEstilo(estilo) {
+  const raiz = document.documentElement;
+  if (estilo === 'aurora') delete raiz.dataset.estilo;
+  else raiz.dataset.estilo = 'limpio';
+  try { localStorage.setItem('kevil-estilo', estilo === 'aurora' ? 'aurora' : 'limpio'); } catch { /* modo privado */ }
+  aplicarColores(temaMarca);
+}
+
+export function estiloActual() {
+  return document.documentElement.dataset.estilo === 'limpio' ? 'limpio' : 'aurora';
 }
 
 botonTema.onclick = () => {

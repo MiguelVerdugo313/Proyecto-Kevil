@@ -59,28 +59,28 @@ def contrast(a: tuple[int, int, int], b: tuple[int, int, int]) -> float:
 def adjust_for_dark(hex_color: str, minimo: float = 4.5) -> str:
     """Aclara el color hasta que se lea sobre negro."""
     r, g, b = from_hex(hex_color)
-    h, l, s = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
+    h, luz, s = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
     s = max(s, 0.45)
     for _ in range(40):
-        rgb = tuple(c * 255 for c in colorsys.hls_to_rgb(h, l, s))
+        rgb = tuple(c * 255 for c in colorsys.hls_to_rgb(h, luz, s))
         if contrast(tuple(int(c) for c in rgb), (0, 0, 0)) >= minimo:  # type: ignore[arg-type]
             return to_hex(rgb)
-        l = min(0.94, l + 0.02)
+        luz = min(0.94, luz + 0.02)
     return to_hex(tuple(c * 255 for c in colorsys.hls_to_rgb(h, 0.75, s)))
 
 
 def adjust_for_light(hex_color: str, minimo: float = 4.5) -> str:
     """Oscurece el color hasta que se lea sobre blanco."""
     r, g, b = from_hex(hex_color)
-    h, l, s = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
+    h, luz, s = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
     s = max(s, 0.45)
     for _ in range(60):
-        rgb = tuple(c * 255 for c in colorsys.hls_to_rgb(h, l, s))
+        rgb = tuple(c * 255 for c in colorsys.hls_to_rgb(h, luz, s))
         if contrast(tuple(int(c) for c in rgb), (255, 255, 255)) >= minimo:  # type: ignore[arg-type]
             return to_hex(rgb)
-        if l <= 0.08:
+        if luz <= 0.08:
             break
-        l = max(0.08, l - 0.02)
+        luz = max(0.08, luz - 0.02)
     return to_hex(tuple(c * 255 for c in colorsys.hls_to_rgb(h, 0.26, s)))
 
 
@@ -131,13 +131,13 @@ def palette_from_image(path: str | Path, *, colores: int = 6) -> list[dict[str, 
     paleta: list[dict[str, Any]] = []
     for (r_sum, g_sum, b_sum, cuenta) in cubos.values():
         medio = (r_sum / cuenta, g_sum / cuenta, b_sum / cuenta)
-        h, l, s = colorsys.rgb_to_hls(*(c / 255 for c in medio))
+        h, luz, s = colorsys.rgb_to_hls(*(c / 255 for c in medio))
         paleta.append(
             {
                 "hex": to_hex(medio),
                 "share": round(cuenta / total, 4),
                 "saturation": round(s, 3),
-                "lightness": round(l, 3),
+                "lightness": round(luz, 3),
                 # se premia el color vivo y con presencia, no el gris de fondo
                 "score": round(s * 0.65 + min(1.0, cuenta / total * 3) * 0.35, 4),
             }

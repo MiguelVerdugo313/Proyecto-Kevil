@@ -13,6 +13,8 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from app.services.plantillas import PLANTILLAS
+
 # --------------------------------------------------------------------------
 # Definición de los pasos disponibles
 # --------------------------------------------------------------------------
@@ -145,6 +147,14 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                         "label": "El vídeo entero (para Shorts que ya tienes)",
                     },
                 ],
+            },
+            {
+                "key": "ai_pick",
+                "label": "Que la IA puntúe y elija los mejores momentos",
+                "type": "bool",
+                "default": True,
+                "help": "Nota de 0 a 100 (gancho, enganche, valor y compartible) y un gancho "
+                "sacado de lo que dices. Sin IA configurada se calcula con reglas.",
             },
             {
                 "key": "min_duration",
@@ -344,11 +354,58 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
         ],
     },
     {
+        "type": "cleanup",
+        "label": "Limpieza",
+        "icon": "✂️",
+        "description": "Quita los silencios largos y los «eh», «em», «mmm» del clip.",
+        "fields": [
+            {
+                "key": "remove_fillers",
+                "label": "Quitar muletillas («eh», «em», «mmm»)",
+                "type": "bool",
+                "default": False,
+                "help": "Sólo sonidos de relleno: «este», «pues» u «o sea» no se tocan.",
+            },
+            {
+                "key": "remove_silences",
+                "label": "Acortar los silencios",
+                "type": "bool",
+                "default": False,
+                "help": "Se corta donde nadie habla. En gameplays, si en ese silencio "
+                "pasa algo en pantalla, también se va: déjalo apagado si es tu caso.",
+            },
+            {
+                "key": "max_pause",
+                "label": "Silencio máximo (segundos)",
+                "type": "slider",
+                "default": 0.8,
+                "min": 0.4,
+                "max": 2.0,
+                "step": 0.1,
+            },
+        ],
+    },
+    {
         "type": "subtitles",
         "label": "Rótulos automáticos",
         "icon": "🔠",
         "description": "Subtítulos quemados en el vídeo, estilo TikTok.",
         "fields": [
+            {
+                "key": "template",
+                "label": "Plantilla",
+                "type": "select",
+                "default": "kevil",
+                "help": "Tipografía, colores, pastilla, emojis y animación en un clic. "
+                "Con «Personalizado» mandan el estilo, la tipografía y los colores de abajo.",
+                "options": [
+                    {"value": "", "label": "Personalizado (lo de abajo)"},
+                    *[
+                        {"value": clave, "label": f"{datos['nombre']} — {datos['descripcion']}"}
+                        for clave, datos in PLANTILLAS.items()
+                    ],
+                ],
+            },
             {
                 "key": "style",
                 "label": "Estilo",
@@ -371,6 +428,13 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "default": "Montserrat Black",
                 "options": [
                     {"value": "Montserrat Black", "label": "Montserrat Black (la de los virales)"},
+                    {"value": "TikTok Sans", "label": "TikTok Sans"},
+                    {"value": "Luckiest Guy", "label": "Luckiest Guy (cómic)"},
+                    {"value": "Bangers", "label": "Bangers (gamer)"},
+                    {"value": "Anton", "label": "Anton (alta y estrecha)"},
+                    {"value": "Bebas Neue", "label": "Bebas Neue"},
+                    {"value": "Archivo Black", "label": "Archivo Black"},
+                    {"value": "Poppins ExtraBold", "label": "Poppins ExtraBold"},
                     {"value": "DejaVu Sans", "label": "DejaVu Sans"},
                     {"value": "Arial", "label": "Arial"},
                     {"value": "Impact", "label": "Impact"},
@@ -739,9 +803,10 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
 ESSENTIAL_FIELDS: dict[str, set[str]] = {
     "ingest": {"quality"},
     "transcribe": {"engine"},
-    "segment": {"strategy", "min_duration", "max_duration", "max_clips"},
+    "segment": {"strategy", "ai_pick", "min_duration", "max_duration", "max_clips"},
     "reframe": {"mode", "follow"},
-    "subtitles": {"style", "font_size", "highlight_color"},
+    "cleanup": {"remove_fillers", "remove_silences"},
+    "subtitles": {"template", "font_size", "position_y"},
     "overlays": {"hook_enabled", "watermark"},
     "audio": {"normalize"},
     "metadata": {"hashtags"},
@@ -888,7 +953,8 @@ FLOW_PRESETS: list[dict[str, Any]] = [
         "steps": _preset(
             {
                 "reframe": {"mode": "blur", "zoom": 1.1},
-                "subtitles": {"position_y": 70},   # un poco más abajo: la cara, arriba
+                # un poco más abajo (la cara, arriba) y frases enteras sobre caja
+                "subtitles": {"position_y": 70, "template": "podcast"},
                 "segment": {"min_duration": 30, "max_duration": 90, "clips_per_hour": 12},
             }
         ),
@@ -934,6 +1000,7 @@ FLOW_PRESETS: list[dict[str, Any]] = [
                 "reframe": {"mode": "split"},
                 "overlays": {"progress_bar": True},
                 "segment": {"strategy": "smart"},
+                "subtitles": {"template": "gamer"},
             }
         ),
     },

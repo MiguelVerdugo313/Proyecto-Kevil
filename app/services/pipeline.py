@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.flow_schema import normalize_steps, step_config, step_enabled
+from app.flow_schema import STEP_INDEX, normalize_steps, step_config, step_enabled
 from app.models import (
     Account,
     AccountStatus,
@@ -63,6 +63,30 @@ def resolve_flow(
         raise RuntimeError("No hay ningún flujo configurado.")
     flow.steps = normalize_steps(flow.steps)
     return flow
+
+
+def con_ajustes(pasos: list[dict[str, Any]], video: Video | None) -> list[dict[str, Any]]:
+    """Los pasos del flujo con lo que elegiste para este vídeo al crearlo.
+
+    Desde «Crear» se puede cambiar la plantilla, el encuadre o la limpieza de
+    un vídeo sin tocar el flujo: eso se guarda en el vídeo y manda aquí.
+    """
+    ajustes = (video.ajustes if video is not None else None) or {}
+    if not ajustes:
+        return pasos
+    salida = []
+    for paso in pasos:
+        cambios = dict(ajustes.get(paso.get("type", "")) or {})
+        if not cambios:
+            salida.append(paso)
+            continue
+        nuevo = {**paso, "config": dict(paso.get("config") or {})}
+        if "enabled" in cambios and not STEP_INDEX.get(paso.get("type", ""), {}).get("locked"):
+            nuevo["enabled"] = bool(cambios.pop("enabled"))
+        cambios.pop("enabled", None)
+        nuevo["config"].update(cambios)
+        salida.append(nuevo)
+    return salida
 
 
 # --------------------------------------------------------------------------
@@ -396,7 +420,8 @@ def job_ingest(session: Session, ctx: JobContext) -> None:
     if not video:
         raise RuntimeError("El vídeo ya no existe.")
     flow = resolve_flow(session, ctx.payload.get("flow_id"), video)
-    ingest_config = step_config(flow.steps, "ingest")
+    pasos = con_ajustes(flow.steps, video)
+    ingest_config = step_config(pasos, "ingest")
 
     video.status = VideoStatus.downloading.value
     video.error = ""
@@ -480,8 +505,8 @@ def job_ingest(session: Session, ctx: JobContext) -> None:
         video.duration_s = probe.get("duration") or video.duration_s
 
     # --- transcripción ---------------------------------------------------
-    if step_enabled(flow.steps, "transcribe"):
-        transcribe_config = step_config(flow.steps, "transcribe")
+    if step_enabled(pasos, "transcribe"):
+        transcribe_config = step_config(pasos, "transcribe")
         ctx.progress(0.8, "Obteniendo la transcripción…")
         try:
             data = transcript.build_transcript(
@@ -532,6 +557,7 @@ def job_process(session: Session, ctx: JobContext) -> None:
         raise RuntimeError("El vídeo ya no existe.")
 
     flow = resolve_flow(session, ctx.payload.get("flow_id"), video)
+    pasos = con_ajustes(flow.steps, video)
     # En modo ligero no hay vídeo en el disco: se analiza sobre el audio, que
     # es lo único que se bajó, y se borra en cuanto se han elegido los momentos.
     audio_temporal = str(ctx.payload.get("audio_path") or "")
@@ -546,18 +572,42 @@ def job_process(session: Session, ctx: JobContext) -> None:
     video.status = VideoStatus.processing.value
     session.commit()
 
-    segment_config = step_config(flow.steps, "segment")
-    metadata_config = step_config(flow.steps, "metadata")
-    schedule_config = step_config(flow.steps, "schedule")
-    reframe_config = step_config(flow.steps, "reframe")
+    segment_config = step_config(pasos, "segment")
+    metadata_config = step_config(pasos, "metadata")
+    schedule_config = step_config(pasos, "schedule")
+    reframe_config = step_config(pasos, "reframe")
 
     ctx.progress(0.1, "Buscando los mejores momentos…")
+    # Con IA se buscan el doble de momentos y ella elige los mejores; sin IA,
+    # la nota se calcula con reglas para que siempre se vea de dónde sale.
+    from app.services import ai, partes, viralidad
+
+    duracion = float(video.duration_s or 0)
+    usar_ia = bool(segment_config.get("ai_pick", True)) and ai.is_enabled()
+    objetivo = 0
+    config_busqueda = segment_config
+    if usar_ia and str(segment_config.get("strategy", "smart")) in {"smart", "silence"}:
+        objetivo = segmenter.cuantos_clips(duracion, segment_config)
+        if objetivo > 1:
+            config_busqueda = {
+                **segment_config,
+                "max_clips": min(40, objetivo * 2),
+                "clips_per_hour": float(segment_config.get("clips_per_hour", 20) or 20) * 2,
+            }
     candidates = segmenter.find_segments(
         media_path=analizable,
-        duration=float(video.duration_s or 0),
+        duration=duracion,
         transcript=video.transcript or {},
-        config=segment_config,
+        config=config_busqueda,
     )
+    if candidates:
+        ctx.progress(0.2, "Puntuando cada momento…")
+        candidates = viralidad.puntuar(
+            candidates, usar_ia=usar_ia, titulo=partes.titulo_base(video),
+            contexto=video.contexto or "", avisar=ctx.log,
+        )
+        if objetivo > 1 and len(candidates) > objetivo:
+            candidates = viralidad.elegir(candidates, objetivo)
     if not candidates:
         video.status = VideoStatus.done.value
         events.log(
@@ -635,6 +685,7 @@ def job_process(session: Session, ctx: JobContext) -> None:
             end_s=candidate["end"],
             score=candidate["score"],
             reason=candidate.get("reason", "")[:300],
+            viralidad=candidate.get("viralidad") or {},
             status=ClipStatus.draft.value,
             render_config={"reframe": reframe_config},
             words=transcript.slice_words(
@@ -689,13 +740,21 @@ def job_render(session: Session, ctx: JobContext) -> None:
         raise RuntimeError("El clip ya no existe.")
     video = clip.video
     flow = resolve_flow(session, clip.flow_id)
-    reframe_config = dict(step_config(flow.steps, "reframe"))
+    pasos = con_ajustes(flow.steps, video)
+    reframe_config = dict(step_config(pasos, "reframe"))
     reframe_config.update((clip.render_config or {}).get("reframe") or {})
-    subtitles_config = step_config(flow.steps, "subtitles")
-    overlays_config = step_config(flow.steps, "overlays")
-    audio_config = step_config(flow.steps, "audio")
-    publish_config = step_config(flow.steps, "publish")
-    schedule_config = step_config(flow.steps, "schedule")
+    # los rótulos de este clip (otra plantilla, otro tamaño) mandan sobre el flujo
+    propios = dict((clip.render_config or {}).get("subtitles") or {})
+    rotulos_activos = bool(propios.pop("enabled", step_enabled(pasos, "subtitles")))
+    subtitles_config = {**step_config(pasos, "subtitles"), **propios}
+    limpieza_config = (
+        {**step_config(pasos, "cleanup"), **((clip.render_config or {}).get("cleanup") or {})}
+        if step_enabled(pasos, "cleanup") else {}
+    )
+    overlays_config = step_config(pasos, "overlays")
+    audio_config = step_config(pasos, "audio")
+    publish_config = step_config(pasos, "publish")
+    schedule_config = step_config(pasos, "schedule")
 
     clip.status = ClipStatus.rendering.value
     clip.error = ""
@@ -715,8 +774,8 @@ def job_render(session: Session, ctx: JobContext) -> None:
             tramo_temporal = youtube_service.download_sections(
                 video.url,
                 [(desde, hasta)],
-                quality=str(step_config(flow.steps, "ingest").get("quality", "1080")),
-                cookies_from_browser=step_config(flow.steps, "ingest").get(
+                quality=str(step_config(pasos, "ingest").get("quality", "1080")),
+                cookies_from_browser=step_config(pasos, "ingest").get(
                     "cookies_from_browser", ""
                 ),
                 destination=settings.work_path,
@@ -784,14 +843,17 @@ def job_render(session: Session, ctx: JobContext) -> None:
         reframe=reframe_config,
         audio=audio_config,
         subtitles=subtitles_config,
-        subtitles_enabled=step_enabled(flow.steps, "subtitles"),
+        subtitles_enabled=rotulos_activos,
         overlays=overlays_config,
-        overlays_enabled=step_enabled(flow.steps, "overlays"),
+        overlays_enabled=step_enabled(pasos, "overlays"),
         words=clip.words or [],
         hook_text=hook_text,
         has_audio=bool((video.probe or {}).get("has_audio", True)),
         on_progress=lambda ratio: ctx.progress(ratio * 0.95, f"Renderizando… {ratio * 100:.0f}%"),
+        limpieza=limpieza_config,
     )
+    if result.get("limpieza"):
+        ctx.log(result["limpieza"])
 
     clip.render_path = result["path"]
     clip.thumb_path = result.get("thumb", "")

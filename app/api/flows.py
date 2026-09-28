@@ -49,6 +49,58 @@ def get_schema():
     }
 
 
+@router.get("/plantillas-rotulos")
+def plantillas_de_rotulos():
+    """Las plantillas de rótulos, con su tipografía, para la galería y la vista previa."""
+    from app.services import captions, plantillas
+
+    salida = []
+    for datos in plantillas.lista():
+        medidas = captions.metricas(datos["fuente"]) or {}
+        tpl = {**datos, "normalizar": True}
+        salida.append({
+            **datos,
+            "archivo": medidas.get("archivo", ""),
+            # para dibujarla igual en la interfaz: el tamaño que le da el render
+            # (a 125 en un vertical de 1920) y cómo pasar de ASS a CSS
+            "tamano": captions.tamano_de_letra(tpl, 125),
+            "em": medidas.get("em", 0.7),
+            "negrita": captions.es_gruesa(datos["fuente"]),
+        })
+    return salida
+
+
+@router.get("/plantillas-rotulos/extras")
+def extras_de_rotulos():
+    """Palabras fuertes y emojis, para que la vista previa haga lo mismo que el render."""
+    from app.services import captions, plantillas
+
+    emoji = captions.metricas(captions.FUENTE_EMOJI) or {}
+    return {
+        "fuertes": sorted(plantillas.FUERTES),
+        "emojis": {
+            palabra: captions.glifo_emoji(valor)
+            for palabra, valor in plantillas.EMOJIS.items() if captions.glifo_emoji(valor)
+        },
+        "emoji_cada": plantillas.EMOJI_CADA,
+        "fuente_emoji": {"familia": captions.FUENTE_EMOJI, "archivo": emoji.get("archivo", ""),
+                         "em": emoji.get("em", 0.85)},
+    }
+
+
+@router.get("/plantillas-rotulos/fuente/{archivo}")
+def fuente_de_rotulos(archivo: str):
+    """Las tipografías del programa, para ver los rótulos tal cual en la interfaz."""
+    from fastapi.responses import FileResponse
+
+    from app.services import captions
+
+    ruta = (captions.TIPOGRAFIAS / archivo).resolve()
+    if ruta.suffix.lower() != ".ttf" or ruta.parent != captions.TIPOGRAFIAS.resolve() or not ruta.is_file():
+        raise HTTPException(404, "No existe esa tipografía.")
+    return FileResponse(ruta, media_type="font/ttf", headers={"Cache-Control": "max-age=86400"})
+
+
 @router.get("")
 def list_flows(db: Session = Depends(get_db)):
     flows = db.scalars(select(Flow).order_by(Flow.is_default.desc(), Flow.id)).all()

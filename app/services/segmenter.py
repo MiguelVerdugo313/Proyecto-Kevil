@@ -97,8 +97,19 @@ def _target_count(duration: float, config: dict[str, Any]) -> int:
     return int(max(1, min(max_clips, fit, wanted)))
 
 
+def cuantos_clips(duration: float, config: dict[str, Any]) -> int:
+    """Cuántos clips se buscan en un vídeo con esta configuración."""
+    if 0 < duration <= float(config.get("entero_hasta", ENTERO_HASTA) or 0):
+        return 1
+    return _target_count(duration, config)
+
+
 def _make_hook(text: str, limit: int = 90) -> str:
-    text = re.sub(r"\s+", " ", text or "").strip()
+    from app.services.limpieza import es_muletilla
+
+    # el gancho va escrito arriba del clip: sin «eh» ni «mmm»
+    text = " ".join(p for p in (text or "").split() if not es_muletilla(p))
+    text = re.sub(r"\s+", " ", text).strip()
     if not text:
         return ""
     sentences = re.split(r"(?<=[.!?…])\s+", text)

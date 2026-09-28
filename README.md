@@ -47,16 +47,19 @@ Vídeo que subes tú ──► Kit de publicación: títulos · descripción · 
 1. **Vigila** tus canales: subidas normales y directos ya emitidos. Los vídeos nuevos
    entran solos en el proceso.
 2. **Descarga** el original a tu disco (con `yt-dlp`, sin claves de API).
-3. **Transcribe** con los subtítulos de YouTube (palabra a palabra) o con Whisper local.
+3. **Transcribe** con los subtítulos de YouTube (palabra a palabra), con Whisper local
+   o, si no hay subtítulos, con Whisper en la nube de Groq.
 4. **Elige los momentos**: puntúa cada tramo por ritmo del habla, palabras gancho,
-   preguntas, datos concretos y pausas del audio. También puedes cortar por trozos
-   iguales, por silencios o a mano.
+   preguntas, datos concretos y pausas del audio, y (con IA) les pone una **nota de
+   viralidad** y se queda con los mejores. También puedes cortar por trozos iguales,
+   por silencios o a mano.
 5. **Monta el vertical**: el recorte va **siguiendo a la acción durante todo el clip**,
    no se queda clavado en un punto —mide por dónde pasa el movimiento varias veces por
    segundo, lo suaviza y mueve el encuadre con freno, así el que habla no se sale de
    plano—. También puedes usar fondo desenfocado, pantalla partida o recorte fijo.
-   Encima van los rótulos virales (2-3 palabras, la que suena en amarillo), el gancho arriba, la marca de agua, la barra
-   de progreso y el audio nivelado a −14 LUFS.
+   Encima van los rótulos con la **plantilla** que elijas (pastilla, colores, emojis,
+   brillo…), el gancho arriba, la marca de agua, la barra de progreso y el audio
+   nivelado a −14 LUFS. Si quieres, quita **muletillas y silencios**.
 6. **Escribe** título, descripción y hashtags con tus plantillas.
 7. **Programa** cada clip en la mejor franja de cada cuenta (ver más abajo).
 8. **Publica** en TikTok, en YouTube Shorts o en ambos a la vez; lo deja en borradores,
@@ -532,9 +535,100 @@ publicada cuenta para tu semana: el coach te recuerda si llevas menos de 3.
 
 ---
 
+## Crear: de un vídeo a clips, eligiendo cómo quedan
+
+La primera opción del menú, **Crear clips**, es la forma rápida de sacar clips de un
+vídeo concreto (el motor sigue haciendo lo suyo con tus canales):
+
+1. **Pega un enlace de YouTube o elige un vídeo del PC** (MP4, MOV, MKV, WEBM…).
+   Opcionalmente cuéntale en una línea de qué va, para que la IA no se invente nada.
+2. **Momentos**: que la IA elija los mejores (o reglas, si no tienes IA) y de qué
+   duración: cortos (15-30 s), medios, con contexto (30-90 s) o largos (1-3 min).
+3. **Encuadre**: fondo borroso, pantalla completa, seguimiento de la acción o partido.
+4. **Rótulos**: una galería de plantillas y la altura en pantalla.
+5. **Limpieza**: quitar muletillas y acortar silencios.
+
+A la derecha, un **móvil con TikTok** enseña en vivo cómo quedan los rótulos con la
+plantilla elegida (las mismas tipografías, tamaños y efectos que el render final) sobre
+la miniatura del vídeo o el propio vídeo del PC. Al pulsar **Crear clips** ves el
+progreso **paso a paso** (descargar, transcribir, elegir momentos, montar, listo) y,
+al terminar, los clips ordenados por nota.
+
+Lo que eliges aquí vale **sólo para ese vídeo**: tus flujos no cambian.
+
+**Vídeos del PC sin subtítulos**: si no tienes Whisper instalado, Kevil los transcribe
+con **Whisper en la nube de Groq** (gratis) cuando tienes una clave de Groq en
+*Ajustes → Inteligencia artificial*. Sin transcripción no hay rótulos y los cortes se
+hacen por pausas.
+
+## Plantillas de rótulos
+
+Diez estilos listos, cada uno con su tipografía (incluidas en el programa), colores,
+borde, animación y palabras por línea:
+
+| Plantilla | Cómo es |
+|---|---|
+| **Kevil** | la de siempre: gruesa, mayúsculas, la palabra que suena en amarillo |
+| **Hormozi** | pastilla verde detrás de la palabra que suena, números en amarillo |
+| **MrBeast** | letra de cómic, borde gordo, palabras fuertes en rojo, emojis |
+| **TikTok** | TikTok Sans, la palabra en rosa y las fuertes en cian |
+| **Gamer** | Bangers en verde lima, jugadas fuertes en naranja, emojis |
+| **Neón** | letra alta con resplandor cian |
+| **Minimal** · **Podcast** | frase limpia sobre caja redondeada, para charlas |
+| **Impacto** | Anton enorme, una palabra cada vez |
+| **Clásico** | blanca con borde, sin colores |
+
+* **Palabras fuertes y números** («increíble», «gané», «100»…) cambian de color.
+* **Emojis con mesura**: uno cada 2,5 s como mucho, sólo si lo que se dice lo pide
+  («jaja» 😂, «gané» 🏆, «fuego» 🔥…). Van en monocromo del color de la plantilla.
+* Todas miden lo mismo de alto: cambiar de plantilla no deja el rótulo enano.
+* La línea nunca se sale del vídeo: si no cabe, encoge.
+
+Se eligen en *Crear*, en el paso **Rótulos** de cada flujo o **sólo para un clip** en su
+ficha. «Personalizado» usa tu tipografía y tus colores como antes.
+
+## Limpieza del clip
+
+En el paso **Limpieza** del flujo (o en *Crear*, o en la ficha de un clip):
+
+* **Quitar muletillas**: sólo sonidos de relleno («eh», «em», «mmm», «um»); nunca
+  palabras como «este», «pues» u «o sea», que a veces significan algo.
+* **Acortar los silencios**: donde nadie habla más de lo que marques (0,8 s por
+  defecto), se deja un poco de aire y se corta el resto.
+
+Los rótulos y el encuadre que sigue a la acción se recolocan solos. Viene **apagado**:
+en un gameplay, un silencio puede ser justo el momento en que pasa algo en pantalla.
+
+## La nota de viralidad
+
+Cada clip lleva una nota de **0 a 100**, desglosada como en las herramientas de clips
+profesionales: **gancho**, **enganche**, **valor** y **compartible**, de 0 a 25 cada
+uno, más el tipo de gancho (pregunta, reacción, dato, reto…) y por qué.
+
+* **Con IA**: se buscan el doble de momentos y la IA puntúa cada uno leyendo lo que se
+  dice; se quedan los mejores. También propone un gancho corto para arriba del clip,
+  que sólo se acepta si sale de lo que se dice (si trae nombres o cifras que no se
+  dicen, se descarta).
+* **Sin IA** (o si falla): la nota se calcula con reglas. Siempre ves de dónde sale.
+
+## Recortar leyendo
+
+En la ficha de un clip, **Recortar leyendo** enseña lo que se dice: pulsa «Empieza
+en…» o «Acaba en…» y luego una palabra, y el clip empieza o acaba ahí. Lo que queda
+fuera se tacha. Al mover el inicio o el final, los rótulos se recalculan.
+
 ## El aspecto
 
-Interfaz en **modo oscuro** (negro `#0a0a0a` con una rejilla de puntos de fondo y capas
+Dos estilos, en **Ajustes → Aspecto**:
+
+* **Limpio** (por defecto desde la 1.9): neutro y plano, como SupoClip u Opus Clip.
+  Gama de grises cálidos, letra **Geist**, tarjetas blancas con borde fino y el botón
+  principal casi negro. Empieza en claro.
+* **Aurora**: el de antes, descrito abajo.
+
+El botón ◐ de la barra superior cambia entre claro y oscuro en los dos.
+
+Aurora: interfaz en **modo oscuro** (negro `#0a0a0a` con una rejilla de puntos de fondo y capas
 de cristal esmerilado) o **claro** (papel cálido), con el botón ◐ de la barra superior
 para cambiar; tu elección se recuerda. Los acentos son una gama de **oros y bronces**
 (`#a78b71` · `#c9b8a0` · `#e8d5b7`), los titulares van en **Playfair Display** itálica y
@@ -784,3 +878,13 @@ ya guardados se completan con el valor por defecto.
 Publica sólo contenido del que tengas derechos. Kevil Studio usa la API oficial de
 TikTok para publicar; respeta sus condiciones de uso y los límites de publicación de
 tu cuenta.
+
+### Créditos
+
+* La pantalla «Crear», las plantillas de rótulos, la limpieza del clip y la nota de
+  viralidad desglosada están **inspiradas** en [SupoClip](https://github.com/FujiwaraChoki/supoclip).
+  SupoClip es AGPL-3.0: aquí no se ha copiado su código, se han reimplementado las ideas.
+* Tipografías incluidas (licencia SIL OFL 1.1 o Apache 2.0, con su licencia al lado en
+  `app/assets/fonts` y `app/web/fonts`): Montserrat, Anton, Bebas Neue, Bangers,
+  Poppins, Archivo Black, TikTok Sans, Luckiest Guy, Noto Emoji (como «Kevil Emoji»,
+  sólo los emojis que se usan), Inter, Outfit, Playfair Display, Geist y Geist Mono.

@@ -1,7 +1,7 @@
 // Ajustes: lo justo a la vista, y todo lo demás detrás de «Editar».
 
 import { api } from '../lib/api.js';
-import { cargarColores } from '../app.js';
+import { aplicarEstilo, cargarColores, estiloActual } from '../app.js';
 import { subirCookies, usarSesionYouTube } from '../lib/ayuda.js';
 import { activarProblemas, problemasHtml } from '../lib/problemas.js';
 import { activarSegundoPlano, estadoSegundoPlano } from '../lib/segundoPlano.js';
@@ -887,6 +887,16 @@ export default {
         </div>
 
         <div style="display:flex;flex-direction:column;gap:22px">
+          <div class="card">
+            <div class="card-head"><h3>Aspecto</h3></div>
+            <p class="muted small" style="line-height:1.6;margin-bottom:12px">
+              «Limpio» es neutro y plano, como SupoClip. «Aurora» es el de antes, con la luz cálida de fondo.
+              El sol/luna de arriba cambia entre claro y oscuro.</p>
+            <div class="segmentado" role="radiogroup" aria-label="Estilo">
+              <button type="button" data-estilo="limpio" class="${estiloActual() === 'limpio' ? 'on' : ''}">Limpio</button>
+              <button type="button" data-estilo="aurora" class="${estiloActual() === 'aurora' ? 'on' : ''}">Aurora</button>
+            </div>
+          </div>
           ${segundoPlano ? `<div class="card">
             <div class="card-head"><h3>Publicar sin estar pendiente</h3></div>
             <p class="muted small" style="line-height:1.6;margin-bottom:12px">
@@ -958,6 +968,12 @@ export default {
 
     activarProblemas(root, ctx.reload);
     activarSegundoPlano(root, ctx.reload);
+    root.querySelectorAll('[data-estilo]').forEach((boton) => {
+      boton.onclick = () => {
+        aplicarEstilo(boton.dataset.estilo);
+        root.querySelectorAll('[data-estilo]').forEach((b) => b.classList.toggle('on', b === boton));
+      };
+    });
 
     // #ajustes?seccion=ia o =youtube abre directamente esa parte
     const seccion = new URLSearchParams(location.hash.split('?')[1] || '').get('seccion');

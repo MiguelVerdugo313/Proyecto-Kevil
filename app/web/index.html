@@ -13,12 +13,20 @@
        queda medio pintado mientras las baja. -->
   <link rel="stylesheet" href="/static/css/fuentes.css?v=__V__">
   <link rel="stylesheet" href="/static/css/style.css?v=__V__">
+  <link rel="stylesheet" href="/static/css/limpio.css?v=__V__">
   <script>
-    // El tema se aplica antes de pintar nada para que no parpadee
+    // El estilo y el tema se aplican antes de pintar nada para que no parpadee.
+    // «Limpio» (el de por defecto) empieza en claro, como SupoClip; «Aurora»,
+    // el de antes, en oscuro.
     try {
-      const guardado = localStorage.getItem('kevil-tema');
-      if (guardado) document.documentElement.dataset.theme = guardado;
-    } catch (e) { /* modo privado: se queda en oscuro */ }
+      const estilo = localStorage.getItem('kevil-estilo') || 'limpio';
+      if (estilo === 'limpio') document.documentElement.dataset.estilo = 'limpio';
+      const guardado = localStorage.getItem('kevil-tema') || (estilo === 'limpio' ? 'light' : '');
+      if (guardado === 'light') document.documentElement.dataset.theme = 'light';
+    } catch (e) {
+      document.documentElement.dataset.estilo = 'limpio';
+      document.documentElement.dataset.theme = 'light';
+    }
   </script>
 </head>
 <body>
@@ -32,6 +40,7 @@
   <!-- Iconos: se dibujan una vez y se reutilizan con <use> -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
+      <symbol id="i-crear" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
       <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/></symbol>
       <symbol id="i-cuentas" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"/></symbol>
       <symbol id="i-estudio" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
@@ -66,6 +75,7 @@
       </button>
 
       <nav class="nav" id="nav">
+        <a class="nav-item destacado" href="#crear" data-view="crear"><svg class="ico"><use href="#i-crear"/></svg>Crear clips</a>
         <a class="nav-item" href="#panel"     data-view="panel"><svg class="ico"><use href="#i-panel"/></svg>Panel</a>
         <a class="nav-item" href="#estudio"   data-view="estudio"><svg class="ico"><use href="#i-estudio"/></svg>Estudio</a>
         <a class="nav-item" href="#clips"     data-view="clips"><svg class="ico"><use href="#i-clips"/></svg>Clips<em class="badge" id="badge-clips" hidden>0</em></a>
