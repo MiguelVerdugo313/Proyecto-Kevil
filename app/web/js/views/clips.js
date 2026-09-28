@@ -39,6 +39,41 @@ function notaHtml(v) {
       · ${v.fuente === 'ia' ? 'puntuado por la IA' : 'calculado con reglas'}</p>`;
 }
 
+/* Recortar leyendo: pulsar una palabra pone ahí el inicio o el final. Los
+   tiempos de las palabras van desde el principio del clip. */
+function activarRecorte(root, clip) {
+  const texto = root.querySelector('#c-texto');
+  if (!texto) return;
+  let modo = 'inicio';
+  const inicio = root.querySelector('#c-start');
+  const fin = root.querySelector('#c-end');
+  const pintar = () => {
+    const a = Number(inicio.value) - clip.start_s;
+    const b = Number(fin.value) - clip.start_s;
+    texto.querySelectorAll('[data-w]').forEach((nodo) => {
+      const w = clip.words[Number(nodo.dataset.w)];
+      nodo.classList.toggle('fuera', w.end <= a + 0.1 || w.start >= b - 0.1);
+    });
+  };
+  root.querySelectorAll('[data-marcar]').forEach((boton) => {
+    boton.onclick = () => {
+      modo = boton.dataset.marcar;
+      root.querySelectorAll('[data-marcar]').forEach((x) => x.classList.toggle('on', x === boton));
+    };
+  });
+  texto.onclick = (event) => {
+    const nodo = event.target.closest('[data-w]');
+    if (!nodo) return;
+    const w = clip.words[Number(nodo.dataset.w)];
+    if (modo === 'inicio') inicio.value = Math.max(0, clip.start_s + w.start - 0.08).toFixed(2);
+    else fin.value = (clip.start_s + w.end + 0.25).toFixed(2);
+    pintar();
+  };
+  inicio.addEventListener('input', pintar);
+  fin.addEventListener('input', pintar);
+  pintar();
+}
+
 let plantillasClip = [];
 let propiosRotulos = {};
 let limpiezaClip = {};
@@ -85,6 +120,16 @@ async function openClip(clipId, reload) {
             <input type="text" id="c-hook" value="${escapeHtml(clip.hook)}"></div>
           <div class="field"><label>Descripción (TikTok y Shorts)</label>
             <textarea id="c-caption" style="min-height:120px">${escapeHtml(clip.caption)}</textarea></div>
+
+          ${(clip.words || []).length ? `<div class="field">
+            <label>Recortar leyendo</label>
+            <div class="recorte-modos">
+              <button type="button" class="btn xs on" data-marcar="inicio">Empieza en…</button>
+              <button type="button" class="btn xs" data-marcar="fin">Acaba en…</button>
+              <span class="muted tiny">pulsa una palabra</span>
+            </div>
+            <div class="recorte-texto" id="c-texto">${clip.words.map((w, i) => `<span data-w="${i}">${escapeHtml(w.text)}</span>`).join(' ')}</div>
+          </div>` : ''}
 
           <div class="form-grid">
             <div class="field"><label>Inicio (s)</label>
@@ -170,6 +215,7 @@ async function openClip(clipId, reload) {
       } },
     ],
     onOpen: (root, close) => {
+      activarRecorte(root, clip);
       const ayuda = root.querySelector('[data-ayuda-clip]');
       if (ayuda) {
         activarAyuda(ayuda, {

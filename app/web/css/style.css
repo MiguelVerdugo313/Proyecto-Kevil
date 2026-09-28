@@ -1686,3 +1686,12 @@ details:not(.ayuda)[open] > summary::before { content: "▾ "; }
   .duraciones, .encuadres { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .field > label.check { text-transform: none; letter-spacing: normal; font-size: 12.5px; font-weight: 400; color: var(--text); }
+.recorte-modos { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.recorte-modos button.btn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.recorte-texto {
+  max-height: 128px; overflow-y: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+  font-size: 13px; line-height: 1.8; background: var(--surface-2);
+}
+.recorte-texto span { cursor: pointer; border-radius: 4px; padding: 1px 2px; transition: background-color .15s var(--ease); }
+.recorte-texto span:hover { background: var(--surface-3); }
+.recorte-texto span.fuera { color: var(--muted-2); text-decoration: line-through; text-decoration-color: var(--line-strong); }

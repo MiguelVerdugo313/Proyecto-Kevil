@@ -140,3 +140,30 @@ def test_editar_el_clip_recoloca_rotulos_y_guarda_lo_suyo(session, tmp_path):
             assert cliente.get("/api/flows/plantillas-rotulos/fuente/..%2F..%2Fconfig.py").status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+def test_sin_transcripcion_entera_las_palabras_se_mueven_con_el_corte(session, tmp_path):
+    import contextlib
+
+    from fastapi.testclient import TestClient
+
+    from app.db import get_db
+    from app.main import app
+    from tests.test_youtube_publish import _clip_listo, _pasos_publicando_en
+
+    clip = _clip_listo(session, tmp_path, _pasos_publicando_en(True, False))
+    clip.words = [{"start": 1.0, "end": 1.5, "text": "uno"}, {"start": 5.0, "end": 5.5, "text": "dos"}]
+    session.commit()
+
+    @contextlib.asynccontextmanager
+    async def _nada(_app):
+        yield
+
+    app.router.lifespan_context = _nada
+    app.dependency_overrides[get_db] = lambda: session
+    try:
+        with TestClient(app) as cliente:
+            assert cliente.patch(f"/api/clips/{clip.id}", json={"start_s": 4, "end_s": 20}).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+    assert clip.words == [{"start": 1.0, "end": 1.5, "text": "dos"}]

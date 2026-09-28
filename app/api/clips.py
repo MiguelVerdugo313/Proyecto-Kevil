@@ -96,6 +96,7 @@ def patch_clip(clip_id: int, body: ClipPatch, db: Session = Depends(get_db)):
     rotulos = data.pop("subtitles", None)
     limpieza = data.pop("cleanup", None)
     timing_changed = False
+    inicio_antes, fin_antes = clip.start_s, clip.end_s
 
     for field, value in data.items():
         if field in {"start_s", "end_s"} and abs(getattr(clip, field) - float(value)) > 0.01:
@@ -142,6 +143,13 @@ def patch_clip(clip_id: int, body: ClipPatch, db: Session = Depends(get_db)):
         todas = ((clip.video.transcript if clip.video else None) or {}).get("words") or []
         if todas:
             clip.words = transcript.slice_words(todas, clip.start_s, clip.end_s)
+        elif clip.words and (clip.start_s != inicio_antes or clip.end_s != fin_antes):
+            # sin la transcripción entera: se mueven las palabras que ya tenía
+            absolutas = [
+                {**w, "start": w["start"] + inicio_antes, "end": w["end"] + inicio_antes}
+                for w in clip.words
+            ]
+            clip.words = transcript.slice_words(absolutas, clip.start_s, clip.end_s)
 
     if timing_changed and clip.status in {
         ClipStatus.rendered.value,
