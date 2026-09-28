@@ -405,3 +405,132 @@ def test_las_visitas_de_tiktok_llegan_a_su_publicacion(session, tmp_path, monkey
     pipeline.job_refresh_metrics(session, pipeline.JobContext(session, job))
     assert publicado.metrics["views"] == 500
     assert de_antes.external_post_id == "222" and de_antes.metrics["views"] == 90
+
+
+# ------------------------------------------------- el original no es el clip
+def _entero(session, tmp_path, *, ancho=0, alto=0, titulo="El Spiderverso"):
+    """Un vídeo corto de tu canal y su clip, que es el vídeo entero."""
+    from app.models import Source
+
+    bootstrap.seed_flows(session)
+    youtube = _cuenta(session, Platform.youtube.value)
+    fuente = Source(account_id=youtube.id, name="Kevil", url="x", channel_id=youtube.external_id)
+    session.add(fuente)
+    session.flush()
+    video = Video(external_id="orig123", title=titulo, url="https://youtu.be/orig123",
+                  duration_s=150, source_id=fuente.id, published_at=utcnow() - timedelta(days=2),
+                  probe={"width": ancho, "height": alto} if ancho else {})
+    session.add(video)
+    session.flush()
+    clip = _clip(session, video, 0, 150, titulo=titulo, tmp=tmp_path)
+    clip.hook = titulo
+    session.commit()
+    return youtube, video, clip
+
+
+def _el_original_en_el_canal(monkeypatch, titulo="El Spiderverso"):
+    monkeypatch.setattr(youtube_api, "mis_subidas", lambda c, limit=50: [{
+        "id": "orig123", "title": titulo, "privacy": "public", "publish_at": "",
+        "published_at": (utcnow() - timedelta(days=2)).isoformat(), "description": "",
+    }])
+
+
+def test_el_original_con_el_mismo_titulo_no_es_el_short(session, tmp_path, de_verdad, monkeypatch):
+    youtube, _video, clip = _entero(session, tmp_path, ancho=1920, alto=1080)
+    post = _post(session, clip, youtube, horas=10)
+    session.commit()
+    _el_original_en_el_canal(monkeypatch)
+
+    assert repetidos.ya_existe(youtube, clip, post) is None
+    pipeline.job_publish(session, _ctx(session, post, programar=True))
+    # el original era horizontal: el vertical es un Short nuevo y se sube programado
+    assert de_verdad and de_verdad[0]["publish_at"]
+    assert post.en_plataforma and post.external_post_id == "nuevo"
+    assert post.status == PostStatus.scheduled.value
+
+
+def test_si_ya_es_un_short_de_tu_canal_no_se_resube(session, tmp_path, de_verdad, monkeypatch):
+    youtube, _video, clip = _entero(session, tmp_path, ancho=1080, alto=1920)
+    en_tiktok = _post(session, clip, _cuenta(session, Platform.tiktok.value), horas=10)
+    post = _post(session, clip, youtube, horas=10)
+    session.commit()
+    _el_original_en_el_canal(monkeypatch)
+
+    pipeline.job_publish(session, _ctx(session, post, programar=True))
+    assert not de_verdad
+    assert post.status == PostStatus.cancelled.value and "Short" in post.error
+    assert en_tiktok.status == PostStatus.scheduled.value      # en TikTok sí sale
+    from app.models import Notification
+    assert session.query(Notification).filter(Notification.title.like("%ya es un Short%")).count() == 1
+
+
+def test_sin_medidas_se_pregunta_a_youtube_si_es_short(session, tmp_path, monkeypatch):
+    from app.services import youtube as youtube_service
+
+    youtube, video, clip = _entero(session, tmp_path)
+    preguntas = []
+    monkeypatch.setattr(youtube_service, "es_short", lambda vid: preguntas.append(vid) or True)
+    assert repetidos.ya_es_short_en_tu_canal(youtube, clip) is True
+    assert repetidos.ya_es_short_en_tu_canal(youtube, clip) is True
+    assert preguntas == ["orig123"]                             # se pregunta una vez
+    # un trozo del vídeo no es «el mismo Short»
+    trozo = _clip(session, video, 0, 60, titulo="El Spiderverso · Parte 1")
+    assert repetidos.ya_es_short_en_tu_canal(youtube, trozo) is False
+
+
+def test_los_que_se_dieron_por_publicados_vuelven_a_la_agenda(session, tmp_path):
+    from app.models import Notification
+
+    youtube, _video, clip = _entero(session, tmp_path)
+    tiktok_ = _post(session, clip, _cuenta(session, Platform.tiktok.value), horas=5)
+    mal = _post(session, clip, youtube, estado=PostStatus.published.value, horas=5,
+                external_post_id="orig123", publish_id="orig123",
+                share_url="https://www.youtube.com/shorts/orig123", published_at=utcnow())
+    bien = _post(session, _clip(session, _video, 0, 30, titulo="Otro"), youtube,
+                 estado=PostStatus.published.value, external_post_id="otro")
+    clip.status = ClipStatus.published.value
+    session.commit()
+
+    assert repetidos.reparar_originales(session) == 1
+    assert mal.status == PostStatus.scheduled.value and not mal.external_post_id
+    assert mal.published_at is None and not mal.en_plataforma
+    assert clip.status == ClipStatus.scheduled.value
+    assert bien.status == PostStatus.published.value            # lo demás no se toca
+    assert tiktok_.status == PostStatus.scheduled.value
+    assert session.query(Notification).filter_by(kind="agenda").count() == 1
+    assert repetidos.reparar_originales(session) == 0           # y no se repite
+
+
+def test_enlazar_no_da_el_clip_por_publicado_si_queda_tiktok(session, tmp_path, de_verdad, monkeypatch):
+    video = _video(session)
+    youtube = _cuenta(session, Platform.youtube.value)
+    clip = _clip(session, video, 0, 40, titulo="FNF Animania · Parte 1", tmp=tmp_path)
+    _post(session, clip, _cuenta(session, Platform.tiktok.value), horas=5)
+    post = _post(session, clip, youtube, horas=-1)
+    session.commit()
+    monkeypatch.setattr(youtube_api, "mis_subidas", lambda c, limit=50: [{
+        "id": "ya", "title": "FNF Animania · Parte 1 #Shorts", "privacy": "public",
+        "publish_at": "", "published_at": "2026-09-20T20:25:00",
+    }])
+    pipeline.job_publish(session, _ctx(session, post))
+    assert post.status == PostStatus.published.value
+    assert clip.status == ClipStatus.scheduled.value             # aún sale en TikTok
+    assert clip.render_path                                      # y su vídeo sigue ahí
+
+
+@pytest.mark.parametrize("codigo,donde,esperado", [
+    (200, "", True), (303, "https://www.youtube.com/watch?v=x", False),
+    (302, "https://consent.youtube.com/m?x", None), (500, "", None),
+])
+def test_es_short_mira_la_direccion_de_shorts(monkeypatch, codigo, donde, esperado):
+    import httpx
+
+    from app.services import youtube as youtube_service
+
+    def responder(peticion):
+        assert peticion.url.path == "/shorts/abc"
+        return httpx.Response(codigo, headers={"location": donde} if donde else {})
+
+    real = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **k: real(transport=httpx.MockTransport(responder), **k))
+    assert youtube_service.es_short("abc") is esperado

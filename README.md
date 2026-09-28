@@ -474,6 +474,12 @@ Las ideas se guardan o se descartan, así no te repite siempre lo mismo.
   YouTube (también lo privado y lo programado) y en tu TikTok. Si ese clip ya está
   —lo subió una versión anterior, aunque fuera desde otra carpeta—, no lo sube otra vez:
   lo enlaza y, si en YouTube ya tenía hora, se queda con esa.
+* **El vídeo original no cuenta como «ya subido».** Un clip que es el vídeo entero se
+  llama igual que el original de tu canal; Kevil sabe que el original no es el Short y
+  lo sube de verdad, programado en YouTube.
+* **Si el vídeo entero ya es un Short de tu canal**, no se vuelve a subir a YouTube (sería
+  el mismo Short dos veces): sale sólo en TikTok y la agenda te dice por qué. Si el
+  original es horizontal, el vertical sí es un Short nuevo y se sube.
 * **Volver a cortar un vídeo** no repite los momentos que ya son clips (ni los que
   descartaste).
 * **Aprobar** no programa en una cuenta un momento que ya está programado o publicado allí.

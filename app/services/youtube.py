@@ -529,6 +529,31 @@ def search_videos(query: str, *, limit: int = 15) -> list[dict[str, Any]]:
     return resultados
 
 
+def es_short(video_id: str) -> bool | None:
+    """¿Ese vídeo es un Short? None si no se puede saber.
+
+    youtube.com/shorts/ID responde tal cual si lo es y redirige a /watch si
+    no. No gasta cuota ni hace falta iniciar sesión.
+    """
+    import httpx
+
+    if not video_id:
+        return None
+    try:
+        with httpx.Client(timeout=10, follow_redirects=False,
+                          headers={"User-Agent": "Mozilla/5.0"}) as cliente:
+            respuesta = cliente.head(f"https://www.youtube.com/shorts/{video_id}")
+            if respuesta.status_code == 405:
+                respuesta = cliente.get(f"https://www.youtube.com/shorts/{video_id}")
+    except httpx.HTTPError:
+        return None
+    if respuesta.status_code == 200:
+        return True
+    if 300 <= respuesta.status_code < 400 and "/watch" in respuesta.headers.get("location", ""):
+        return False
+    return None
+
+
 def fetch_video_info(url: str, cookies_from_browser: str = "") -> dict[str, Any]:
     """Metadatos completos de un vídeo suelto."""
     _require_ytdlp()          # avisa claro si falta yt-dlp
