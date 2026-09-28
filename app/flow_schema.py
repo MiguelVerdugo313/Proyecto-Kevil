@@ -346,6 +346,38 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
         ],
     },
     {
+        "type": "cleanup",
+        "label": "Limpieza",
+        "icon": "✂️",
+        "description": "Quita los silencios largos y los «eh», «em», «mmm» del clip.",
+        "fields": [
+            {
+                "key": "remove_fillers",
+                "label": "Quitar muletillas («eh», «em», «mmm»)",
+                "type": "bool",
+                "default": False,
+                "help": "Sólo sonidos de relleno: «este», «pues» u «o sea» no se tocan.",
+            },
+            {
+                "key": "remove_silences",
+                "label": "Acortar los silencios",
+                "type": "bool",
+                "default": False,
+                "help": "Se corta donde nadie habla. En gameplays, si en ese silencio "
+                "pasa algo en pantalla, también se va: déjalo apagado si es tu caso.",
+            },
+            {
+                "key": "max_pause",
+                "label": "Silencio máximo (segundos)",
+                "type": "slider",
+                "default": 0.8,
+                "min": 0.4,
+                "max": 2.0,
+                "step": 0.1,
+            },
+        ],
+    },
+    {
         "type": "subtitles",
         "label": "Rótulos automáticos",
         "icon": "🔠",
@@ -765,6 +797,7 @@ ESSENTIAL_FIELDS: dict[str, set[str]] = {
     "transcribe": {"engine"},
     "segment": {"strategy", "min_duration", "max_duration", "max_clips"},
     "reframe": {"mode", "follow"},
+    "cleanup": {"remove_fillers", "remove_silences"},
     "subtitles": {"template", "font_size", "position_y"},
     "overlays": {"hook_enabled", "watermark"},
     "audio": {"normalize"},

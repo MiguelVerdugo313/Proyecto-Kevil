@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.api.common import clip_to_dict, naive_utc
 from app.db import get_db
 from app.models import Account, Clip, ClipStatus, PostStatus
-from app.services import events, pipeline, plantillas, storage
+from app.services import events, pipeline, plantillas, storage, transcript
 from app.services.queue import enqueue
 
 router = APIRouter(prefix="/api/clips", tags=["clips"])
@@ -35,6 +35,8 @@ class ClipPatch(BaseModel):
     reframe: dict[str, Any] | None = None
     # rótulos sólo de este clip (por ejemplo otra plantilla)
     subtitles: dict[str, Any] | None = None
+    # limpieza sólo de este clip (quitar silencios o muletillas)
+    cleanup: dict[str, Any] | None = None
 
 
 class DestinoIn(BaseModel):
@@ -92,6 +94,7 @@ def patch_clip(clip_id: int, body: ClipPatch, db: Session = Depends(get_db)):
     data = body.model_dump(exclude_none=True)
     reframe = data.pop("reframe", None)
     rotulos = data.pop("subtitles", None)
+    limpieza = data.pop("cleanup", None)
     timing_changed = False
 
     for field, value in data.items():
@@ -116,8 +119,24 @@ def patch_clip(clip_id: int, body: ClipPatch, db: Session = Depends(get_db)):
         clip.render_config = config
         timing_changed = True
 
+    if limpieza is not None:
+        config = dict(clip.render_config or {})
+        permitidos = {"remove_fillers", "remove_silences", "max_pause"}
+        config["cleanup"] = {
+            **(config.get("cleanup") or {}),
+            **{k: v for k, v in limpieza.items() if k in permitidos},
+        }
+        clip.render_config = config
+        timing_changed = True
+
     if clip.end_s <= clip.start_s:
         raise HTTPException(400, "El final debe ser posterior al inicio.")
+
+    if {"start_s", "end_s"} & data.keys():
+        # los rótulos siguen a los nuevos cortes: si no, salen desfasados
+        todas = ((clip.video.transcript if clip.video else None) or {}).get("words") or []
+        if todas:
+            clip.words = transcript.slice_words(todas, clip.start_s, clip.end_s)
 
     if timing_changed and clip.status in {
         ClipStatus.rendered.value,

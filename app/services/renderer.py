@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 from app import procesos
 from app.config import settings
-from app.services import captions
+from app.services import captions, limpieza as limpieza_service
 from app.services import media as media_service
 
 
@@ -267,12 +267,29 @@ def render_clip(
     hook_text: str = "",
     has_audio: bool = True,
     on_progress: Callable[[float], None] | None = None,
+    limpieza: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     source_path = str(source_path)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     duration = max(0.5, float(end) - float(start))
+    original = duration
+    # Limpieza: los silencios largos y las muletillas se quitan del clip y los
+    # rótulos se recolocan para que sigan cuadrando con la voz.
+    limpieza = limpieza or {}
+    quitados = limpieza_service.cortes(
+        words or [], duration,
+        silencios=bool(limpieza.get("remove_silences")),
+        muletillas=bool(limpieza.get("remove_fillers")),
+        pausa_max=float(limpieza.get("max_pause", limpieza_service.PAUSA_POR_DEFECTO) or 0.8),
+    )
+    quedan = limpieza_service.tramos(duration, quitados) if quitados else []
+    if quitados:
+        words = limpieza_service.recolocar(
+            words or [], quitados, muletillas=bool(limpieza.get("remove_fillers"))
+        )
+        duration = max(0.5, sum(b - a for a, b in quedan))
     width, height = parse_resolution(reframe.get("resolution", "1080x1920"))
     fps = int(str(reframe.get("fps", 30)) or 30)
     mode = (reframe.get("mode") or "blur").lower()
@@ -284,6 +301,12 @@ def render_clip(
         # habla cuando se mueve. Se puede apagar y quedarse con un encuadre fijo.
         if bool(reframe.get("follow", True)):
             recorrido = seguir_accion(source_path, float(start), float(end))
+        if recorrido and quitados:
+            # el recorrido se midió sobre el clip entero: se pasa a los tiempos nuevos
+            vistos: dict[float, float] = {}
+            for momento, x in recorrido:
+                vistos.setdefault(round(limpieza_service.nuevo_tiempo(momento, quitados), 3), x)
+            recorrido = sorted(vistos.items())
         if recorrido:
             focus_x = sum(x for _, x in recorrido) / len(recorrido)
         else:
@@ -334,18 +357,38 @@ def render_clip(
         label = "[vout]"
 
     chains.append(f"{label}fps={fps},format=yuv420p[vfinal]")
+    if quedan:
+        # se cortan los trozos que se quedan y se pegan uno detrás de otro
+        cortes_ff: list[str] = []
+        pegar = ""
+        for numero, (a, b) in enumerate(quedan):
+            cortes_ff.append(f"[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[c{numero}v]")
+            pegar += f"[c{numero}v]"
+            if has_audio:
+                cortes_ff.append(
+                    f"[0:a:0]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[c{numero}a]"
+                )
+                pegar += f"[c{numero}a]"
+        salida = "[vlimpio][alimpio]" if has_audio else "[vlimpio]"
+        cortes_ff.append(f"{pegar}concat=n={len(quedan)}:v=1:a={1 if has_audio else 0}{salida}")
+        chains = cortes_ff + [c.replace("[0:v]", "[vlimpio]") for c in chains]
+    if has_audio:
+        audio_chain = build_audio_filters(audio or {}, duration)
+        if quedan:
+            chains.append(f"[alimpio]{audio_chain}[afinal]")
     filter_complex = ";".join(chains)
 
     args = [
         "-ss", f"{float(start):.3f}",
-        "-t", f"{duration:.3f}",
+        "-t", f"{original:.3f}",
         "-i", source_path,
         "-filter_complex", filter_complex,
         "-map", "[vfinal]",
     ]
 
-    if has_audio:
-        audio_chain = build_audio_filters(audio or {}, duration)
+    if has_audio and quedan:
+        args += ["-map", "[afinal]", "-c:a", "aac", "-b:a", "128k", "-ac", "2"]
+    elif has_audio:
         args += ["-map", "0:a:0?", "-af", audio_chain, "-c:a", "aac", "-b:a", "128k", "-ac", "2"]
     else:
         args += ["-an"]
@@ -379,6 +422,8 @@ def render_clip(
 
     info = media_service.probe(output_path)
     return {
+        "limpieza": limpieza_service.resumen(original, quitados),
+        "quitado_s": round(sum(b - a for a, b in quitados), 2),
         "path": str(output_path),
         "thumb": str(thumb_path) if thumb_path else "",
         "focus_x": round(focus_x, 4),

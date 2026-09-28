@@ -105,8 +105,8 @@ def ruta_cookies_txt() -> Path:
 
 def cookies_txt_valido(texto: str) -> bool:
     """¿Parece un cookies.txt de verdad y trae las de YouTube?"""
-    lineas = [l for l in texto.splitlines() if l.strip() and not l.startswith("#")]
-    return any(".youtube.com" in l and len(l.split("\t")) >= 7 for l in lineas)
+    lineas = [ln for ln in texto.splitlines() if ln.strip() and not ln.startswith("#")]
+    return any(".youtube.com" in ln and len(ln.split("\t")) >= 7 for ln in lineas)
 
 
 def opciones_de_cookies(del_flujo: str = "") -> dict[str, Any]:

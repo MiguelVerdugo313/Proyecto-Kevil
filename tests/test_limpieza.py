@@ -1,152 +1,142 @@
-"""«Liberar espacio» y borrar clips: se va lo que sobra, se queda lo que hace falta."""
-
-from __future__ import annotations
-
-import os
-import time
-from pathlib import Path
+"""Limpieza del clip: silencios largos y muletillas fuera, rótulos en su sitio."""
 
 import pytest
 
 from app.config import settings
-from app.models import (
-    Account, AccountStatus, Clip, ClipStatus, Platform, Post, PostStatus, Video, utcnow,
-)
-from app.services import storage
+from app.flow_schema import default_config
+from app.services import limpieza, renderer
+from app.services import media as media_service
+
+PALABRAS = [
+    {"start": 0.2, "end": 0.6, "text": "vamos"},
+    {"start": 0.7, "end": 1.0, "text": "eh"},
+    {"start": 1.1, "end": 1.5, "text": "a"},
+    {"start": 1.5, "end": 2.0, "text": "ganar"},
+    # tres segundos sin hablar
+    {"start": 5.0, "end": 5.4, "text": "¡Mmm!"},
+    {"start": 5.5, "end": 6.0, "text": "increíble"},
+]
 
 
-@pytest.fixture
-def carpetas(tmp_path, monkeypatch):
-    """Carpetas de medios propias para no pisar las de otras pruebas."""
-    rutas = {
-        "sources_path": tmp_path / "originales",
-        "clips_path": tmp_path / "clips",
-        "thumbs_path": tmp_path / "miniaturas",
-        "work_path": tmp_path / "trabajo",
-    }
-    for nombre, ruta in rutas.items():
-        ruta.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr(type(settings), nombre, property(lambda _s, r=ruta: r))
-    return rutas
+def test_que_es_una_muletilla():
+    for si in ("eh", "Ehh", "em", "mmm", "¡Mmm!", "hmm", "um", "uh", "eee"):
+        assert limpieza.es_muletilla(si), si
+    for no in ("e", "este", "pues", "me", "mi", "ahí", "hum…no", "ah", "y"):
+        assert not limpieza.es_muletilla(no), no
 
 
-def _archivo(carpeta: Path, nombre: str, kb: int = 100, *, viejo: bool = True) -> Path:
-    ruta = carpeta / nombre
-    ruta.write_bytes(b"0" * kb * 1024)
-    if viejo:  # los sueltos recientes no se tocan: se envejecen para la prueba
-        hace = time.time() - 2 * storage.MARGEN_HUERFANOS_S
-        os.utime(ruta, (hace, hace))
-    return ruta
+def test_sin_nada_encendido_no_se_toca():
+    assert limpieza.cortes(PALABRAS, 7.0) == []
+    assert limpieza.recolocar(PALABRAS, [], muletillas=False) == PALABRAS
 
 
-def _cuenta(session) -> Account:
-    cuenta = Account(platform=Platform.tiktok.value, display_name="C", handle="c",
-                     external_id="c1", status=AccountStatus.connected.value)
-    session.add(cuenta)
-    session.flush()
-    return cuenta
+def test_quita_los_silencios_y_deja_aire():
+    cortes = limpieza.cortes(PALABRAS, 7.0, silencios=True, pausa_max=0.8)
+    assert len(cortes) == 1
+    a, b = cortes[0]
+    assert a == pytest.approx(2.0 + limpieza.AIRE_DESPUES)
+    assert b == pytest.approx(5.0 - limpieza.AIRE_ANTES)
+    quedan = limpieza.tramos(7.0, cortes)
+    assert quedan[0][0] == 0 and quedan[-1][1] == 7.0
+    # las palabras de después llegan antes, las de antes no se mueven
+    nuevas = limpieza.recolocar(PALABRAS, cortes, muletillas=False)
+    assert nuevas[0] == PALABRAS[0]
+    assert nuevas[-1]["start"] == pytest.approx(5.5 - (b - a), abs=0.01)
 
 
-def _clip(session, video, carpetas, nombre, estado, publicaciones=()):
-    archivo = _archivo(carpetas["clips_path"], nombre)
-    clip = Clip(video_id=video.id, index=1, title=nombre, start_s=0, end_s=10,
-                render_path=str(archivo), status=estado)
-    session.add(clip)
-    session.flush()
-    cuenta = _cuenta(session) if publicaciones else None
-    for estado_post in publicaciones:
-        session.add(Post(clip_id=clip.id, account_id=cuenta.id,
-                         scheduled_at=utcnow(), status=estado_post))
-    session.flush()
-    return clip
+def test_quita_las_muletillas_y_sus_rotulos():
+    cortes = limpieza.cortes(PALABRAS, 7.0, muletillas=True)
+    assert len(cortes) == 2                       # el «eh» y el «mmm»
+    nuevas = limpieza.recolocar(PALABRAS, cortes, muletillas=True)
+    textos = [w["text"] for w in nuevas]
+    assert "eh" not in textos and "¡Mmm!" not in textos
+    assert textos == ["vamos", "a", "ganar", "increíble"]
+    # nunca se solapan ni van hacia atrás
+    for antes, despues in zip(nuevas, nuevas[1:]):
+        assert antes["end"] <= despues["start"] + 1e-6
 
 
-def test_liberar_espacio_se_lleva_solo_lo_que_sobra(session, carpetas):
-    hecho = Video(external_id="v1", title="Ya cortado", url="x",
-                  local_path=str(_archivo(carpetas["sources_path"], "hecho.mp4", 300)))
-    nuevo = Video(external_id="v2", title="Recién bajado", url="x",
-                  local_path=str(_archivo(carpetas["sources_path"], "nuevo.mp4", 300)))
-    session.add_all([hecho, nuevo])
-    session.flush()
+def test_los_dos_a_la_vez_no_se_pisan():
+    cortes = limpieza.cortes(PALABRAS, 7.0, silencios=True, muletillas=True)
+    for (a1, b1), (a2, b2) in zip(cortes, cortes[1:]):
+        assert b1 < a2
+    total = sum(b - a for a, b in cortes)
+    assert 2.5 < total < 4.0
+    assert "cortes" in limpieza.resumen(7.0, cortes)
 
-    descartado = _clip(session, hecho, carpetas, "descartado.mp4", ClipStatus.rejected.value)
-    publicado = _clip(session, hecho, carpetas, "publicado.mp4", ClipStatus.published.value,
-                      [PostStatus.published.value])
-    por_revisar = _clip(session, hecho, carpetas, "revisar.mp4", ClipStatus.rendered.value)
-    programado = _clip(session, hecho, carpetas, "programado.mp4", ClipStatus.scheduled.value,
-                       [PostStatus.scheduled.value])
-    fallido = _clip(session, hecho, carpetas, "fallido.mp4", ClipStatus.failed.value,
-                    [PostStatus.failed.value])
+
+@pytest.mark.skipif(not media_service.ffmpeg_ready(), reason="ffmpeg no está instalado")
+def test_render_real_con_limpieza(tmp_path):
+    origen = tmp_path / "origen.mp4"
+    media_service.make_test_video(origen, seconds=10)
+    salida = tmp_path / "limpio.mp4"
+    settings.work_path.mkdir(parents=True, exist_ok=True)
+    resultado = renderer.render_clip(
+        source_path=origen,
+        start=1,
+        end=8,
+        output_path=salida,
+        reframe={**default_config("reframe"), "resolution": "540x960"},
+        audio=default_config("audio"),
+        subtitles={**default_config("subtitles"), "template": "hormozi"},
+        overlays=default_config("overlays"),
+        words=PALABRAS,
+        hook_text="gancho",
+        limpieza={"remove_silences": True, "remove_fillers": True, "max_pause": 0.8},
+    )
+    assert salida.exists()
+    # 7 s de clip menos lo quitado, con audio y vídeo del mismo largo
+    esperado = 7.0 - resultado["quitado_s"]
+    assert resultado["quitado_s"] > 2.5
+    assert abs(resultado["duration"] - esperado) < 0.35
+    assert resultado["limpieza"].startswith("Limpieza:")
+
+
+def test_editar_el_clip_recoloca_rotulos_y_guarda_lo_suyo(session, tmp_path):
+    import contextlib
+
+    from fastapi.testclient import TestClient
+
+    from app.db import get_db
+    from app.main import app
+    from app.models import ClipStatus
+    from tests.test_youtube_publish import _clip_listo, _pasos_publicando_en
+
+    clip = _clip_listo(session, tmp_path, _pasos_publicando_en(True, False))
+    clip.video.transcript = {"words": [
+        {"start": 3.0, "end": 3.5, "text": "hola"},
+        {"start": 12.0, "end": 12.5, "text": "adiós"},
+    ]}
     session.commit()
 
-    temporal = _archivo(carpetas["work_path"], "resto.ass", 50)
-    suelto_viejo = _archivo(carpetas["clips_path"], "de-nadie.mp4", 200)
-    suelto_nuevo = _archivo(carpetas["clips_path"], "escribiendose.mp4", 200, viejo=False)
+    @contextlib.asynccontextmanager
+    async def _nada(_app):
+        yield
 
-    plan = storage.plan_de_limpieza(session)
-    assert plan["parts"]["descartados"] > 0
-    assert plan["parts"]["publicados"] > 0
-    assert plan["parts"]["originales"] > 0
-    assert plan["parts"]["huerfanos"] > 0
-    assert plan["total_mb"] > 0
+    app.router.lifespan_context = _nada
+    app.dependency_overrides[get_db] = lambda: session
+    try:
+        with TestClient(app) as cliente:
+            r = cliente.patch(f"/api/clips/{clip.id}", json={"start_s": 10, "end_s": 20})
+            assert r.status_code == 200, r.text
+            # el rótulo de «adiós» cae a los 2 s del nuevo inicio
+            assert clip.words == [{"start": 2.0, "end": 2.5, "text": "adiós"}]
+            assert clip.status == ClipStatus.draft.value          # hay que volver a montarlo
 
-    resultado = storage.liberar_espacio(session)
-    session.commit()
-    assert resultado["freed_mb"] > 0
+            r = cliente.patch(f"/api/clips/{clip.id}", json={
+                "subtitles": {"template": "gamer", "font": "Arial"},
+                "cleanup": {"remove_fillers": True, "otra": 1},
+            })
+            assert r.status_code == 200
+            assert clip.render_config["subtitles"] == {"template": "gamer"}   # sólo lo permitido
+            assert clip.render_config["cleanup"] == {"remove_fillers": True}
+            assert cliente.patch(f"/api/clips/{clip.id}",
+                                 json={"subtitles": {"template": "no-existe"}}).status_code == 400
 
-    # se va
-    assert not Path(descartado.render_path or "x").exists()
-    assert not Path(publicado.render_path or "x").exists()
-    assert hecho.local_path == ""
-    assert not temporal.exists()
-    assert not suelto_viejo.exists()
-
-    # se queda
-    assert Path(por_revisar.render_path).exists(), "lo que está por revisar no se toca"
-    assert Path(programado.render_path).exists(), "lo programado no se toca"
-    assert Path(fallido.render_path).exists(), "lo que falló puede querer reintentarse"
-    assert Path(nuevo.local_path).exists(), "un vídeo aún sin cortar se necesita"
-    assert suelto_nuevo.exists(), "un archivo recién escrito puede ser de un trabajo en marcha"
-
-    # y una segunda pasada no encuentra nada más que llevarse
-    assert storage.liberar_espacio(session)["freed_mb"] == 0
-
-
-def test_borrar_clips_elegidos(session, carpetas):
-    video = Video(external_id="v3", title="V", url="x")
-    session.add(video)
-    session.flush()
-    uno = _clip(session, video, carpetas, "uno.mp4", ClipStatus.rendered.value)
-    programado = _clip(session, video, carpetas, "prog.mp4", ClipStatus.scheduled.value,
-                       [PostStatus.scheduled.value])
-    subiendo = _clip(session, video, carpetas, "sube.mp4", ClipStatus.publishing.value,
-                     [PostStatus.publishing.value])
-    session.commit()
-    rutas = {c.id: Path(c.render_path) for c in (uno, programado, subiendo)}
-
-    resultado = storage.borrar_clips(session, [uno.id, programado.id, subiendo.id])
-    session.commit()
-
-    assert resultado["deleted"] == 2
-    assert resultado["skipped"] == 1          # el que se está subiendo, no
-    assert resultado["freed_mb"] > 0
-    assert not rutas[uno.id].exists() and not rutas[programado.id].exists()
-    assert rutas[subiendo.id].exists()
-    assert session.get(Clip, uno.id) is None
-    # la publicación programada se va con su clip
-    assert session.query(Post).filter(Post.clip_id == programado.id).count() == 0
-
-
-def test_borrar_todo_cancela_lo_programado(session, carpetas):
-    """Sin archivo no se puede publicar: mejor cancelarlo que verlo fallar después."""
-    video = Video(external_id="v4", title="V", url="x")
-    session.add(video)
-    session.flush()
-    programado = _clip(session, video, carpetas, "p.mp4", ClipStatus.scheduled.value,
-                       [PostStatus.scheduled.value])
-    session.commit()
-
-    storage.purge_everything(session)
-    session.commit()
-    assert programado.posts[0].status == PostStatus.cancelled.value
-    assert programado.render_path == ""
+            lista = cliente.get("/api/flows/plantillas-rotulos").json()
+            assert {p["id"] for p in lista} >= {"kevil", "hormozi", "gamer"}
+            archivo = next(p["archivo"] for p in lista if p["id"] == "gamer")
+            assert cliente.get(f"/api/flows/plantillas-rotulos/fuente/{archivo}").status_code == 200
+            assert cliente.get("/api/flows/plantillas-rotulos/fuente/..%2F..%2Fconfig.py").status_code == 404
+    finally:
+        app.dependency_overrides.clear()

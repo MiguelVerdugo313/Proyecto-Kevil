@@ -695,6 +695,10 @@ def job_render(session: Session, ctx: JobContext) -> None:
     propios = dict((clip.render_config or {}).get("subtitles") or {})
     rotulos_activos = bool(propios.pop("enabled", step_enabled(flow.steps, "subtitles")))
     subtitles_config = {**step_config(flow.steps, "subtitles"), **propios}
+    limpieza_config = (
+        {**step_config(flow.steps, "cleanup"), **((clip.render_config or {}).get("cleanup") or {})}
+        if step_enabled(flow.steps, "cleanup") else {}
+    )
     overlays_config = step_config(flow.steps, "overlays")
     audio_config = step_config(flow.steps, "audio")
     publish_config = step_config(flow.steps, "publish")
@@ -794,7 +798,10 @@ def job_render(session: Session, ctx: JobContext) -> None:
         hook_text=hook_text,
         has_audio=bool((video.probe or {}).get("has_audio", True)),
         on_progress=lambda ratio: ctx.progress(ratio * 0.95, f"Renderizando… {ratio * 100:.0f}%"),
+        limpieza=limpieza_config,
     )
+    if result.get("limpieza"):
+        ctx.log(result["limpieza"])
 
     clip.render_path = result["path"]
     clip.thumb_path = result.get("thumb", "")
