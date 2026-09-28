@@ -600,6 +600,7 @@ export default {
               ${account.status_detail ? `<div class="tiny" style="color:var(--amber);margin-top:3px">${escapeHtml(account.status_detail)}</div>` : ''}
             </div>
             <div class="actions">
+              ${account.status === 'needs_auth' ? '<a class="btn sm primary" href="/api/oauth/tiktok/start">Volver a conectar</a>' : ''}
               <button class="btn sm" data-strategy="${account.id}">Estrategia</button>
               <button class="btn sm ghost" data-refresh="${account.id}">Actualizar</button>
               <button class="btn sm danger" data-del-account="${account.id}">Quitar</button>
@@ -632,14 +633,18 @@ export default {
                 ${vigilado(account)
                   ? '<span class="pill ok" title="Kevil busca sus vídeos y saca clips">vigilado · saca clips</span>'
                   : '<span class="pill warn">no se vigila</span>'}
-                ${account.has_token
-                  ? '<span class="pill ok">publica Shorts</span>'
-                  : '<span class="pill">sin permiso para publicar</span>'}
+                ${account.status === 'needs_auth'
+                  ? '<span class="pill warn">hay que volver a conectar</span>'
+                  : account.has_token
+                    ? '<span class="pill ok">publica Shorts</span>'
+                    : '<span class="pill">sin permiso para publicar</span>'}
               </div>
               <div class="muted small" style="margin-top:3px">
                 ${fmt.number(account.stats?.subscribers || 0)} suscriptores</div>
+              ${account.status_detail ? `<div class="tiny" style="color:var(--amber);margin-top:3px">${escapeHtml(account.status_detail)}</div>` : ''}
             </div>
             <div class="actions">
+              ${account.status === 'needs_auth' ? '<a class="btn sm primary" href="/api/oauth/youtube/start">Volver a conectar</a>' : ''}
               ${vigilado(account) ? '' : `<button class="btn sm primary" data-vigilar="${account.id}">Vigilar</button>`}
               <button class="btn sm danger" data-del-account="${account.id}">Quitar</button>
             </div>

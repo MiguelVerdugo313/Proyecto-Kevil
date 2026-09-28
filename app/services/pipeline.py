@@ -276,11 +276,21 @@ def videos_de_respaldo(session: Session, source: Source, *, limit: int = 20) -> 
     credenciales = (cuenta.credentials or {}) if cuenta else {}
     items: list[dict[str, Any]] = []
     detalles: dict[str, dict] = {}
-    if credenciales.get("access_token") and cuenta.external_id == canal:
-        credenciales = youtube_api.valid_credentials(credenciales)
-        cuenta.credentials = credenciales
-        items = youtube_api.fetch_uploads(credenciales, limit=min(50, limit * 2))
-        detalles = youtube_api.fetch_video_details(credenciales, [i["id"] for i in items])
+    from app.services import permisos
+
+    if (credenciales.get("access_token") and cuenta.external_id == canal
+            and permisos.puede_usarse(cuenta)):
+        try:
+            credenciales = youtube_api.valid_credentials(credenciales)
+            cuenta.credentials = credenciales
+            items = youtube_api.fetch_uploads(credenciales, limit=min(50, limit * 2))
+            detalles = youtube_api.fetch_video_details(credenciales, [i["id"] for i in items])
+        except Exception as exc:  # noqa: BLE001 - el feed público sigue funcionando
+            if permisos.es_permiso_caducado(exc):
+                permisos.marcar_para_reconectar(session, cuenta, exc)
+            elif not isinstance(exc, youtube_api.LimiteDelDia):
+                raise
+            items, detalles = coach.leer_feed(canal, con_shorts=True), {}
     else:
         items = coach.leer_feed(canal, con_shorts=True)
 
@@ -881,6 +891,10 @@ def job_render(session: Session, ctx: JobContext) -> None:
         },
     }
     clip.status = ClipStatus.rendered.value
+    if clip.posts:
+        # volver a montar un clip ya programado no lo devuelve a «Por revisar»
+        estado_del_clip(clip)
+        _reemplazar_en_youtube(session, clip)
     session.commit()
     ctx.progress(0.97, "Clip listo")
 
@@ -999,6 +1013,127 @@ def proponer_hora(
 # --------------------------------------------------------------------------
 # 6. Publicar
 # --------------------------------------------------------------------------
+def estado_del_clip(clip: Clip) -> None:
+    """El estado del clip según sus publicaciones.
+
+    Con dos destinos, que uno salga no lo da por publicado si el otro aún
+    espera, y que uno falle no lo da por fallido si el otro sigue vivo.
+    """
+    estados = {p.status for p in clip.posts}
+    if estados & {PostStatus.scheduled.value, PostStatus.publishing.value}:
+        clip.status = ClipStatus.scheduled.value
+    elif PostStatus.published.value in estados:
+        clip.status = ClipStatus.published.value
+    elif PostStatus.failed.value in estados:
+        clip.status = ClipStatus.failed.value
+    elif clip.render_path and Path(clip.render_path).exists():
+        clip.status = ClipStatus.rendered.value
+
+
+def _aplazar(post: Post, clip: Clip, cuanto: timedelta, motivo: str) -> None:
+    post.status = PostStatus.scheduled.value
+    post.scheduled_at = utcnow() + cuanto
+    post.slot_reason = motivo[:300]
+    post.error = ""
+    clip.status = ClipStatus.scheduled.value
+
+
+def _fallo_con_arreglo(session, ctx, post, clip, account, exc) -> bool:
+    """Los fallos que no son del clip: se aplazan o esperan a que reconectes.
+
+    Devuelve True si ya está resuelto (no hay que dar la publicación por fallida).
+    """
+    from app.services import permisos
+
+    if isinstance(exc, (QuotaAgotada, youtube_api.LimiteDelDia)):
+        # No es un error: simplemente hoy ya no toca. Se mueve a mañana.
+        _aplazar(post, clip, timedelta(hours=24, minutes=5),
+                 "Aplazado: cuota diaria de YouTube agotada")
+        notifications.notify(
+            session,
+            "Cuota de YouTube agotada por hoy",
+            f"«{clip.title[:60]}» se publicará mañana. {exc}",
+            kind="cuota", level="warn", action_label="Ver la agenda",
+            action_url="#agenda", dedupe_hours=12,
+        )
+        events.log(session, str(exc), level="warn", scope="youtube")
+        ctx.progress(1.0, "Aplazado a mañana")
+        return True
+    if permisos.es_permiso_caducado(exc):
+        permisos.marcar_para_reconectar(session, account, exc)
+        post.status = PostStatus.failed.value
+        post.error = f"{permisos.PREFIJO}{exc}"[:1000]
+        estado_del_clip(clip)
+        ctx.progress(1.0, "Hay que volver a conectar la cuenta")
+        return True
+    codigo = getattr(exc, "codigo", "")
+    if codigo in {"rate_limit_exceeded", "spam_risk_too_many_posts"}:
+        # TikTok pide calma: se deja para más tarde, no se da por perdida
+        espera = timedelta(minutes=20) if codigo == "rate_limit_exceeded" else timedelta(hours=3)
+        _aplazar(post, clip, espera, f"Aplazado: {exc}")
+        events.log(session, f"«{clip.title[:50]}»: TikTok pide calma, se publica más tarde",
+                   level="warn", scope="tiktok", data={"post_id": post.id})
+        ctx.progress(1.0, "Aplazado: TikTok pide calma")
+        return True
+    return False
+
+
+def _reemplazar_en_youtube(session: Session, clip: Clip) -> None:
+    """Se ha vuelto a montar un clip que ya estaba subido y programado en YouTube.
+
+    Si no, saldría la versión vieja: se borra la subida y el Short vuelve a
+    subirse con el vídeo nuevo, a la misma hora.
+    """
+    for post in clip.posts:
+        if not (post.en_plataforma and post.status == PostStatus.scheduled.value
+                and post.external_post_id and post.account
+                and post.account.platform == Platform.youtube.value):
+            continue
+        viejo = post.external_post_id
+        try:
+            if not settings.dry_run:
+                youtube_api.borrar_video(post.account.credentials or {}, viejo)
+        except Exception as exc:  # noqa: BLE001
+            notifications.notify(
+                session,
+                "Borra a mano la versión vieja del Short",
+                f"«{clip.title[:60]}» se ha vuelto a montar, pero la versión anterior ya estaba "
+                f"programada en YouTube y no se ha podido quitar ({exc}). Bórrala en YouTube "
+                "Studio para que no salgan las dos.",
+                kind="youtube", level="warn", action_label="Abrir YouTube Studio",
+                action_url=youtube_api.enlace_studio(viejo), dedupe_hours=0,
+            )
+            continue
+        post.en_plataforma = False
+        post.external_post_id = post.publish_id = post.share_url = ""
+        post.subido_at = None
+        post.metrics = {k: v for k, v in (post.metrics or {}).items() if k != "intento_programar"}
+        events.log(session, f"«{clip.title[:50]}»: la versión nueva sustituye a la ya programada "
+                   "en YouTube", level="info", scope="youtube", data={"post_id": post.id})
+
+
+def _volver_a_montar(session, ctx, post, clip) -> bool:
+    """El vídeo del clip no está (se liberó espacio, se borró a mano…).
+
+    Se vuelve a montar y la publicación espera un poco en vez de fallar.
+    """
+    video = clip.video
+    if video is None or not (video.url or (video.local_path and Path(video.local_path).exists())):
+        return False
+    intentos = int((post.metrics or {}).get("remontajes") or 0)
+    if intentos >= 2:
+        return False
+    post.metrics = {**(post.metrics or {}), "remontajes": intentos + 1}
+    _aplazar(post, clip, timedelta(minutes=30), "Aplazado: se está volviendo a montar el clip")
+    clip.status = ClipStatus.draft.value
+    enqueue(session, "render", {"clip_id": clip.id}, priority=45,
+            message=f"Volver a montar «{clip.title[:40]}» para publicarlo")
+    events.log(session, f"«{clip.title[:50]}» no tenía su vídeo: se vuelve a montar y sale en "
+               "30 minutos", level="warn", scope="agenda", data={"post_id": post.id})
+    ctx.progress(1.0, "Volviendo a montar el clip")
+    return True
+
+
 @register("publish")
 def job_publish(session: Session, ctx: JobContext) -> None:
     post = session.get(Post, int(ctx.payload["post_id"]))
@@ -1013,7 +1148,19 @@ def job_publish(session: Session, ctx: JobContext) -> None:
 
     clip = post.clip
     account = post.account
+    from app.services import permisos
+
+    if not permisos.puede_usarse(account):
+        # sin permiso no hay nada que intentar: se queda esperando a que la
+        # vuelvas a conectar, y entonces sale solo
+        post.status = PostStatus.failed.value
+        post.error = f"{permisos.PREFIJO}{account.status_detail or 'la cuenta no está autorizada'}"[:1000]
+        estado_del_clip(clip)
+        ctx.progress(1.0, "Hay que volver a conectar la cuenta")
+        return
     if not clip.render_path or not Path(clip.render_path).exists():
+        if _volver_a_montar(session, ctx, post, clip):
+            return
         raise RuntimeError("El clip no está renderizado.")
 
     flow = resolve_flow(session, clip.flow_id)
@@ -1080,44 +1227,15 @@ def job_publish(session: Session, ctx: JobContext) -> None:
             result = _publish_to_youtube(session, ctx, post, clip, account, publish_config)
         else:
             result = _publish_to_tiktok(session, ctx, post, clip, account, publish_config)
-    except QuotaAgotada as exc:
-        # No es un error: simplemente hoy ya no toca. Se mueve a mañana.
-        post.status = PostStatus.scheduled.value
-        post.scheduled_at = utcnow() + timedelta(hours=24, minutes=5)
-        post.slot_reason = "Aplazado: cuota diaria de YouTube agotada"
-        clip.status = ClipStatus.scheduled.value
-        notifications.notify(
-            session,
-            "Cuota de YouTube agotada por hoy",
-            f"«{clip.title[:60]}» se publicará mañana. {exc}",
-            kind="cuota",
-            level="warn",
-            action_label="Ver la agenda",
-            action_url="#agenda",
-            dedupe_hours=12,
-        )
-        events.log(session, str(exc), level="warn", scope="youtube")
-        ctx.progress(1.0, "Aplazado a mañana")
-        return
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - se reparte según qué haya sido
+        if _fallo_con_arreglo(session, ctx, post, clip, account, exc):
+            return
         post.status = PostStatus.failed.value
         post.error = str(exc)[:1000]
         clip.error = str(exc)[:1000]
         # El clip sólo se da por fallido si no le queda ninguna publicación viva:
         # con dos destinos, que falle TikTok no invalida el Short de YouTube.
-        vivas = [
-            otra for otra in clip.posts
-            if otra.id != post.id
-            and otra.status in {PostStatus.scheduled.value, PostStatus.published.value,
-                                PostStatus.publishing.value}
-        ]
-        clip.status = (
-            ClipStatus.published.value if any(
-                o.status == PostStatus.published.value for o in vivas
-            )
-            else ClipStatus.scheduled.value if vivas
-            else ClipStatus.failed.value
-        )
+        estado_del_clip(clip)
         events.log(
             session,
             f"Fallo al publicar «{clip.title[:50]}» en {destino}: {exc}",
@@ -1136,7 +1254,7 @@ def job_publish(session: Session, ctx: JobContext) -> None:
     post.external_post_id = str(result.get("external_id", ""))
     post.share_url = str(result.get("share_url", ""))
     post.error = ""
-    clip.status = ClipStatus.published.value
+    estado_del_clip(clip)
     ctx.progress(1.0, "Publicado")
 
     # Ya está publicado: el archivo no pinta nada en tu disco. Sólo se borra si
@@ -1158,9 +1276,15 @@ def job_publish(session: Session, ctx: JobContext) -> None:
 
 
 def _publish_to_tiktok(session, ctx, post, clip, account, publish_config) -> dict[str, Any]:
-    simulate = settings.dry_run or not tiktok.is_configured() or not (
-        account.credentials or {}
-    ).get("access_token")
+    # Sólo se simula con el modo simulación o con una cuenta de prueba (sin
+    # acceso). A una cuenta de verdad sin la clave de la app no se le finge la
+    # publicación: se dice qué falta.
+    simulate = settings.dry_run or not (account.credentials or {}).get("access_token")
+    if not simulate and not tiktok.is_configured():
+        raise tiktok.TikTokError(
+            "Falta la clave de tu app de TikTok (Ajustes → TikTok): sin ella no se puede "
+            "publicar de verdad."
+        )
 
     if not simulate:
         # Se renueva el acceso una sola vez y se guarda antes de subir. Antes se
@@ -1239,8 +1363,11 @@ MARGEN_PROGRAMAR = timedelta(minutes=20)
 
 
 def puede_programar_en_youtube(account: Account, post: Post) -> bool:
+    from app.services import permisos
+
     return bool(
         not settings.dry_run
+        and permisos.puede_usarse(account)
         and youtube_api.is_configured()
         and (account.credentials or {}).get("access_token")
         and post.scheduled_at > utcnow() + MARGEN_PROGRAMAR
@@ -1264,7 +1391,11 @@ def _programar_en_youtube(session, ctx, post, clip, account, publish_config) -> 
             publish_at=youtube_api.hora_para_youtube(post.scheduled_at),
         )
     except Exception as exc:  # noqa: BLE001 - a su hora se intenta otra vez
+        from app.services import permisos
+
         post.status = PostStatus.scheduled.value
+        if permisos.es_permiso_caducado(exc):
+            permisos.marcar_para_reconectar(session, account, exc)
         post.error = f"No se pudo dejar programado en YouTube: {exc}"[:1000]
         events.log(
             session,
@@ -1297,13 +1428,94 @@ def _programar_en_youtube(session, ctx, post, clip, account, publish_config) -> 
     ctx.progress(1.0, "Programado en YouTube")
 
 
+def _fallo_al_medir(session: Session, account: Account, exc: BaseException) -> None:
+    """Un fallo leyendo estadísticas no deja la cuenta en «Error» para siempre."""
+    from app.services import permisos
+
+    if permisos.es_permiso_caducado(exc):
+        permisos.marcar_para_reconectar(session, account, exc)
+
+
+def _cuenta_funciona(account: Account) -> None:
+    """Si la plataforma ha contestado bien, la cuenta está operativa."""
+    if account.status in {AccountStatus.error.value, AccountStatus.needs_auth.value}:
+        account.status = AccountStatus.connected.value
+        account.status_detail = ""
+
+
+ESPERA_A_YOUTUBE = timedelta(minutes=30)   # lo que puede tardar YouTube en publicarlo
+
+
+def comprobar_salido_en_youtube(session: Session, post: Post) -> None:
+    """Llegó la hora de un Short programado en YouTube: se mira si salió de verdad.
+
+    Antes se daba por publicado sin preguntar; si lo habías borrado en Studio
+    o YouTube lo rechazó, Kevil decía «Publicado» igual.
+    """
+    from app.services import permisos, repetidos
+
+    cuenta = post.account
+    if (settings.dry_run or not youtube_api.is_configured() or not post.external_post_id
+            or not cuenta or not (cuenta.credentials or {}).get("access_token")
+            or not permisos.puede_usarse(cuenta)):
+        marcar_salido_en_plataforma(session, post)
+        return
+    ahora = utcnow()
+    try:
+        credenciales = youtube_api.valid_credentials(cuenta.credentials or {})
+        cuenta.credentials = credenciales
+        estado = youtube_api.estado_del_video(credenciales, post.external_post_id)
+    except Exception as exc:  # noqa: BLE001
+        if permisos.es_permiso_caducado(exc):
+            permisos.marcar_para_reconectar(session, cuenta, exc)
+            marcar_salido_en_plataforma(session, post)   # YouTube lo publica igual
+        elif ahora - post.scheduled_at > timedelta(hours=2):
+            marcar_salido_en_plataforma(session, post)   # sin red tanto rato: se supone
+        return
+    clip = post.clip
+    titulo = (clip.title if clip else "")[:60]
+
+    def no_salio(motivo: str) -> None:
+        post.status = PostStatus.failed.value
+        post.en_plataforma = False
+        post.error = motivo[:1000]
+        if clip:
+            estado_del_clip(clip)
+        notifications.notify(
+            session, "Un Short no salió en YouTube", f"«{titulo}»: {motivo}",
+            kind="youtube", level="error", action_label="Abrir YouTube Studio",
+            action_url=youtube_api.enlace_studio(post.external_post_id), dedupe_hours=0,
+        )
+        events.log(session, f"«{titulo}» no salió en YouTube: {motivo}", level="error",
+                   scope="youtube", data={"post_id": post.id})
+
+    if estado is None:
+        no_salio("ya no está en tu canal (¿lo borraste en YouTube Studio?).")
+        post.external_post_id = post.publish_id = post.share_url = ""
+        return
+    if estado["upload_status"] in {"rejected", "failed", "deleted"}:
+        no_salio(f"YouTube lo rechazó ({estado['motivo'] or estado['upload_status']}).")
+        return
+    if estado["privacy"] in {"public", "unlisted"}:
+        marcar_salido_en_plataforma(session, post)
+        return
+    hora = repetidos._fecha(estado["publish_at"])
+    if hora and hora > ahora + timedelta(minutes=1):
+        # la cambiaste en YouTube Studio: manda la de allí
+        post.scheduled_at = hora
+        post.slot_reason = "Hora cambiada en YouTube Studio"
+        return
+    if ahora - post.scheduled_at > ESPERA_A_YOUTUBE:
+        no_salio("YouTube no lo publicó a su hora: sigue privado. Revísalo en YouTube Studio.")
+
+
 def marcar_salido_en_plataforma(session: Session, post: Post) -> None:
     """Llegó la hora de un Short programado en YouTube: YouTube ya lo publicó."""
     post.status = PostStatus.published.value
     post.published_at = post.scheduled_at
     clip = post.clip
     if clip:
-        clip.status = ClipStatus.published.value
+        estado_del_clip(clip)
         session.flush()
         storage.after_publish(session, clip)
     events.log(
@@ -1365,9 +1577,18 @@ def _publish_to_youtube(
 
     Con `publish_at` se sube privado y YouTube lo publica solo a esa hora.
     """
-    simulate = settings.dry_run or not youtube_api.is_configured() or not (
-        account.credentials or {}
-    ).get("access_token")
+    # Sólo se simula con el modo simulación: a un canal sin permiso no se le
+    # finge la subida (antes quedaba «Publicado» sin haber subido nada).
+    simulate = settings.dry_run
+    if not simulate and not youtube_api.is_configured():
+        raise youtube_api.YouTubeAPIError(
+            "Faltan el ID y el secreto de cliente de Google (Ajustes → YouTube): sin ellos "
+            "no se pueden subir Shorts."
+        )
+    if not simulate and not (account.credentials or {}).get("access_token"):
+        raise youtube_api.YouTubeAPIError(
+            "Este canal no tiene permiso para publicar Shorts: autorízalo en Ajustes → YouTube."
+        )
 
     # Google sólo da para unas 6 subidas al día: si no queda cuota, se aplaza
     if not simulate:
@@ -1488,10 +1709,11 @@ def job_refresh_metrics(session: Session, ctx: JobContext) -> None:
                         extra={"video_id": post.external_post_id},
                     )
                 )
-        except Exception as exc:
-            account.status = AccountStatus.error.value
-            account.status_detail = str(exc)[:400]
+        except Exception as exc:  # noqa: BLE001 - no rompemos el ciclo por una cuenta
+            _fallo_al_medir(session, account, exc)
             ctx.log(f"{account.display_name}: {exc}")
+        else:
+            _cuenta_funciona(account)
 
     # --- TikTok -----------------------------------------------------------
     for account in [
@@ -1569,9 +1791,10 @@ def job_refresh_metrics(session: Session, ctx: JobContext) -> None:
                         extra={"video_id": item.get("id", "")},
                     )
                 )
-        except Exception as exc:  # no rompemos el ciclo por una cuenta
-            account.status = AccountStatus.error.value
-            account.status_detail = str(exc)[:400]
+        except Exception as exc:  # noqa: BLE001 - no rompemos el ciclo por una cuenta
+            _fallo_al_medir(session, account, exc)
             ctx.log(f"{account.display_name}: {exc}")
+        else:
+            _cuenta_funciona(account)
 
     ctx.progress(1.0, "Métricas actualizadas")

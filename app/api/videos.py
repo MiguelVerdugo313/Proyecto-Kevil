@@ -131,11 +131,38 @@ def process_video(video_id: int, body: ProcessIn, db: Session = Depends(get_db))
 
 @router.delete("/{video_id}")
 def delete_video(video_id: int, delete_file: bool = False, db: Session = Depends(get_db)):
+    """Quita un vídeo, sus clips, sus archivos y lo que tenía pendiente.
+
+    Si viene de un canal vigilado no se borra el registro: se marca como
+    ignorado. Si no, en la siguiente revisión del canal volvería a entrar y se
+    cortarían sus clips otra vez.
+    """
+    from app.models import Job, JobStatus
+    from app.services import storage
+
     video = db.get(Video, video_id)
     if not video:
         raise HTTPException(404, "Vídeo no encontrado")
-    if delete_file and video.local_path:
+    ids = [c.id for c in video.clips]
+    resultado = storage.borrar_clips(db, ids)
+    if resultado["skipped"]:
+        raise HTTPException(409, "Un clip de este vídeo se está subiendo ahora mismo: espera a que termine.")
+    # fuera lo que quedaba en la cola para este vídeo o sus clips
+    for job in db.scalars(select(Job).where(
+        Job.status.in_([JobStatus.pending.value, JobStatus.running.value])
+    )).all():
+        datos = job.payload or {}
+        if datos.get("video_id") == video.id or datos.get("clip_id") in ids:
+            job.status = JobStatus.cancelled.value
+            job.message = "Cancelado: se borró el vídeo"
+    if video.local_path and (delete_file or video.origin == "local"):
         Path(video.local_path).unlink(missing_ok=True)
-    db.delete(video)
+    if video.source_id and video.origin != "local":
+        video.status = VideoStatus.ignored.value
+        video.local_path = ""
+        video.error = ""
+    else:
+        db.delete(video)
+    events.log(db, f"Vídeo quitado: {video.title[:60]}", level="info", scope="video")
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "freed_mb": resultado["freed_mb"]}

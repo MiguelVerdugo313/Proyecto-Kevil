@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.api.common import naive_utc, post_to_dict
 from app.db import get_db
-from app.models import Account, ClipStatus, Platform, Post, PostStatus, utcnow
+from app.models import Account, Platform, Post, PostStatus, utcnow
 from app.services import events, pipeline, timing
 from app.services.queue import enqueue
 
@@ -60,7 +60,10 @@ def patch_post(post_id: int, body: PostPatch, db: Session = Depends(get_db)):
         raise HTTPException(400, "Sólo se pueden cambiar las publicaciones pendientes.")
     aviso = ""
     if body.scheduled_at is not None:
-        post.scheduled_at = naive_utc(body.scheduled_at)
+        nueva = naive_utc(body.scheduled_at)
+        if nueva < utcnow() - timedelta(minutes=5):
+            raise HTTPException(400, "Esa hora ya ha pasado. Si quieres que salga ya, usa «Publicar ya».")
+        post.scheduled_at = nueva
         post.slot_reason = "Movido a mano"
         post.status = PostStatus.scheduled.value
         # si ya estaba programado dentro de YouTube, se mueve también allí
@@ -76,6 +79,9 @@ def publish_now(post_id: int, db: Session = Depends(get_db)):
     post = db.get(Post, post_id)
     if not post:
         raise HTTPException(404, "Publicación no encontrada")
+    if post.status not in {PostStatus.scheduled.value, PostStatus.failed.value}:
+        # publicada, cancelada o subiéndose ahora mismo: otra vez sería repetirla
+        raise HTTPException(400, "Esa publicación ya no está pendiente.")
     post.scheduled_at = utcnow()
     post.status = PostStatus.scheduled.value
     if post.en_plataforma:
@@ -95,11 +101,17 @@ def cancel_post(post_id: int, db: Session = Depends(get_db)):
     post = db.get(Post, post_id)
     if not post:
         raise HTTPException(404, "Publicación no encontrada")
+    if post.status in {PostStatus.published.value, PostStatus.publishing.value}:
+        raise HTTPException(
+            400,
+            "Ya está publicada (o subiéndose): cancelarla aquí no la quita de la plataforma. "
+            "Bórrala desde TikTok o YouTube Studio si no la quieres.",
+        )
     # si ya estaba programado dentro de YouTube, se queda privado allí
     aviso = pipeline.mover_en_plataforma(db, post, cancelar=True)
     post.status = PostStatus.cancelled.value
-    if post.clip and post.clip.status == ClipStatus.scheduled.value:
-        post.clip.status = ClipStatus.rendered.value
+    if post.clip:
+        pipeline.estado_del_clip(post.clip)
     events.log(db, f"Publicación cancelada #{post.id}", level="info", scope="agenda")
     db.commit()
     return {"ok": True, "aviso": aviso}

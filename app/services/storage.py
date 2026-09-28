@@ -84,7 +84,9 @@ def _clip_terminado(clip: Clip) -> bool:
     """El clip ya no necesita su archivo: todo lo suyo está publicado o muerto."""
     if not clip.posts:
         return False
-    vivos = {PostStatus.scheduled.value, PostStatus.publishing.value}
+    # una publicación fallida aún puede reintentarse: sin el archivo habría
+    # que volver a montarlo
+    vivos = {PostStatus.scheduled.value, PostStatus.publishing.value, PostStatus.failed.value}
     return not any(post.status in vivos for post in clip.posts)
 
 

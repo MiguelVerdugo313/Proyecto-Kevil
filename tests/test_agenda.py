@@ -69,8 +69,11 @@ def test_el_short_se_sube_ya_programado_en_youtube(session, tmp_path, youtube_re
 
 
 def test_a_su_hora_se_da_por_publicado_sin_subir_otra_vez(
-    session, tmp_path, youtube_real, sin_sesion_propia
+    session, tmp_path, youtube_real, sin_sesion_propia, monkeypatch
 ):
+    # YouTube confirma que ya es público
+    monkeypatch.setattr(youtube_api, "estado_del_video", lambda c, v: {
+        "privacy": "public", "publish_at": "", "upload_status": "processed", "motivo": ""})
     youtube = _cuenta(session, Platform.youtube.value)
     clip = _clip_listo(session, tmp_path, _pasos_publicando_en(False, True))
     post = _post(session, clip, youtube)

@@ -220,6 +220,9 @@ def approve_clip(clip_id: int, body: ApproveIn, db: Session = Depends(get_db)):
             nombre = "YouTube Shorts" if cuenta.platform == "youtube" else "TikTok"
             avisos.append(f"En {nombre} ese momento ya está como «{ocupadas[cuenta.id][:60]}»: no se repite.")
             continue
+        if cuenta.status == "needs_auth":
+            nombre = "YouTube" if cuenta.platform == "youtube" else "TikTok"
+            avisos.append(f"{nombre} necesita que vuelvas a conectarlo (Cuentas): saldrá en cuanto lo hagas.")
         cuando, motivo = horas.get(cuenta.id, (body.scheduled_at, body.slot_reason))
         post = pipeline.schedule_clip(
             db, clip, cuenta, schedule_config, when=naive_utc(cuando),

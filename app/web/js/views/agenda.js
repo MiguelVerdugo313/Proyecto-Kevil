@@ -249,6 +249,7 @@ export default {
               <td class="small">${marca(post)} ${escapeHtml(post.account_handle ? `@${post.account_handle}` : post.account_name)}</td>
               <td class="small nowrap">${fmt.date(post.scheduled_at)}<div class="muted tiny">${fmt.relative(post.scheduled_at)}</div></td>
               <td>${statusPill(post.status)} ${comoSale(post)}
+                ${post.simulado ? '<span class="pill warn" title="Se hizo en modo simulación: no se subió nada">simulado · no se subió</span>' : ''}
                 ${post.status === 'published' && post.share_url
                   ? `<a class="muted tiny" href="${escapeHtml(post.share_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Ver ↗</a>` : ''}
                 ${post.status === 'cancelled' && post.error ? `<div class="muted tiny">${escapeHtml(post.error.slice(0, 160))}</div>` : ''}</td>
