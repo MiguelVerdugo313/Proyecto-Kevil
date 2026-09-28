@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.api.common import clip_to_dict, naive_utc
 from app.db import get_db
 from app.models import Account, Clip, ClipStatus, PostStatus
-from app.services import events, pipeline, storage
+from app.services import events, pipeline, plantillas, storage
 from app.services.queue import enqueue
 
 router = APIRouter(prefix="/api/clips", tags=["clips"])
@@ -33,6 +33,8 @@ class ClipPatch(BaseModel):
     end_s: float | None = None
     status: str | None = None
     reframe: dict[str, Any] | None = None
+    # rótulos sólo de este clip (por ejemplo otra plantilla)
+    subtitles: dict[str, Any] | None = None
 
 
 class DestinoIn(BaseModel):
@@ -89,6 +91,7 @@ def patch_clip(clip_id: int, body: ClipPatch, db: Session = Depends(get_db)):
 
     data = body.model_dump(exclude_none=True)
     reframe = data.pop("reframe", None)
+    rotulos = data.pop("subtitles", None)
     timing_changed = False
 
     for field, value in data.items():
@@ -99,6 +102,17 @@ def patch_clip(clip_id: int, body: ClipPatch, db: Session = Depends(get_db)):
     if reframe:
         config = dict(clip.render_config or {})
         config["reframe"] = {**(config.get("reframe") or {}), **reframe}
+        clip.render_config = config
+        timing_changed = True
+
+    if rotulos is not None:
+        config = dict(clip.render_config or {})
+        permitidos = {"template", "font_size", "position_y", "enabled"}
+        propios = {k: v for k, v in rotulos.items() if k in permitidos}
+        plantilla = propios.get("template")
+        if plantilla and not plantillas.existe(plantilla):
+            raise HTTPException(400, "Esa plantilla de rótulos no existe.")
+        config["subtitles"] = {**(config.get("subtitles") or {}), **propios}
         clip.render_config = config
         timing_changed = True
 

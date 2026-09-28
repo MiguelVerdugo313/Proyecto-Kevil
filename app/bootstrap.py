@@ -141,6 +141,10 @@ MEJORAS: dict[str, dict[str, dict[str, dict[str, tuple[Any, Any]]]]] = {
         "Clips a TikTok y Shorts": {"reframe": {"mode": ("smart", "blur")}},
         "Podcast / entrevistas": {"reframe": {"mode": ("smart", "blur")}},
     },
+    # Plantillas de rótulos: los flujos con los rótulos de fábrica pasan a la
+    # plantilla «Kevil» (se ven igual); los que tocaste se quedan en
+    # «Personalizado» con lo tuyo. Ver _rotulos_a_plantilla.
+    "plantillas-de-rotulos-1": {},
 }
 
 
@@ -190,6 +194,35 @@ def _canales_sin_saltar_cortos(session: Session) -> int:
     return cambiados
 
 
+def _rotulos_a_plantilla(session: Session) -> int:
+    """Pone la plantilla de rótulos a los flujos de antes de que existieran."""
+    de_fabrica = {
+        "style": "viral", "font": "Montserrat Black", "primary_color": "#FFFFFF",
+        "highlight_color": "#FFD400", "uppercase": True,
+    }
+    cambiados = 0
+    for flow in session.scalars(select(Flow)).all():
+        pasos = [dict(paso) for paso in (flow.steps or [])]
+        tocado = False
+        for paso in pasos:
+            if paso.get("type") != "subtitles":
+                continue
+            config = dict(paso.get("config") or {})
+            if "template" in config:
+                continue
+            igual = all(
+                str(config.get(campo, valor)).upper() == str(valor).upper()
+                for campo, valor in de_fabrica.items()
+            )
+            config["template"] = "kevil" if igual else ""
+            paso["config"] = config
+            tocado = True
+        if tocado:
+            flow.steps = normalize_steps(pasos)
+            cambiados += 1
+    return cambiados
+
+
 def actualizar_plantillas(session: Session) -> int:
     """Pone al día las plantillas que siguen con los valores de fábrica."""
     registro = session.get(Setting, MEJORAS_KEY)
@@ -205,6 +238,8 @@ def actualizar_plantillas(session: Session) -> int:
             _clips_sin_montar_a_fondo_borroso(session)
         if clave == "clips-con-contexto-1":
             _canales_sin_saltar_cortos(session)
+        if clave == "plantillas-de-rotulos-1":
+            cambiados += _rotulos_a_plantilla(session)
         renumerar = renumerar or clave == "titulos-por-partes-1"
         for flow in session.scalars(select(Flow)).all():
             cambios = _cambios_para(por_nombre, flow.name)

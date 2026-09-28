@@ -691,7 +691,10 @@ def job_render(session: Session, ctx: JobContext) -> None:
     flow = resolve_flow(session, clip.flow_id)
     reframe_config = dict(step_config(flow.steps, "reframe"))
     reframe_config.update((clip.render_config or {}).get("reframe") or {})
-    subtitles_config = step_config(flow.steps, "subtitles")
+    # los rótulos de este clip (otra plantilla, otro tamaño) mandan sobre el flujo
+    propios = dict((clip.render_config or {}).get("subtitles") or {})
+    rotulos_activos = bool(propios.pop("enabled", step_enabled(flow.steps, "subtitles")))
+    subtitles_config = {**step_config(flow.steps, "subtitles"), **propios}
     overlays_config = step_config(flow.steps, "overlays")
     audio_config = step_config(flow.steps, "audio")
     publish_config = step_config(flow.steps, "publish")
@@ -784,7 +787,7 @@ def job_render(session: Session, ctx: JobContext) -> None:
         reframe=reframe_config,
         audio=audio_config,
         subtitles=subtitles_config,
-        subtitles_enabled=step_enabled(flow.steps, "subtitles"),
+        subtitles_enabled=rotulos_activos,
         overlays=overlays_config,
         overlays_enabled=step_enabled(flow.steps, "overlays"),
         words=clip.words or [],

@@ -6,6 +6,7 @@ en el vídeo. Es mucho más fiable (y más bonito) que encadenar drawtext.
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 from typing import Any
@@ -15,27 +16,34 @@ from typing import Any
 TIPOGRAFIAS = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 FUENTE_VIRAL = "Montserrat Black"
 
-# Ancho de cada carácter de Montserrat Black, en proporción al tamaño de letra
-# de ASS (libass escala la fuente para que ascendente + descendente = tamaño).
-# Sirve para saber si una línea cabe sin tener que abrir la fuente: en el
-# estilo viral no se parte la línea, se encoge, y salirse del vídeo es lo peor
-# que le puede pasar a un rótulo.
-ANCHOS = {
-    "A": 0.516, "B": 0.495, "C": 0.472, "D": 0.529, "E": 0.431, "F": 0.412,
-    "G": 0.492, "H": 0.515, "I": 0.224, "J": 0.367, "K": 0.49, "L": 0.395,
-    "M": 0.611, "N": 0.515, "O": 0.543, "P": 0.476, "Q": 0.543, "R": 0.477,
-    "S": 0.421, "T": 0.419, "U": 0.502, "V": 0.503, "W": 0.772, "X": 0.488,
-    "Y": 0.455, "Z": 0.44, "Á": 0.516, "É": 0.431, "Í": 0.224, "Ó": 0.543,
-    "Ú": 0.502, "Ñ": 0.515, "Ü": 0.502, "0": 0.443, "1": 0.268, "2": 0.389,
-    "3": 0.393, "4": 0.456, "5": 0.396, "6": 0.423, "7": 0.413, "8": 0.434,
-    "9": 0.423, " ": 0.192, ".": 0.195, ",": 0.195, "!": 0.201, "¡": 0.201,
-    "?": 0.388, "¿": 0.388, "'": 0.163, "-": 0.25, "%": 0.587, "$": 0.421,
-    "#": 0.474, "@": 0.664, "&": 0.497,
-}
+# Medidas de cada tipografía que viaja con el programa (assets/fonts/anchos.json):
+# el ancho de cada carácter, la altura de las mayúsculas y el ascendente, todo
+# en proporción al tamaño de letra de ASS (libass escala la fuente para que
+# ascendente + descendente = tamaño). Sirve para saber si una línea cabe sin
+# abrir la fuente —en los rótulos virales no se parte la línea, se encoge, y
+# salirse del vídeo es lo peor que le puede pasar a un rótulo— y para poner la
+# pastilla justo detrás de la palabra que suena.
+_METRICAS: dict[str, dict[str, Any]] | None = None
 ANCHO_MEDIO = 0.5
-# Las demás fuentes (Arial, DejaVu, Impact…) se miden con la misma tabla y un
+# Las demás fuentes (Arial, Impact…) se miden con Montserrat Black y un
 # margen, que sobra en unas y falta en ninguna.
 ANCHO_OTRAS = 1.2
+FUENTE_EMOJI = "Kevil Emoji"   # Noto Emoji (OFL) en negrita y sólo con los que se usan
+
+
+def metricas(fuente: str) -> dict[str, Any] | None:
+    global _METRICAS
+    if _METRICAS is None:
+        try:
+            _METRICAS = {
+                nombre.lower(): datos
+                for nombre, datos in json.loads(
+                    (TIPOGRAFIAS / "anchos.json").read_text(encoding="utf-8")
+                ).items()
+            }
+        except (OSError, ValueError):
+            _METRICAS = {}
+    return _METRICAS.get((fuente or "").lower())
 
 
 def asegurar_tipografias(destino: str | Path) -> None:
@@ -48,10 +56,56 @@ def asegurar_tipografias(destino: str | Path) -> None:
             shutil.copyfile(origen, copia)
 
 
+_EMOJIS: dict[str, str] | None = None
+
+
+def glifo_emoji(emoji: str) -> str:
+    """El carácter con el que la fuente de emojis del programa dibuja `emoji`.
+
+    libass sólo busca en la tabla básica de la fuente (hasta U+FFFF): con los
+    emojis de verdad (🏆 es U+1F3C6) se iba a la fuente de color del sistema y
+    salían pixelados. Por eso cada emoji vive también en la zona privada
+    (U+E000…) de «Kevil Emoji». Vacío si la fuente no lo tiene.
+    """
+    global _EMOJIS
+    if _EMOJIS is None:
+        try:
+            _EMOJIS = json.loads((TIPOGRAFIAS / "emojis.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _EMOJIS = {}
+    codigo = _EMOJIS.get(emoji)
+    return chr(int(codigo, 16)) if codigo else ""
+
+
 def ancho_texto(texto: str, tamano: float, fuente: str = FUENTE_VIRAL) -> float:
-    """Ancho aproximado en píxeles de una línea en mayúsculas."""
-    factor = 1.0 if fuente.lower() == FUENTE_VIRAL.lower() else ANCHO_OTRAS
-    return sum(ANCHOS.get(c, ANCHO_MEDIO) for c in texto.upper()) * tamano * factor
+    """Ancho aproximado en píxeles de una línea, tal cual se va a escribir."""
+    datos = metricas(fuente)
+    factor = 1.0
+    if datos is None:
+        datos, factor = metricas(FUENTE_VIRAL) or {}, ANCHO_OTRAS
+        texto = texto.upper()               # a lo ancho: mejor que sobre
+    anchos = datos.get("anchos") or {}
+    medio = datos.get("medio", ANCHO_MEDIO)
+    return sum(anchos.get(c, medio) for c in texto) * tamano * factor
+
+
+def altura_mayusculas(fuente: str) -> float:
+    return float((metricas(fuente) or {}).get("mayus", 0.448))
+
+
+def ascendente(fuente: str) -> float:
+    return float((metricas(fuente) or {}).get("asc", 0.71))
+
+
+def es_gruesa(fuente: str) -> bool:
+    """Si la negrita de ASS le va bien o la engordaría de mentira.
+
+    Las de rótulo (Anton, Bangers…) sólo tienen un grosor: pedirles negrita
+    hace que libass la invente y se emborronan.
+    """
+    datos = metricas(fuente)
+    return datos is None or int(datos.get("peso", 700)) >= 700
+
 
 ASS_HEADER = """[Script Info]
 ScriptType: v4.00+
@@ -177,18 +231,22 @@ def _wrap(text: str, max_chars: int) -> str:
 
 
 # --------------------------------------------------------------------------
-# Estilo viral
+# Rótulos con plantilla
 #
 # Es el formato que domina en TikTok y Shorts (el de los clips de Hormozi,
-# MrBeast o los que saca Opus Clip): dos o tres palabras cada vez, letra muy
-# gruesa en mayúsculas con borde negro grueso y sombra, la palabra que se está
-# diciendo en amarillo y un poco más grande, y un «salto» al aparecer cada
-# grupo. Va en el tercio de abajo pero por encima de los textos de la app.
+# MrBeast o los que sacan Opus Clip y SupoClip): pocas palabras cada vez, letra
+# muy gruesa con borde, la palabra que se está diciendo resaltada (de color, un
+# poco más grande o con una pastilla detrás), las palabras fuertes de otro
+# color, algún emoji y un «salto» al aparecer cada grupo. Todo lo decide la
+# plantilla (ver plantillas.py); «viral» sin plantilla es la de Kevil con tus
+# colores.
 # --------------------------------------------------------------------------
 PALABRAS_POR_LINEA = 3
 POP_MS = 90                 # lo que tarda cada grupo en «saltar» al entrar
+FADE_MS = 110
 CRECE_ACTIVA = 1.12         # la palabra que suena, un 12 % más grande
 SIN_PAUSA = 0.35            # huecos más cortos no dejan la pantalla vacía
+MAYUS_REFERENCIA = 0.448    # Montserrat Black: los tamaños se pensaron con ella
 
 
 def _limpiar(texto: str, uppercase: bool) -> str:
@@ -217,30 +275,119 @@ def _escala(k: float, pop: bool, final: float = 1.0) -> str:
     )
 
 
-def _viral(
-    dialogue, words: list[dict[str, Any]], *, width: int, margin: int,
-    font: str, font_size: int, outline: int, primary: str, highlight: str,
-    y: float, uppercase: bool, max_chars: int,
+def _rectangulo(ancho: float, alto: float, radio: float) -> str:
+    """Rectángulo redondeado en el dibujo de ASS (\\p1), desde la esquina."""
+    w, h = round(ancho), round(alto)
+    r = max(0, min(round(radio), w // 2, h // 2))
+    return (
+        f"m {r} 0 l {w - r} 0 b {w} 0 {w} 0 {w} {r} l {w} {h - r} "
+        f"b {w} {h} {w} {h} {w - r} {h} l {r} {h} b 0 {h} 0 {h} 0 {h - r} "
+        f"l 0 {r} b 0 0 0 0 {r} 0"
+    )
+
+
+def plantilla_efectiva(sub: dict[str, Any]) -> dict[str, Any] | None:
+    """La plantilla que manda en estos rótulos, o None para los estilos clásicos.
+
+    Sin plantilla, el estilo «viral» es la de Kevil con tus colores y tu letra.
+    """
+    from app.services import plantillas
+
+    clave = sub.get("template")
+    if plantillas.existe(clave):
+        tpl = plantillas.completa(clave)
+        tpl["normalizar"] = True
+        return tpl
+    if (sub.get("style") or "viral").lower() != "viral":
+        return None
+    borde = int(sub.get("outline", 8) or 0)
+    return {
+        **plantillas.completa(plantillas.POR_DEFECTO),
+        "fuente": sub.get("font") or FUENTE_VIRAL,
+        "color": sub.get("primary_color", "#FFFFFF"),
+        "activo": sub.get("highlight_color", "#FFD400"),
+        "borde": borde,
+        "sombra": max(1, round(borde * 0.6)),
+        "mayus": bool(sub.get("uppercase", True)),
+        "normalizar": False,
+    }
+
+
+def tamano_de_letra(tpl: dict[str, Any], tamano: float) -> int:
+    """El tamaño de la plantilla: todas con mayúsculas igual de altas."""
+    if tpl.get("normalizar"):
+        tamano *= float(tpl.get("tam", 1.0)) * MAYUS_REFERENCIA / altura_mayusculas(tpl["fuente"])
+    return max(8, round(tamano))
+
+
+def estilos_de_plantilla(
+    tpl: dict[str, Any], *, font_size: int, scale: float, margin: int
+) -> list[str]:
+    fuente = tpl["fuente"]
+    negrita = -1 if es_gruesa(fuente) else 0
+    color = hex_to_ass(tpl["color"])
+    sombra = round(float(tpl.get("sombra") or 0) * scale)
+    # con caja no hay borde: la caja (un rectángulo redondeado) ya despega el texto
+    borde = 0 if tpl.get("caja") else round(float(tpl.get("borde") or 0) * scale)
+    if tpl.get("caja"):
+        sombra = 0
+    estilo_sub = (
+        f"Style: Sub,{fuente},{font_size},{color},{color},"
+        f"{hex_to_ass(tpl.get('color_borde') or '#000000')},&H70000000,"
+        f"{negrita},0,0,0,100,100,0,0,1,{borde},{sombra},5,{margin},{margin},0,1"
+    )
+    emoji = round(font_size * 0.95)
+    return [
+        estilo_sub,
+        f"Style: Emoji,{FUENTE_EMOJI},{emoji},{hex_to_ass(tpl.get('activo') or tpl['color'])},"
+        f"&H00FFFFFF,&H00000000,&H70000000,0,0,0,0,100,100,0,0,1,"
+        f"{max(2, round(6 * scale))},{max(1, round(4 * scale))},5,{margin},{margin},0,1",
+    ]
+
+
+def _con_plantilla(
+    dialogue, words: list[dict[str, Any]], tpl: dict[str, Any], *, width: int,
+    margin: int, font_size: int, scale: float, y: float, max_chars: int,
 ) -> None:
+    from app.services import plantillas
+
+    fuente = tpl["fuente"]
+    mayus = bool(tpl.get("mayus", True))
+    crece = float(tpl.get("crece") or 1.0)
+    pastilla = tpl.get("pastilla")
+    caja = tpl.get("caja")
+    entrada = tpl.get("entrada") or "pop"
+    por_linea = max(1, int(tpl.get("palabras") or PALABRAS_POR_LINEA))
+    if por_linea > PALABRAS_POR_LINEA:
+        max_chars = max(max_chars, 28)      # frases largas: que quepan
+
     limpias = []
     for word in words:
-        texto = _limpiar(word.get("text", ""), uppercase)
+        texto = _limpiar(word.get("text", ""), mayus)
         if texto:
             limpias.append({**word, "text": word.get("text", ""), "clean": texto})
-    groups = group_words(
-        limpias, max_chars=max_chars, max_words=PALABRAS_POR_LINEA, por_frases=True
-    )
+    groups = group_words(limpias, max_chars=max_chars, max_words=por_linea, por_frases=True)
+
+    borde = 0 if caja else round(float(tpl.get("borde") or 0) * scale)
+    sombra = 0 if caja else round(float(tpl.get("sombra") or 0) * scale)
+    relleno_caja = max(4, round(font_size * 0.3)) if caja else 0
+    pad_x = round(font_size * 0.16) if pastilla else 0
     disponible = width - 2 * margin
-    color_normal = override_color(primary)
-    color_activo = override_color(highlight)
+    cx = width / 2
+    color_normal = override_color(tpl["color"])
+    color_activo = override_color(tpl["activo"]) if tpl.get("activo") else ""
+    color_enfasis = override_color(tpl["enfasis"]) if tpl.get("enfasis") else ""
+    brillo = tpl.get("brillo")
+    espacio = ancho_texto(" ", font_size, fuente)
+    ultimo_emoji = -99.0
 
     for number, group in enumerate(groups):
-        texts = [escape_text(w["clean"]) for w in group]
-        # lo que ocupa la línea con la palabra más larga ya agrandada
-        linea = " ".join(w["clean"] for w in group)
-        mayor = max(ancho_texto(w["clean"], font_size, font) for w in group)
-        necesario = ancho_texto(linea, font_size, font) + mayor * (CRECE_ACTIVA - 1) + 2 * outline
-        k = min(1.0, disponible / max(1.0, necesario))
+        limpios = [w["clean"] for w in group]
+        texts = [escape_text(t) for t in limpios]
+        anchos = [ancho_texto(t, font_size, fuente) for t in limpios]
+        linea = sum(anchos) + espacio * (len(anchos) - 1)
+        extra = max(anchos) * (crece - 1) + 2 * (borde + pad_x + relleno_caja)
+        k = min(1.0, disponible / max(1.0, linea + extra))
 
         start = group[0]["start"]
         siguiente = groups[number + 1][0]["start"] if number + 1 < len(groups) else None
@@ -248,25 +395,90 @@ def _viral(
         if siguiente is not None and (siguiente - end < SIN_PAUSA or end > siguiente):
             end = siguiente                       # sin parpadeos entre grupos
 
+        # emoji encima del grupo, con mesura
+        if tpl.get("emojis") and start - ultimo_emoji >= plantillas.EMOJI_CADA:
+            emoji = glifo_emoji(plantillas.emoji_de([w.get("text", "") for w in group]))
+            if emoji:
+                ultimo_emoji = start
+                alto = font_size * k
+                dialogue(
+                    start, end, "Emoji",
+                    f"{{\\an2\\pos({cx:.0f},{y - alto * 0.62:.0f})"
+                    f"\\fscx60\\fscy60\\t(0,120,\\fscx112\\fscy112)\\t(120,200,\\fscx100\\fscy100)"
+                    f"\\frz-8\\t(0,200,\\frz0)}}{emoji}",
+                    layer=3,
+                )
+
         for index, word in enumerate(group):
-            pop = index == 0
+            primero = index == 0
+            pop_grupo = primero and entrada == "pop" and not pastilla
             parts = []
             for position, text in enumerate(texts):
-                if position == index:
+                fuerte = bool(color_enfasis) and plantillas.es_fuerte(limpios[position])
+                if position == index and (color_activo or crece != 1.0):
+                    color = color_activo or (color_enfasis if fuerte else color_normal)
+                    # sobre la pastilla, borde fino y sin sombra: si no, se ensucia
+                    fino = f"\\bord{borde // 3}\\shad0" if pastilla else ""
+                    vuelve = f"\\bord{borde}\\shad{sombra}" if pastilla else ""
                     parts.append(
-                        f"{{\\1c{color_activo}{_escala(k, pop, CRECE_ACTIVA)}}}{text}"
-                        f"{{\\1c{color_normal}{_escala(k, pop)}}}"
+                        f"{{\\1c{color}{fino}{_escala(k, pop_grupo, crece)}}}{text}"
+                        f"{{\\1c{color_normal}{vuelve}{_escala(k, pop_grupo)}}}"
                     )
+                elif fuerte:
+                    parts.append(f"{{\\1c{color_enfasis}}}{text}{{\\1c{color_normal}}}")
                 else:
                     parts.append(text)
-            state_start = start if index == 0 else word["start"]
+            state_start = start if primero else word["start"]
             state_end = group[index + 1]["start"] if index + 1 < len(group) else end
-            dialogue(
-                state_start,
-                max(state_end, state_start + 0.1),
-                "Sub",
-                f"{{\\an5\\pos({width / 2:.0f},{y:.0f}){_escala(k, pop)}}}" + " ".join(parts),
-            )
+            state_end = max(state_end, state_start + 0.1)
+            entra = f"\\fad({FADE_MS},0)" if primero and entrada == "fade" else ""
+            if primero and pastilla:
+                entra = "\\fad(60,0)"
+            cabeza = f"\\an5\\pos({cx:.0f},{y:.0f}){_escala(k, pop_grupo)}"
+            texto = " ".join(parts)
+
+            if brillo:
+                dialogue(
+                    state_start, state_end, "Sub",
+                    f"{{{cabeza}{entra}\\1a&HFF&\\3c{override_color(brillo)}\\3a&H50&"
+                    f"\\bord{max(6, round(font_size * 0.12))}\\blur{max(6, round(font_size * 0.1))}"
+                    f"\\shad0}}" + texto,
+                    layer=0,
+                )
+            if caja:
+                # la caja, redondeada, detrás de toda la línea
+                ancho_linea = (sum(anchos) + espacio * (len(anchos) - 1)) * k
+                tam = font_size * k
+                base = y + tam * (ascendente(fuente) - 0.5)          # línea base
+                arriba = base - altura_mayusculas(fuente) * tam
+                abajo = base + (0 if mayus else 0.2 * tam)            # la «p», la «g»
+                alto_caja = abajo - arriba + 2 * relleno_caja * k * 0.6
+                centro_y = (arriba + abajo) / 2
+                dialogue(
+                    state_start, state_end, "Sub",
+                    f"{{\\an5\\pos({cx:.0f},{centro_y:.0f})\\p1\\bord0\\shad0{entra}"
+                    f"\\1c{override_color(caja)}\\1a&H26&}}"
+                    f"{_rectangulo(ancho_linea + 2 * relleno_caja * k, alto_caja, alto_caja * 0.3)}{{\\p0}}",
+                    layer=1,
+                )
+            if pastilla:
+                # la pastilla va justo detrás de la palabra que suena
+                ancho_linea = (sum(anchos) + espacio * (len(anchos) - 1)) * k
+                x0 = cx - ancho_linea / 2 + (sum(anchos[:index]) + espacio * index) * k
+                w_p = anchos[index] * k + 2 * pad_x * k
+                cap = altura_mayusculas(fuente) * font_size * k
+                h_p = cap * 1.55
+                centro_y = y + font_size * k * (ascendente(fuente) - 0.5) - cap / 2
+                centro_x = x0 + anchos[index] * k / 2
+                dialogue(
+                    state_start, state_end, "Sub",
+                    f"{{\\an5\\pos({centro_x:.0f},{centro_y:.0f})\\p1\\bord0\\shad0"
+                    f"\\1c{override_color(pastilla)}\\1a&H00&"
+                    f"\\fscx85\\fscy85\\t(0,70,\\fscx106\\fscy106)\\t(70,130,\\fscx100\\fscy100)}}"
+                    f"{_rectangulo(w_p, h_p, h_p * 0.28)}{{\\p0}}",
+                    layer=1,
+                )
+            dialogue(state_start, state_end, "Sub", f"{{{cabeza}{entra}}}" + texto, layer=2)
 
 
 # --------------------------------------------------------------------------
@@ -290,18 +502,20 @@ def build_ass(
     over = overlays_config or {}
 
     style_name = (sub.get("style") or "viral").lower()
-    viral = style_name == "viral"
+    tpl = plantilla_efectiva(sub)
     # Los tamaños se piensan para un vertical de 1920 de alto; en otras
     # resoluciones se escalan para que el rótulo ocupe lo mismo en pantalla.
     scale = height / 1920 if height > 0 else 1.0
-    font = sub.get("font") or FUENTE_VIRAL
+    font = tpl["fuente"] if tpl else (sub.get("font") or FUENTE_VIRAL)
     font_size = round(int(sub.get("font_size", 125) or 125) * scale)
+    if tpl:
+        font_size = tamano_de_letra(tpl, int(sub.get("font_size", 125) or 125) * scale)
     primary_hex = sub.get("primary_color", "#FFFFFF")
     highlight_hex = sub.get("highlight_color", "#FFD400")
     primary = hex_to_ass(primary_hex)
     highlight = hex_to_ass(highlight_hex)
     outline = round(int(sub.get("outline", 8) or 0) * scale)
-    shadow = max(1, round(outline * 0.6)) if viral else 1
+    shadow = 1
     position_y = float(sub.get("position_y", 66) or 66)
     uppercase = bool(sub.get("uppercase", True))
     max_chars = int(sub.get("max_chars", 16) or 16)
@@ -311,14 +525,19 @@ def build_ass(
     hook_seconds = float(over.get("hook_seconds", 3) or 0)
 
     margin = int(width * 0.07)
-    styles = [
-        # Rótulos principales (en el viral, sombra negra para despegarlos del fondo)
-        f"Style: Sub,{font},{font_size},{primary},{primary},&H00000000,"
-        f"{'&H70000000' if viral else '&H90000000'},"
-        f"-1,0,0,0,100,100,0,0,1,{outline},{shadow},5,{margin},{margin},0,1",
+    if tpl:
+        # Rótulos principales: los dibuja la plantilla (borde, sombra o caja)
+        styles = estilos_de_plantilla(tpl, font_size=font_size, scale=scale, margin=margin)
+    else:
+        styles = [
+            f"Style: Sub,{font},{font_size},{primary},{primary},&H00000000,&H90000000,"
+            f"-1,0,0,0,100,100,0,0,1,{outline},{shadow},5,{margin},{margin},0,1",
+        ]
+    hook_bold = -1 if es_gruesa(font) else 0
+    styles += [
         # Gancho superior (caja opaca)
         f"Style: Hook,{font},{hook_size},&H00FFFFFF,&H00FFFFFF,&H00101014,&HB0101014,"
-        f"-1,0,0,0,100,100,0,0,3,14,0,5,{margin},{margin},0,1",
+        f"{hook_bold},0,0,0,100,100,0,0,3,14,0,5,{margin},{margin},0,1",
         # Marca de agua
         f"Style: Mark,{font},{int(width * 0.032)},&H30FFFFFF,&H30FFFFFF,&H50000000,&H00000000,"
         f"0,0,0,0,100,100,0,0,1,2,0,5,{margin},{margin},0,1",
@@ -337,12 +556,10 @@ def build_ass(
         )
 
     # --- Rótulos --------------------------------------------------------
-    if subtitles_enabled and words and viral:
-        _viral(
-            dialogue, words, width=width, margin=margin,
-            font=font, font_size=font_size, outline=outline,
-            primary=primary_hex, highlight=highlight_hex,
-            y=height * position_y / 100, uppercase=uppercase, max_chars=max_chars,
+    if subtitles_enabled and words and tpl:
+        _con_plantilla(
+            dialogue, words, tpl, width=width, margin=margin, font_size=font_size,
+            scale=scale, y=height * position_y / 100, max_chars=max_chars,
         )
     elif subtitles_enabled and words:
         y = height * position_y / 100

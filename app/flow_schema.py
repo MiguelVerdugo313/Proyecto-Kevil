@@ -13,6 +13,8 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from app.services.plantillas import PLANTILLAS
+
 # --------------------------------------------------------------------------
 # Definición de los pasos disponibles
 # --------------------------------------------------------------------------
@@ -350,6 +352,21 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
         "description": "Subtítulos quemados en el vídeo, estilo TikTok.",
         "fields": [
             {
+                "key": "template",
+                "label": "Plantilla",
+                "type": "select",
+                "default": "kevil",
+                "help": "Tipografía, colores, pastilla, emojis y animación en un clic. "
+                "Con «Personalizado» mandan el estilo, la tipografía y los colores de abajo.",
+                "options": [
+                    {"value": "", "label": "Personalizado (lo de abajo)"},
+                    *[
+                        {"value": clave, "label": f"{datos['nombre']} — {datos['descripcion']}"}
+                        for clave, datos in PLANTILLAS.items()
+                    ],
+                ],
+            },
+            {
                 "key": "style",
                 "label": "Estilo",
                 "type": "select",
@@ -371,6 +388,13 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 "default": "Montserrat Black",
                 "options": [
                     {"value": "Montserrat Black", "label": "Montserrat Black (la de los virales)"},
+                    {"value": "TikTok Sans", "label": "TikTok Sans"},
+                    {"value": "Luckiest Guy", "label": "Luckiest Guy (cómic)"},
+                    {"value": "Bangers", "label": "Bangers (gamer)"},
+                    {"value": "Anton", "label": "Anton (alta y estrecha)"},
+                    {"value": "Bebas Neue", "label": "Bebas Neue"},
+                    {"value": "Archivo Black", "label": "Archivo Black"},
+                    {"value": "Poppins ExtraBold", "label": "Poppins ExtraBold"},
                     {"value": "DejaVu Sans", "label": "DejaVu Sans"},
                     {"value": "Arial", "label": "Arial"},
                     {"value": "Impact", "label": "Impact"},
@@ -741,7 +765,7 @@ ESSENTIAL_FIELDS: dict[str, set[str]] = {
     "transcribe": {"engine"},
     "segment": {"strategy", "min_duration", "max_duration", "max_clips"},
     "reframe": {"mode", "follow"},
-    "subtitles": {"style", "font_size", "highlight_color"},
+    "subtitles": {"template", "font_size", "position_y"},
     "overlays": {"hook_enabled", "watermark"},
     "audio": {"normalize"},
     "metadata": {"hashtags"},
@@ -888,7 +912,8 @@ FLOW_PRESETS: list[dict[str, Any]] = [
         "steps": _preset(
             {
                 "reframe": {"mode": "blur", "zoom": 1.1},
-                "subtitles": {"position_y": 70},   # un poco más abajo: la cara, arriba
+                # un poco más abajo (la cara, arriba) y frases enteras sobre caja
+                "subtitles": {"position_y": 70, "template": "podcast"},
                 "segment": {"min_duration": 30, "max_duration": 90, "clips_per_hour": 12},
             }
         ),
@@ -934,6 +959,7 @@ FLOW_PRESETS: list[dict[str, Any]] = [
                 "reframe": {"mode": "split"},
                 "overlays": {"progress_bar": True},
                 "segment": {"strategy": "smart"},
+                "subtitles": {"template": "gamer"},
             }
         ),
     },
