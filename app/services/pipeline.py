@@ -552,12 +552,36 @@ def job_process(session: Session, ctx: JobContext) -> None:
     reframe_config = step_config(flow.steps, "reframe")
 
     ctx.progress(0.1, "Buscando los mejores momentos…")
+    # Con IA se buscan el doble de momentos y ella elige los mejores; sin IA,
+    # la nota se calcula con reglas para que siempre se vea de dónde sale.
+    from app.services import ai, partes, viralidad
+
+    duracion = float(video.duration_s or 0)
+    usar_ia = bool(segment_config.get("ai_pick", True)) and ai.is_enabled()
+    objetivo = 0
+    config_busqueda = segment_config
+    if usar_ia and str(segment_config.get("strategy", "smart")) in {"smart", "silence"}:
+        objetivo = segmenter.cuantos_clips(duracion, segment_config)
+        if objetivo > 1:
+            config_busqueda = {
+                **segment_config,
+                "max_clips": min(40, objetivo * 2),
+                "clips_per_hour": float(segment_config.get("clips_per_hour", 20) or 20) * 2,
+            }
     candidates = segmenter.find_segments(
         media_path=analizable,
-        duration=float(video.duration_s or 0),
+        duration=duracion,
         transcript=video.transcript or {},
-        config=segment_config,
+        config=config_busqueda,
     )
+    if candidates:
+        ctx.progress(0.2, "Puntuando cada momento…")
+        candidates = viralidad.puntuar(
+            candidates, usar_ia=usar_ia, titulo=partes.titulo_base(video),
+            contexto=video.contexto or "", avisar=ctx.log,
+        )
+        if objetivo > 1 and len(candidates) > objetivo:
+            candidates = viralidad.elegir(candidates, objetivo)
     if not candidates:
         video.status = VideoStatus.done.value
         events.log(
@@ -635,6 +659,7 @@ def job_process(session: Session, ctx: JobContext) -> None:
             end_s=candidate["end"],
             score=candidate["score"],
             reason=candidate.get("reason", "")[:300],
+            viralidad=candidate.get("viralidad") or {},
             status=ClipStatus.draft.value,
             render_config={"reframe": reframe_config},
             words=transcript.slice_words(

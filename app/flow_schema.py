@@ -149,6 +149,14 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
                 ],
             },
             {
+                "key": "ai_pick",
+                "label": "Que la IA puntúe y elija los mejores momentos",
+                "type": "bool",
+                "default": True,
+                "help": "Nota de 0 a 100 (gancho, enganche, valor y compartible) y un gancho "
+                "sacado de lo que dices. Sin IA configurada se calcula con reglas.",
+            },
+            {
                 "key": "min_duration",
                 "label": "Duración mínima (s)",
                 "type": "number",
@@ -795,7 +803,7 @@ STEP_DEFINITIONS: list[dict[str, Any]] = [
 ESSENTIAL_FIELDS: dict[str, set[str]] = {
     "ingest": {"quality"},
     "transcribe": {"engine"},
-    "segment": {"strategy", "min_duration", "max_duration", "max_clips"},
+    "segment": {"strategy", "ai_pick", "min_duration", "max_duration", "max_clips"},
     "reframe": {"mode", "follow"},
     "cleanup": {"remove_fillers", "remove_silences"},
     "subtitles": {"template", "font_size", "position_y"},

@@ -251,6 +251,9 @@ class Clip(Base):
     end_s: Mapped[float] = mapped_column(Float, default=0.0)
     score: Mapped[float] = mapped_column(Float, default=0.0)
     reason: Mapped[str] = mapped_column(String(300), default="")
+    # nota desglosada: gancho, enganche, valor y compartible (0-25), total,
+    # tipo de gancho, motivo y de dónde sale (IA o reglas). Ver viralidad.py
+    viralidad: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
     render_path: Mapped[str] = mapped_column(String(700), default="")
     thumb_path: Mapped[str] = mapped_column(String(700), default="")

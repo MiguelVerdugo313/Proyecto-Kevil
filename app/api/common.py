@@ -133,6 +133,7 @@ def clip_to_dict(clip: Clip, *, with_words: bool = False) -> dict[str, Any]:
         "duration_s": round(clip.duration_s, 2),
         "score": round(clip.score, 3),
         "reason": clip.reason,
+        "viralidad": clip.viralidad or {},
         "status": clip.status,
         "error": clip.error,
         "diagnostico": _diagnostico(clip.error),

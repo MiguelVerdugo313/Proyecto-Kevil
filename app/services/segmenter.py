@@ -97,6 +97,13 @@ def _target_count(duration: float, config: dict[str, Any]) -> int:
     return int(max(1, min(max_clips, fit, wanted)))
 
 
+def cuantos_clips(duration: float, config: dict[str, Any]) -> int:
+    """Cuántos clips se buscan en un vídeo con esta configuración."""
+    if 0 < duration <= float(config.get("entero_hasta", ENTERO_HASTA) or 0):
+        return 1
+    return _target_count(duration, config)
+
+
 def _make_hook(text: str, limit: int = 90) -> str:
     text = re.sub(r"\s+", " ", text or "").strip()
     if not text:
