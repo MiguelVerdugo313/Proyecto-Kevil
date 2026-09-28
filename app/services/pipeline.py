@@ -186,15 +186,18 @@ def _aplazar_por_robot(
 
 
 def default_tiktok_account(session: Session) -> Account | None:
-    return session.scalars(
+    """La cuenta de TikTok a la que va lo que no dice otra cosa.
+
+    Primero una de verdad (conectada): si creaste una cuenta de prueba antes de
+    conectar la tuya, los clips no pueden ir a parar a la de prueba.
+    """
+    cuentas = session.scalars(
         select(Account)
-        .where(
-            Account.platform == Platform.tiktok.value,
-            Account.enabled.is_(True),
-        )
+        .where(Account.platform == Platform.tiktok.value, Account.enabled.is_(True))
         .order_by(Account.id)
-        .limit(1)
-    ).first()
+    ).all()
+    reales = [c for c in cuentas if (c.credentials or {}).get("access_token")]
+    return (reales or cuentas or [None])[0]
 
 
 def target_account_for(session: Session, video: Video) -> Account | None:
@@ -332,7 +335,8 @@ def videos_de_respaldo(session: Session, source: Source, *, limit: int = 20) -> 
 def job_sync_source(session: Session, ctx: JobContext) -> None:
     source = session.get(Source, int(ctx.payload["source_id"]))
     if not source:
-        raise RuntimeError("La fuente ya no existe.")
+        ctx.progress(1.0, "La fuente ya no existe. Nada que hacer.")
+        return
 
     ctx.progress(0.05, f"Leyendo {source.name}…")
     flow = resolve_flow(session, source.flow_id)
@@ -428,7 +432,8 @@ def job_sync_source(session: Session, ctx: JobContext) -> None:
 def job_ingest(session: Session, ctx: JobContext) -> None:
     video = session.get(Video, int(ctx.payload["video_id"]))
     if not video:
-        raise RuntimeError("El vídeo ya no existe.")
+        ctx.progress(1.0, "El vídeo ya no existe. Nada que hacer.")
+        return
     flow = resolve_flow(session, ctx.payload.get("flow_id"), video)
     pasos = con_ajustes(flow.steps, video)
     ingest_config = step_config(pasos, "ingest")
@@ -564,7 +569,8 @@ def job_ingest(session: Session, ctx: JobContext) -> None:
 def job_process(session: Session, ctx: JobContext) -> None:
     video = session.get(Video, int(ctx.payload["video_id"]))
     if not video:
-        raise RuntimeError("El vídeo ya no existe.")
+        ctx.progress(1.0, "El vídeo ya no existe. Nada que hacer.")
+        return
 
     flow = resolve_flow(session, ctx.payload.get("flow_id"), video)
     pasos = con_ajustes(flow.steps, video)
@@ -747,7 +753,8 @@ def job_process(session: Session, ctx: JobContext) -> None:
 def job_render(session: Session, ctx: JobContext) -> None:
     clip = session.get(Clip, int(ctx.payload["clip_id"]))
     if not clip:
-        raise RuntimeError("El clip ya no existe.")
+        ctx.progress(1.0, "El clip ya no existe. Nada que hacer.")
+        return
     video = clip.video
     flow = resolve_flow(session, clip.flow_id)
     pasos = con_ajustes(flow.steps, video)
@@ -1134,15 +1141,36 @@ def _volver_a_montar(session, ctx, post, clip) -> bool:
     return True
 
 
+def _otra_subida_en_marcha(session: Session, post: Post, este_job: int) -> bool:
+    """¿Hay otra tarea subiendo ya esta publicación?
+
+    «Dejar programado en YouTube» y «Publicar ya» son tareas distintas para la
+    cola; si coincidían, el mismo vídeo se subía dos veces.
+    """
+    from app.models import Job, JobStatus
+
+    return any(
+        (job.payload or {}).get("post_id") == post.id
+        for job in session.scalars(
+            select(Job).where(
+                Job.kind == "publish", Job.status == JobStatus.running.value, Job.id != este_job,
+            )
+        ).all()
+    )
+
+
 @register("publish")
 def job_publish(session: Session, ctx: JobContext) -> None:
     post = session.get(Post, int(ctx.payload["post_id"]))
     if not post:
-        raise RuntimeError("La publicación ya no existe.")
+        ctx.progress(1.0, "La publicación ya no existe. Nada que hacer.")
+        return
     if post.status in {PostStatus.published.value, PostStatus.cancelled.value}:
         return
     if post.en_plataforma:
         return                      # ya está programado en YouTube: sale solo
+    if post.status == PostStatus.publishing.value and _otra_subida_en_marcha(session, post, ctx.job.id):
+        return                      # otra tarea lo está subiendo ahora mismo: no se repite
     if not ctx.payload.get("programar") and post.scheduled_at > utcnow() + timedelta(minutes=10):
         return                      # lo has movido más tarde mientras esperaba turno
 
@@ -1255,7 +1283,21 @@ def job_publish(session: Session, ctx: JobContext) -> None:
     post.share_url = str(result.get("share_url", ""))
     post.error = ""
     estado_del_clip(clip)
-    ctx.progress(1.0, "Publicado")
+    if result.get("mode") == "draft" and not result.get("dry_run"):
+        # TikTok no dejó publicarlo directamente: está en tu bandeja y falta
+        # que le des a publicar en el móvil. No se da por salido sin decirlo.
+        post.metrics = {**(post.metrics or {}), "en_bandeja": True}
+        notifications.notify(
+            session,
+            "Termina de publicarlo en TikTok",
+            f"«{clip.title[:60]}» está en tu bandeja de TikTok (en la app, en las "
+            "notificaciones o en Borradores). Ábrelo y pulsa «Publicar». "
+            f"{result.get('notice') or ''}".strip(),
+            kind="tiktok", level="warn", dedupe_hours=0,
+        )
+        ctx.progress(1.0, "En tu bandeja de TikTok: falta publicarlo en el móvil")
+    else:
+        ctx.progress(1.0, "Publicado")
 
     # Ya está publicado: el archivo no pinta nada en tu disco. Sólo se borra si
     # no le queda ninguna publicación pendiente en otra plataforma.

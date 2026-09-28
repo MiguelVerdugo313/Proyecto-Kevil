@@ -401,6 +401,20 @@ def liberar_espacio(session: Session) -> dict[str, Any]:
     return {"freed_mb": round(liberado / 1024**2, 1), "plan": plan}
 
 
+def _cancelar_sus_tareas(session: Session, clip: Clip) -> None:
+    """Lo que quedaba en la cola para este clip (montarlo, publicarlo) se quita."""
+    from app.models import Job, JobStatus
+
+    posts = {p.id for p in clip.posts}
+    for job in session.scalars(
+        select(Job).where(Job.status == JobStatus.pending.value, Job.kind.in_(["render", "publish"]))
+    ).all():
+        datos = job.payload or {}
+        if datos.get("clip_id") == clip.id or datos.get("post_id") in posts:
+            job.status = JobStatus.cancelled.value
+            job.message = "Cancelado: se borró el clip"
+
+
 def borrar_clips(session: Session, ids: list[int]) -> dict[str, Any]:
     """Quita del todo los clips elegidos: archivo, miniatura y registro.
 
@@ -420,6 +434,7 @@ def borrar_clips(session: Session, ids: list[int]) -> dict[str, Any]:
             if post.status == PostStatus.scheduled.value and post.en_plataforma:
                 pipeline.mover_en_plataforma(session, post, cancelar=True)
         liberado += _borrar(clip.render_path) + _borrar(clip.thumb_path)
+        _cancelar_sus_tareas(session, clip)
         session.delete(clip)
         borrados += 1
     return {

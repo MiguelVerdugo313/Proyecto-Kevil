@@ -462,7 +462,7 @@ export default {
               <div style="display:flex;gap:5px;flex-wrap:wrap">${statusPill(clip.status)}
                 ${(clip.posts || []).map((post) => `<span class="pill ${post.platform === 'youtube' ? 'pink' : 'violet'}"
                   title="${escapeHtml(post.account_name)}">${post.platform === 'youtube' ? 'Shorts' : 'TikTok'} ·
-                  ${fmt.date(post.published_at || post.scheduled_at)}</span>`).join('')}</div>
+                  ${fmt.date(post.published_at || post.scheduled_at)}${post.en_bandeja ? ' · en tu bandeja' : ''}${post.simulado ? ' · simulado' : ''}</span>`).join('')}</div>
               <div class="foot">
                 ${clip.has_file ? `<a class="btn sm ghost" href="/api/clips/${clip.id}/download" download onclick="event.stopPropagation()">Descargar</a>` : ''}
                 <button class="btn sm" data-open="${clip.id}">Abrir</button>

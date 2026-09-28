@@ -227,3 +227,9 @@
 :root[data-estilo="limpio"] .field > label:not(.switch) {
   text-transform: none; letter-spacing: -.005em; font-size: 13px; font-weight: 500; color: var(--text);
 }
+
+/* Las notas «a mano» del Estudio: en Limpio, una etiqueta pequeña */
+:root[data-estilo="limpio"] .nota-mano {
+  font-family: var(--font); font-size: 11.5px; font-weight: 600; line-height: 1.3;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+}

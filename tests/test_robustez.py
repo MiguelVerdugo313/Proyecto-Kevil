@@ -358,3 +358,23 @@ def test_al_reintentar_solo_la_publicacion_vuelve_a_programada(session, tmp_path
     session.commit()
     assert diagnostico.reintentar_solo_si_toca(job) is True
     assert post.status == PostStatus.scheduled.value
+
+
+def test_dos_tareas_no_suben_lo_mismo_a_la_vez(session, tmp_path, de_verdad, monkeypatch):
+    cuenta = _cuenta(session, Platform.tiktok.value)
+    clip = _clip_listo(session, tmp_path, _pasos_publicando_en(True, False))
+    post = _post(session, clip, cuenta, PostStatus.publishing.value)
+    otra = Job(kind="publish", payload={"post_id": post.id, "programar": True}, status="running")
+    session.add(otra)
+    session.commit()
+    subidas = []
+    monkeypatch.setattr(pipeline, "_publish_to_tiktok", lambda *a, **k: subidas.append(1) or {})
+    primera = _contexto(session, post)
+    pipeline.job_publish(session, primera)
+    assert not subidas
+    # tras un cierre a medias (sin otra en marcha) sí se retoma
+    otra.status = "done"
+    primera.job.status = "done"
+    session.commit()
+    pipeline.job_publish(session, _contexto(session, post))
+    assert subidas == [1]

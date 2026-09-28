@@ -487,6 +487,28 @@ Las ideas se guardan o se descartan, así no te repite siempre lo mismo.
   mismo momento se descartan (siguen en «Descartados», no se borran) y las publicaciones
   repetidas se cancelan. Lo que ya está en una plataforma nunca se toca.
 
+## Cuando algo se tuerce
+
+Kevil no da nada por publicado sin comprobarlo, y lo que falla por algo pasajero
+se arregla solo:
+
+* **Permiso caducado** (Google lo caduca cada 7 días si tu app está en modo
+  «Prueba»; TikTok, si cambias la contraseña): la cuenta queda como **Falta
+  autorizar**, con el motivo y el botón **Volver a conectar**. Lo que no pudo salir
+  vuelve solo a la agenda al reconectar. Para que no pase con YouTube, publica tu
+  app en Google Cloud → Pantalla de consentimiento de OAuth → «Publicar aplicación».
+* **TikTok pide calma** o se acaba la **cuota de YouTube**: se aplaza, no se pierde.
+* **A la hora de un Short programado en YouTube** se pregunta a YouTube si salió:
+  si lo borraste en Studio, YouTube lo rechazó o le cambiaste la hora allí, la
+  agenda lo dice.
+* **TikTok sin revisar** deja los vídeos en tu bandeja: la agenda pone «en tu
+  bandeja de TikTok · falta publicarlo» y te avisa, en vez de «Publicado».
+* **Nada fingido**: sólo se simula con el modo simulación o una cuenta de prueba, y
+  se marca como «simulado».
+* **Falta el vídeo del clip** a su hora: se vuelve a montar y sale en 30 minutos.
+* **Borrar un vídeo** quita también sus Shorts ya programados en YouTube, y si viene
+  de un canal vigilado no vuelve a entrar.
+
 ## Cada clip es «Vídeo · Parte N»
 
 Los clips se llaman como su trozo del vídeo original —**«FNF Animania · Parte 3»**— y la

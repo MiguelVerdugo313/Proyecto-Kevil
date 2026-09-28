@@ -550,8 +550,9 @@ def poll_status(
             if status in {"PUBLISH_COMPLETE", "SEND_TO_USER_INBOX"}:
                 return last
             if status == "FAILED":
-                raise TikTokError(
-                    f"TikTok ha rechazado el vídeo: {last.get('error_code') or last}"
+                raise TikTokRechazo(
+                    str(last.get("fail_reason") or last.get("error_code") or "rechazado"),
+                    "TikTok ha rechazado el vídeo al procesarlo",
                 )
             time.sleep(delay)
     return last
